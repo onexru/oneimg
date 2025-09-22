@@ -136,4 +136,11 @@ uploads/
 
 次项目使用 CodeBuddy 辅助开发，存在部分BUG（能用就行）
 
-登录接入了 OnePow 验证，您可以
+登录接入了 OnePow 验证，您可以直接在``controllers/login.go`` ``func Login()``内将POW验证模块去除，当然还有``frontend/src/views/Login.vue``的逻辑代码也要去除POW模块。
+
+**注意：** 修改了前端代码别忘了使用``npm run build``命令重新构造一下。
+
+
+## 📄 开源许可
+
+没有任何限制，请随意！
