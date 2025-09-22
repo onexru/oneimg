@@ -1,0 +1,114 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.6;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+:root {
+    --bg-color: #ffffff;
+    --text-color: #202124;
+    --card-bg: #f8f9fa;
+    --accent-color: #1a73e8;
+    --border-color: #dadce0;
+    --muted-color: #5f6368;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --hover-bg: #f1f3f4;
+    --input-bg: #ffffff;
+    --input-border: #dadce0;
+}
+
+/* 浅色主题变量 */
+.light-theme {
+    --bg-color: #ffffff;
+    --text-color: #202124;
+    --card-bg: #f8f9fa;
+    --accent-color: #1a73e8;
+    --border-color: #dadce0;
+    --muted-color: #5f6368;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --hover-bg: #f1f3f4;
+    --input-bg: #ffffff;
+    --input-border: #dadce0;
+}
+
+/* 深色主题变量 */
+.dark-theme {
+    --bg-color: #0f172a;
+    --text-color: #e8eaed;
+    --card-bg: #1e293b;
+    --accent-color: #60a5fa;
+    --border-color: #374151;
+    --muted-color: #9ca3af;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --hover-bg: #374151;
+    --input-bg: #1e293b;
+    --input-border: #374151;
+}
+
+/* 应用主题变量 */
+html, body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+
+/* 通用组件样式 */
+.card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.btn {
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+    border: 1px solid var(--accent-color);
+    transition: all 0.2s ease;
+    
+    &:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+}
+
+.input {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text-color);
+    
+    &:focus {
+        border-color: var(--accent-color);
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(var(--accent-color), 0.2);
+    }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--card-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--muted-color);
+    border-radius: 4px;
+    
+    &:hover {
+        background: var(--text-color);
+    }
+}
+
+/* 选择文本样式 */
+::selection {
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+}

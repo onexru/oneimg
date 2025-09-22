@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>初春图床 - Vue版本</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .nav-tabs {
+            display: flex;
+            border-bottom: 2px solid #f0f0f0;
+            margin-bottom: 30px;
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .nav-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .nav-tab:hover {
+            background: #f5f5f5;
+        }
+
+        .tab-content {
+            min-height: 400px;
+        }
+
+        .form-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f4ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #28a745;
+            background: #f0fff4;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .file-list {
+            margin-top: 20px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .file-icon {
+            width: 50px;
+            height: 50px;
+            background: #667eea;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            margin-right: 15px;
+            font-size: 1.5em;
+        }
+
+        .file-details h4 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+
+        .file-details p {
+            margin: 0;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            border-color: #17a2b8;
+            color: #0c5460;
+        }
+
+        .result-item {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid;
+        }
+
+        .result-success {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .result-error {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .result-url {
+            color: #007bff;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .result-url:hover {
+            text-decoration: underline;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .image-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .image-preview {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+
+        .image-info {
+            padding: 15px;
+        }
+
+        .image-info h4 {
+            margin: 0 0 5px 0;
+            font-size: 0.9em;
+            color: #333;
+        }
+
+        .image-info p {
+            margin: 0;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+            gap: 10px;
+        }
+
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        .pagination button:hover {
+            background: #f5f5f5;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination .active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .main-card {
+                padding: 20px;
+                margin: 10px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .upload-area {
+                padding: 20px;
+            }
+
+            .nav-tabs {
+                flex-direction: column;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .image-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <div class="main-card">
+                <div class="header">
+                    <h1>🌸 初春图床</h1>
+                    <p>Vue 3 现代化图片管理系统</p>
+                </div>
+
+                <!-- 状态提示 -->
+                <div v-if="alert.show" :class="['alert', `alert-${alert.type}`]">
+                    {{ alert.message }}
+                </div>
+
+                <!-- 导航标签 -->
+                <div class="nav-tabs">
+                    <button 
+                        v-for="tab in tabs" 
+                        :key="tab.key"
+                        :class="['nav-tab', { active: activeTab === tab.key }]"
+                        @click="switchTab(tab.key)"
+                    >
+                        <i :class="tab.icon"></i> {{ tab.name }}
+                    </button>
+                </div>
+
+                <!-- 标签内容 -->
+                <div class="tab-content">
+                    <!-- 登录标签 -->
+                    <div v-if="activeTab === 'login'" class="form-section">
+                        <h3><i class="fas fa-sign-in-alt"></i> 用户登录</h3>
+                        <div class="form-group">
+                            <label for="username">用户名:</label>
+                            <input 
+                                type="text" 
+                                id="username" 
+                                v-model="loginForm.username"
+                                placeholder="请输入用户名"
+                                @keyup.enter="login"
+                            >
+                        </div>
+                        <div class="form-group">
+                            <label for="password">密码:</label>
+                            <input 
+                                type="password" 
+                                id="password" 
+                                v-model="loginForm.password"
+                                placeholder="请输入密码"
+                                @keyup.enter="login"
+                            >
+                        </div>
+                        <button class="btn" @click="login" :disabled="loading">
+                            <i class="fas fa-sign-in-alt"></i> 
+                            {{ loading ? '登录中...' : '登录' }}
+                        </button>
+                        <button class="btn btn-danger" @click="logout" v-if="isLoggedIn">
+                            <i class="fas fa-sign-out-alt"></i> 退出登录
+                        </button>
+                    </div>
+
+                    <!-- 上传标签 -->
+                    <div v-if="activeTab === 'upload' && isLoggedIn">
+                        <h3><i class="fas fa-cloud-upload-alt"></i> 批量上传图片</h3>
+                        
+                        <div 
+                            class="upload-area" 
+                            :class="{ dragover: isDragOver }"
+                            @click="$refs.fileInput.click()"
+                            @dragover.prevent="isDragOver = true"
+                            @dragleave.prevent="isDragOver = false"
+                            @drop.prevent="handleDrop"
+                        >
+                            <div class="upload-icon">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                            </div>
+                            <h3>点击选择图片或拖拽到此处</h3>
+                            <p>支持 JPG、PNG、GIF、WebP 格式，单个文件最大 10MB</p>
+                            <p>最多同时上传 10 个文件</p>
+                            <p style="margin-top: 10px; color: #667eea; font-weight: 500;">
+                                <i class="fas fa-lightbulb"></i> 提示：也可以直接 Ctrl+V 粘贴剪贴板中的图片
+                            </p>
+                        </div>
+                        
+                        <input 
+                            type="file" 
+                            ref="fileInput"
+                            multiple 
+                            accept="image/*"
+                            style="display: none"
+                            @change="handleFileSelect"
+                        >
+                        
+                        <div v-if="selectedFiles.length > 0" class="file-list">
+                            <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
+                                <div class="file-info">
+                                    <div class="file-icon">
+                                        <i class="fas fa-image"></i>
+                                    </div>
+                                    <div class="file-details">
+                                        <h4>{{ file.name }}</h4>
+                                        <p>{{ formatFileSize(file.size) }} • {{ file.type }}</p>
+                                    </div>
+                                </div>
+                                <button class="remove-btn" @click="removeFile(index)">
+                                    <i class="fas fa-times"></i> 移除
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 20px;">
+                            <button 
+                                class="btn" 
+                                @click="uploadFiles" 
+                                :disabled="selectedFiles.length === 0 || uploading"
+                            >
+                                <i class="fas fa-rocket"></i> 
+                                {{ uploading ? '上传中...' : '开始上传' }}
+                            </button>
+                            <button class="btn btn-secondary" @click="clearFiles">
+                                <i class="fas fa-trash"></i> 清空列表
+                            </button>
+                        </div>
+                        
+                        <div v-if="uploading" class="progress-bar" style="margin-top: 20px;">
+                            <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
+                        </div>
+                        
+                        <div v-if="uploadResults.length > 0" style="margin-top: 30px;">
+                            <h3><i class="fas fa-chart-bar"></i> 上传结果</h3>
+                            <div v-for="(result, index) in uploadResults" :key="index" :class="['result-item', result.success ? 'result-success' : 'result-error']">
+                                <h4>
+                                    <i :class="result.success ? 'fas fa-check-circle' : 'fas fa-times-circle'"></i>
+                                    {{ result.success ? result.filename : '上传失败' }}
+                                </h4>
+                                <p v-if="result.success">
+                                    文件大小: {{ formatFileSize(result.file_size) }}<br>
+                                    访问链接: <a :href="result.url" target="_blank" class="result-url">{{ result.url }}</a><br>
+                                    上传时间: {{ result.created_at }}
+                                </p>
+                                <p v-else>错误信息: {{ result.message }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 统计标签 -->
+                    <div v-if="activeTab === 'stats' && isLoggedIn">
+                        <h3><i class="fas fa-chart-pie"></i> 系统统计</h3>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-number">{{ stats.total_images || 0 }}</div>
+                                <div class="stat-label">总图片数</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">{{ stats.today_images || 0 }}</div>
+                                <div class="stat-label">今日上传</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">{{ stats.storage_used || '0 B' }}</div>
+                                <div class="stat-label">存储使用</div>
+                            </div>
+                        </div>
+                        <button class="btn" @click="loadStats">
+                            <i class="fas fa-sync-alt"></i> 刷新统计
+                        </button>
+                    </div>
+
+                    <!-- 图片管理标签 -->
+                    <div v-if="activeTab === 'manage' && isLoggedIn">
+                        <h3><i class="fas fa-images"></i> 图片管理</h3>
+                        <div class="image-grid">
+                            <div v-for="image in images" :key="image.id" class="image-card">
+                                <img :src="image.url" :alt="image.filename" class="image-preview" @error="handleImageError">
+                                <div class="image-info">
+                                    <h4>{{ image.filename }}</h4>
+                                    <p>{{ formatFileSize(image.file_size) }} • {{ new Date(image.created_at).toLocaleDateString() }}</p>
+                                    <button class="btn btn-danger" style="margin-top: 10px; padding: 5px 10px; font-size: 12px;" @click="deleteImage(image.id)">
+                                        <i class="fas fa-trash"></i> 删除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="pagination" v-if="totalPages > 1">
+                            <button @click="loadImages(currentPage - 1)" :disabled="currentPage <= 1">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span>第 {{ currentPage }} 页，共 {{ totalPages }} 页</span>
+                            <button @click="loadImages(currentPage + 1)" :disabled="currentPage >= totalPages">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 未登录提示 -->
+                    <div v-if="!isLoggedIn && activeTab !== 'login'" class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 请先登录后再使用此功能
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    activeTab: 'login',
+                    isLoggedIn: false,
+                    loading: false,
+                    uploading: false,
+                    uploadProgress: 0,
+                    isDragOver: false,
+                    
+                    tabs: [
+                        { key: 'login', name: '登录', icon: 'fas fa-sign-in-alt' },
+                        { key: 'upload', name: '上传', icon: 'fas fa-cloud-upload-alt' },
+                        { key: 'stats', name: '统计', icon: 'fas fa-chart-pie' },
+                        { key: 'manage', name: '管理', icon: 'fas fa-images' }
+                    ],
+                    
+                    alert: {
+                        show: false,
+                        type: 'info',
+                        message: ''
+                    },
+                    
+                    loginForm: {
+                        username: 'admin',
+                        password: '123456'
+                    },
+                    
+                    selectedFiles: [],
+                    uploadResults: [],
+                    
+                    stats: {},
+                    images: [],
+                    currentPage: 1,
+                    totalPages: 1
+                };
+            },
+            
+            mounted() {
+                this.checkLoginStatus();
+                this.setupClipboardPaste();
+            },
+            
+            methods: {
+                // 标签切换
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    if (tab === 'stats' && this.isLoggedIn) {
+                        this.loadStats();
+                    } else if (tab === 'manage' && this.isLoggedIn) {
+                        this.loadImages();
+                    }
+                },
+                
+                // 显示提示
+                showAlert(message, type = 'info', duration = 3000) {
+                    this.alert = { show: true, message, type };
+                    if (type === 'success') {
+                        setTimeout(() => {
+                            this.alert.show = false;
+                        }, duration);
+                    }
+                },
+                
+                // 检查登录状态
+                async checkLoginStatus() {
+                    try {
+                        const response = await axios.get('/api/v1/stats', { withCredentials: true });
+                        if (response.status === 200) {
+                            this.isLoggedIn = true;
+                            this.activeTab = 'upload';
+                            this.showAlert('已登录，欢迎使用图床系统', 'success');
+                        }
+                    } catch (error) {
+                        this.isLoggedIn = false;
+                        this.showAlert('请先登录后再使用', 'info');
+                    }
+                },
+                
+                // 登录
+                async login() {
+                    if (!this.loginForm.username || !this.loginForm.password) {
+                        this.showAlert('请输入用户名和密码', 'error');
+                        return;
+                    }
+                    
+                    this.loading = true;
+                    try {
+                        const response = await axios.post('/api/v1/login', this.loginForm, { withCredentials: true });
+                        if (response.data.code === 200) {
+                            this.isLoggedIn = true;
+                            this.activeTab = 'upload';
+                            this.showAlert('登录成功！', 'success');
+                        } else {
+                            this.showAlert(response.data.message || '登录失败', 'error');
+                        }
+                    } catch (error) {
+                        this.showAlert('登录请求失败: ' + (error.response?.data?.message || error.message), 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                // 退出登录
+                async logout() {
+                    try {
+                        await axios.get('/api/v1/logout', { withCredentials: true });
+                        this.isLoggedIn = false;
+                        this.activeTab = 'login';
+                        this.clearFiles();
+                        this.showAlert('已退出登录', 'info');
+                    } catch (error) {
+                        this.showAlert('退出登录失败', 'error');
+                    }
+                },
+                
+                // 文件选择
+                handleFileSelect(event) {
+                    const files = Array.from(event.target.files);
+                    this.addFiles(files);
+                },
+                
+                // 拖拽处理
+                handleDrop(event) {
+                    this.isDragOver = false;
+                    const files = Array.from(event.dataTransfer.files);
+                    this.addFiles(files);
+                },
+                
+                // 添加文件
+                addFiles(files) {
+                    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+                    
+                    if (imageFiles.length === 0) {
+                        this.showAlert('请选择图片文件', 'error');
+                        return;
+                    }
+                    
+                    if (this.selectedFiles.length + imageFiles.length > 10) {
+                        this.showAlert('最多只能选择10个文件', 'error');
+                        return;
+                    }
+                    
+                    const maxSize = 10 * 1024 * 1024; // 10MB
+                    const oversizedFiles = imageFiles.filter(file => file.size > maxSize);
+                    if (oversizedFiles.length > 0) {
+                        this.showAlert(`文件 ${oversizedFiles[0].name} 超过10MB限制`, 'error');
+                        return;
+                    }
+                    
+                    this.selectedFiles.push(...imageFiles);
+                    this.showAlert(`添加了 ${imageFiles.length} 个文件`, 'success');
+                },
+                
+                // 移除文件
+                removeFile(index) {
+                    this.selectedFiles.splice(index, 1);
+                },
+                
+                // 清空文件
+                clearFiles() {
+                    this.selectedFiles = [];
+                    this.uploadResults = [];
+                    if (this.$refs.fileInput) {
+                        this.$refs.fileInput.value = '';
+                    }
+                },
+                
+                // 上传文件
+                async uploadFiles() {
+                    if (this.selectedFiles.length === 0) {
+                        this.showAlert('请先选择文件', 'error');
+                        return;
+                    }
+                    
+                    const formData = new FormData();
+                    this.selectedFiles.forEach(file => {
+                        formData.append('images[]', file);
+                    });
+                    
+                    this.uploading = true;
+                    this.uploadProgress = 0;
+                    
+                    try {
+                        const response = await axios.post('/api/v1/upload/images', formData, {
+                            withCredentials: true,
+                            onUploadProgress: (progressEvent) => {
+                                this.uploadProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                            }
+                        });
+                        
+                        if (response.data.code === 200) {
+                            this.uploadResults = response.data.data;
+                            this.showAlert(response.data.message, 'success');
+                            this.clearFiles();
+                        } else {
+                            this.showAlert(response.data.message || '上传失败', 'error');
+                        }
+                    } catch (error) {
+                        this.showAlert('上传请求失败: ' + (error.response?.data?.message || error.message), 'error');
+                    } finally {
+                        this.uploading = false;
+                        this.uploadProgress = 0;
+                    }
+                },
+                
+                // 加载统计
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/v1/stats', { withCredentials: true });
+                        if (response.data.code === 200) {
+                            this.stats = response.data.data;
+                        }
+                    } catch (error) {
+                        this.showAlert('加载统计失败', 'error');
+                    }
+                },
+                
+                // 加载图片列表
+                async loadImages(page = 1) {
+                    try {
+                        const response = await axios.get(`/api/v1/images?page=${page}&limit=12`, { withCredentials: true });
+                        if (response.data.code === 200) {
+                            this.images = response.data.data.images;
+                            this.currentPage = response.data.data.page;
+                            this.totalPages = response.data.data.total_pages;
+                        }
+                    } catch (error) {
+                        this.showAlert('加载图片列表失败', 'error');
+                    }
+                },
+                
+                // 删除图片
+                async deleteImage(id) {
+                    if (!confirm('确定要删除这张图片吗？')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await axios.delete(`/api/v1/images/${id}`, { withCredentials: true });
+                        if (response.data.code === 200) {
+                            this.showAlert('删除成功', 'success');
+                            this.loadImages(this.currentPage);
+                        } else {
+                            this.showAlert(response.data.message || '删除失败', 'error');
+                        }
+                    } catch (error) {
+                        this.showAlert('删除请求失败', 'error');
+                    }
+                },
+                
+                // 图片加载错误处理
+                handleImageError(event) {
+                    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOi9veWksei0pTwvdGV4dD48L3N2Zz4=';
+                },
+                
+                // 设置剪贴板粘贴
+                setupClipboardPaste() {
+                    document.addEventListener('paste', (e) => {
+                        if (!this.isLoggedIn || this.activeTab !== 'upload') {
+                            return;
+                        }
+                        
+                        e.preventDefault();
+                        const clipboardItems = e.clipboardData.items;
+                        const files = [];
+                        
+                        for (let i = 0; i < clipboardItems.length; i++) {
+                            const item = clipboardItems[i];
+                            if (item.type.startsWith('image/')) {
+                                const file = item.getAsFile();
+                                if (file) {
+                                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                    const extension = this.getFileExtension(item.type);
+                                    const fileName = `clipboard-${timestamp}${extension}`;
+                                    const renamedFile = new File([file], fileName, { type: file.type });
+                                    files.push(renamedFile);
+                                }
+                            }
+                        }
+                        
+                        if (files.length > 0) {
+                            this.addFiles(files);
+                            this.showAlert(`从剪贴板添加了 ${files.length} 个图片文件`, 'success');
+                        } else {
+                            this.showAlert('剪贴板中没有找到图片文件', 'info');
+                        }
+                    });
+                },
+                
+                // 获取文件扩展名
+                getFileExtension(mimeType) {
+                    const mimeToExt = {
+                        'image/jpeg': '.jpg',
+                        'image/jpg': '.jpg',
+                        'image/png': '.png',
+                        'image/gif': '.gif',
+                        'image/webp': '.webp',
+                        'image/bmp': '.bmp',
+                        'image/svg+xml': '.svg'
+                    };
+                    return mimeToExt[mimeType] || '.png';
+                },
+                
+                // 格式化文件大小
+                formatFileSize(bytes) {
+                    if (bytes === 0) return '0 Bytes';
+                    const k = 1024;
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

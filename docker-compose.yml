@@ -1,0 +1,15 @@
+services:
+  oneimg:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.env:/app/.env
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./frontend:/app/frontend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

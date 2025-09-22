@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>初春图床 - Vue 3</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- 主题初始化脚本 - 防止白色闪烁 -->
+    <script>
+        (function() {
+            // 立即检测并应用主题
+            const getTheme = () => {
+                const saved = localStorage.getItem('theme')
+                if (saved && (saved === 'light' || saved === 'dark' || saved === 'auto')) {
+                    if (saved === 'auto') {
+                        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+                    }
+                    return saved
+                }
+                // 默认跟随系统
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+            }
+            
+            const theme = getTheme()
+            document.documentElement.className = theme + '-theme'
+            
+            // 监听系统主题变化
+            if (window.matchMedia) {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                    const saved = localStorage.getItem('theme')
+                    if (!saved || saved === 'auto') {
+                        document.documentElement.className = (e.matches ? 'dark' : 'light') + '-theme'
+                    }
+                })
+            }
+        })()
+    </script>
+  <script type="module" crossorigin src="/assets/index-BcmoEdYw.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B6FZxzd6.css">
+</head>
+<body>
+    <div id="app"></div>
+</body>
+</html>
