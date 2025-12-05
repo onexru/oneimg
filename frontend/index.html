@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title></title>
+    <link rel="shortcut icon" href="./favicon.ico" type="image/x-icon">
+    <!-- 主题初始化脚本 - 防止白色闪烁 -->
+    <script>
+        (function() {
+            const storageKey = 'theme-preference'
+            const getTheme = () => {
+                if (localStorage.getItem(storageKey)) {
+                    return localStorage.getItem(storageKey)
+                }
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+            }
+            // 立即应用主题（在页面渲染前添加 dark 类）
+            if (getTheme() === 'dark') {
+                document.documentElement.classList.add('dark')
+            }
+        })()
+    </script>
+</head>
+<body class="font-inter bg-light-100 text-text-primary transition-all duration-300 dark:bg-dark-300 dark:text-light-100 min-h-screen flex flex-col">
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+@import 'remixicon/fonts/remixicon.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自定义工具类（从 @layer utilities 迁移） */
+@layer utilities {
+  .content-auto {
+    content-visibility: auto;
+  }
+  .text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .bg-grid {
+    background-size: 40px 40px;
+    background-image: 
+        linear-gradient(to right, rgba(37, 99, 235, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(37, 99, 235, 0.05) 1px, transparent 1px);
+  }
+  .decorative-blur {
+    filter: blur(60px);
+  }
+  .sidebar-open {
+    transform: translateX(0);
+  }
+  .sidebar-closed {
+    transform: translateX(-100%);
+  }
+  .overlay-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .overlay-hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* 全局样式文件 */
+/* html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+} */
+
+.dark {
+  color-scheme: dark;
+}
+
+/* 全局滚动条样式（作用于 body） */
+body {
+  /* Firefox：滚动条宽度 + 轨道/滑块颜色 */
+  scrollbar-width: thin; /* auto/thin/none */
+  scrollbar-color: #888 #f1f1f1; /* 滑块色 轨道色 */
+}
+
+/* WebKit 内核浏览器（Chrome/Safari/Edge 新版） */
+/* 滚动条整体宽度 */
+::-webkit-scrollbar {
+  width: 6px; /* 垂直滚动条宽度 */
+  height: 6px; /* 水平滚动条高度 */
+}
+
+/* 滚动条轨道（背景） */
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px; /* 圆角优化 */
+}
+
+/* 滚动条滑块（拖动部分） */
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+  transition: background 0.3s; /* hover 过渡效果 */
+}
+
+/* 滑块 hover 状态 */
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 可选：滚动条按钮（上下箭头） */
+::-webkit-scrollbar-button {
+  display: none; /* 隐藏箭头 */
+}
