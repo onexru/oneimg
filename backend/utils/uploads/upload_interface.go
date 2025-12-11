@@ -70,6 +70,10 @@ func (uc *UploadContext) GetStorageUploader(setting *models.Settings) (interface
 		return &S3R2Uploader{}, nil
 	case "webdav":
 		return &WebDAVUploader{}, nil
+	case "ftp":
+		return &FTPUploader{}, nil
+	case "telegram":
+		return &TelegramUploader{}, nil
 	default:
 		return nil, fmt.Errorf("不支持的存储类型：%s", setting.StorageType)
 	}

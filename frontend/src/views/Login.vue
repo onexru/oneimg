@@ -134,12 +134,26 @@ const clearLoadingState = () => {
     loadingProgress.value = 0;
 };
 
+// 生成游客指纹
+const generateTouristFingerprint = async () => {
+    try {
+        const fingerprintParams = await window.GuestFingerprint.getRequestParams();
+        return fingerprintParams.guest_uuid;
+    } catch (e) {
+        console.error('生成游客指纹失败:', e);
+        // 降级方案：生成临时标识
+        return 'guest_' + Math.random().toString(36).substr(2, 16);
+    }
+};
+
 // 游客登录处理
-const handleTouristLogin = () => {
+const handleTouristLogin = async () => {
     if (isLoading.value) return;
 
-    username.value = 'guest';
-    password.value = 'guest';
+    // 生成游客唯一标识
+    const touristId = await generateTouristFingerprint();
+    username.value = touristId; // 用指纹作为游客用户名
+    password.value = 'tourist_' + touristId.substr(0, 8); // 生成随机游客密码（仅占位）
 
     if (loginConfig.pow_verify) {
         // 启动POW验证
@@ -150,8 +164,8 @@ const handleTouristLogin = () => {
             showModal.value = true;
         }, 500);
     } else {
-        // 直接登录
-        putLogin("000");
+        // 直接登录（传递游客指纹）
+        putLogin("000", touristId);
     }
 };
 
@@ -202,17 +216,19 @@ const createPowWidget = () => {
     }
 
     // 清空容器并创建POW组件
+    container.innerHTML = ''; // 先清空避免重复创建
     const powWidget = document.createElement('pow-widget');
     powWidget.id = 'pow';
     powWidget.setAttribute('data-pow-api-endpoint', 'https://cha.eta.im/');
     container.appendChild(powWidget);
 
-    handlePowLoaded();
-
-    // 绑定验证事件（提前绑定，确保不遗漏）
+    // 绑定事件（确保组件加载完成后触发）
+    powWidget.addEventListener('load', handlePowLoaded);
+    powWidget.addEventListener('ready', handlePowLoaded);
     powWidget.addEventListener('solve', handlePowSuccess);
-    powWidget.addEventListener('error', () => {
-        message.error("验证失败，请重试！");
+    powWidget.addEventListener('error', (e) => {
+        message.error("验证失败，请重试！" + (e.detail?.message || ''));
+        closeModal();
     });
 };
 
@@ -220,18 +236,25 @@ const createPowWidget = () => {
 const handlePowLoaded = () => {
     clearInterval(powCheckInterval); // 清除轮询
     isPowReady.value = true; // 标记组件就绪
-    setLoadingProgress(80); // 进度条更新为80%（等待用户验证）
+    loadingProgress.value = 80; // 进度条更新为80%（等待用户验证）
     clearLoadingState(); // 清除全局加载状态，允许用户操作
-    document.getElementById('powModal').style.display = '';
+    document.getElementById('powModal')?.style.removeProperty('display');
 };
 
 // 检查验证token
-const handlePowSuccess = (e) => {
+const handlePowSuccess = async (e) => {
     closeModal();
     const token = e.detail.token;
     setLoadingState('验证通过', '正在提交登录请求...', 90);
+
+    // 游客登录时补充指纹信息
+    let touristId = '';
+    if (username.value.startsWith('guest_') || username.value.length === 36) {
+        touristId = username.value;
+    }
+
     setTimeout(() => {
-        putLogin(token);
+        putLogin(token, touristId);
     }, 500);
 };
 
@@ -249,46 +272,58 @@ const cleanupPowEvent = () => {
     if (container) {
         const widget = container.querySelector('#pow');
         if (widget) {
+            // 移除所有事件监听
             widget.removeEventListener('solve', handlePowSuccess);
             widget.removeEventListener('load', handlePowLoaded);
             widget.removeEventListener('ready', handlePowLoaded);
-            try {
-                widget.remove();
-            } catch (e) {
-                container.innerHTML = '';
-            }
+            widget.removeEventListener('error', () => {});
+            // 移除组件
+            widget.remove();
         }
     }
     isPowReady.value = false;
 };
 
-// 辅助：更新进度条（可选）
-const setLoadingProgress = (progress) => {
-    loadingProgress.value = progress;
-};
-
-// 提交登录请求
-const putLogin = async (token) => {
+// 提交登录请求（新增touristId参数传递游客指纹）
+const putLogin = async (token, touristId = '') => {
     setLoadingState('登录中', '正在验证用户信息...', 90);
     
     try {
+        // 组装登录参数
+        const loginData = {
+            username: username.value,
+            password: password.value,
+            powToken: token
+        };
+
+        // 游客登录时补充指纹信息
+        if (touristId) {
+            loginData.touristFingerprint = touristId;
+            // 补充完整的指纹特征
+            const fingerprintParams = await window.GuestFingerprint.getRequestParams();
+            loginData.fusionHash = fingerprintParams.fusion_hash;
+            loginData.stableFeatures = fingerprintParams.stable_features;
+        }
+
         const response = await fetch('/api/login', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                username: username.value,
-                password: password.value,
-                powToken: token
-            })
+            body: JSON.stringify(loginData)
         });
         
         const result = await response.json();
         
         if (response.ok && result.code === 200) {
             // 保存用户信息
-            localStorage.setItem('userInfo', JSON.stringify({"username": username.value}));
+            const userInfo = {
+                username: username.value,
+                isTourist: !!touristId,
+                touristFingerprint: touristId || ''
+            };
+            localStorage.setItem('userInfo', JSON.stringify(userInfo));
+            
             setLoadingState((result.message || '登录成功'), '即将跳转到主页...', 100);
             
             setTimeout(() => {
@@ -316,29 +351,29 @@ const getLoginSettings = async () => {
             headers: {
                 'Content-Type': 'application/json'
             }
-        })
+        });
         const result = await response.json();
         if (response.ok && result.code === 200) {
-            Object.assign(loginConfig, result.data)
+            Object.assign(loginConfig, result.data);
         } else {
             message.error('获取登录配置失败');
         }
     } catch (error) {
-        message.error('获取登录配置失败');
+        message.error('获取登录配置失败: ' + error.message);
     }
 };
 
-// 加载POW脚本
-onMounted(() => {
+// 加载POW脚本和指纹类
+onMounted(async () => {
     // 修复URL方法兼容问题
     if (!URL.revokeObjectUrl && URL.revokeObjectURL) {
         URL.revokeObjectUrl = URL.revokeObjectURL;
     }
 
     // 获取登录配置
-    getLoginSettings()
+    await getLoginSettings();
     
-    // 避免重复加载脚本
+    // 加载POW脚本（避免重复加载）
     if (!document.querySelector('script[src="https://cha.eta.im/static/js/pow.min.js"]')) {
         const script = document.createElement('script');
         script.src = 'https://cha.eta.im/static/js/pow.min.js';

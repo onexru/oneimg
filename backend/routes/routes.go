@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"embed"
+	"io/fs"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,7 +16,7 @@ import (
 )
 
 // 设置路由
-func SetupRoutes() *gin.Engine {
+func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	cfg := config.App
 
 	gin.SetMode(gin.ReleaseMode)
@@ -35,10 +38,15 @@ func SetupRoutes() *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
+	distFS, err := fs.Sub(frontendFS, "frontend/dist")
+	if err != nil {
+		panic("加载前端文件失败：" + err.Error())
+	}
+	assetsFS, err := fs.Sub(distFS, "assets")
+	r.StaticFS("/assets", http.FS(assetsFS))
+
 	// 静态资源
-	r.Static("/static", "./static/frontend")
 	r.GET("/uploads/*path", controllers.ImageProxy)
-	r.Static("/assets", "./frontend/dist/assets")
 	r.StaticFile("/favicon.ico", "./frontend/dist/favicon.ico")
 
 	// API路由分组
@@ -85,11 +93,37 @@ func SetupRoutes() *gin.Engine {
 
 	// 前端SPA路由支持
 	r.NoRoute(func(c *gin.Context) {
+		// API路径返回404
 		if len(c.Request.URL.Path) > 4 && c.Request.URL.Path[:4] == "/api" {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "API Not Found"})
 			return
 		}
-		c.File("./frontend/dist/index.html")
+
+		// 【新增调试日志】打印当前distFS的根路径和文件列表
+		log.Printf("尝试读取index.html，distFS根路径：%v", distFS)
+		// 列出distFS中的文件（调试用）
+		if files, err := fs.ReadDir(distFS, "."); err == nil {
+			var fileNames []string
+			for _, f := range files {
+				fileNames = append(fileNames, f.Name())
+			}
+			log.Printf("distFS下的文件列表：%v", fileNames)
+		} else {
+			log.Printf("读取distFS文件列表失败：%s", err)
+		}
+
+		// 从嵌入的FS中读取index.html
+		indexContent, err := fs.ReadFile(distFS, "index.html")
+		if err != nil {
+			// 【新增详细错误日志】
+			log.Printf("读取index.html失败：%s", err)
+			c.String(http.StatusInternalServerError, "加载前端页面失败：%s", err)
+			return
+		}
+
+		// 返回HTML内容
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, string(indexContent))
 	})
 
 	return r

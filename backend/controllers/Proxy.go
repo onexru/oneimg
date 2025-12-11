@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,9 +16,12 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/s3"
 	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/telegram"
+	"oneimg/backend/utils/watermark"
 	"oneimg/backend/utils/webdav"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -36,6 +40,9 @@ func ImageProxy(c *gin.Context) {
 	}
 	cleanPath := fmt.Sprintf("/%s", strings.TrimPrefix("uploads"+fullPath, "/"))
 
+	// 解析水印参数
+	watermarkCfg := watermark.ParseWatermarkParams(c)
+
 	// 获取数据库实例
 	db := database.GetDB()
 	if db == nil || db.DB == nil {
@@ -44,8 +51,8 @@ func ImageProxy(c *gin.Context) {
 	}
 
 	// 查询图片信息
-	var image models.Image
-	sqlResult := db.DB.Where("Url = ? OR Thumbnail = ?", cleanPath, cleanPath).First(&image)
+	var imageModel models.Image
+	sqlResult := db.DB.Where("Url = ? OR Thumbnail = ?", cleanPath, cleanPath).First(&imageModel)
 	if sqlResult.Error != nil {
 		c.JSON(http.StatusNotFound, result.Error(404, "图片不存在或已被删除"))
 		return
@@ -58,15 +65,25 @@ func ImageProxy(c *gin.Context) {
 		return
 	}
 
+	// 检查是否开启来源白名单
+	if setting.RefererWhiteEnable && setting.RefererWhiteList != "" {
+		// 过滤本站域名
+		// 校验Referer白名单
+		if !checkReferer(c.Request.Referer(), setting.RefererWhiteList, GetSelfDomain(c)) {
+			c.JSON(http.StatusForbidden, result.Error(403, "来源非法"))
+			return
+		}
+	}
+
 	// 校验图片元信息
-	if image.Width == 0 && image.Height == 0 {
+	if imageModel.Width == 0 && imageModel.Height == 0 {
 		log.Printf("图片[%s]元信息不完整（宽高为0），继续代理访问", cleanPath)
 		// 不直接返回错误，仅日志警告，避免影响正常访问
 	}
 
 	// 初始化WebDAV客户端
 	var webDAVClient *webdav.WebDAVClient
-	if image.Storage == "webdav" {
+	if imageModel.Storage == "webdav" {
 		if setting.WebdavURL == "" {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "WebDAV配置未设置（WebdavURL为空）"))
 			return
@@ -88,15 +105,15 @@ func ImageProxy(c *gin.Context) {
 
 	var imageUrl string
 	// 判断当前访问的是缩略图还是原图
-	if image.Thumbnail == cleanPath {
-		imageUrl = image.Thumbnail // 访问的是缩略图，直接用
-	} else if image.Url == cleanPath {
-		imageUrl = image.Url // 访问的是原图，直接用
+	if imageModel.Thumbnail == cleanPath {
+		imageUrl = imageModel.Thumbnail // 访问的是缩略图，直接用
+	} else if imageModel.Url == cleanPath {
+		imageUrl = imageModel.Url // 访问的是原图，直接用
 	} else {
 		// 兜底：优先缩略图，无则用原图（兼容异常场景）
-		imageUrl = image.Thumbnail
+		imageUrl = imageModel.Thumbnail
 		if imageUrl == "" {
-			imageUrl = image.Url
+			imageUrl = imageModel.Url
 		}
 	}
 	// URL为空则返回错误
@@ -105,12 +122,13 @@ func ImageProxy(c *gin.Context) {
 		return
 	}
 
-	switch image.Storage {
+	// 传递水印配置到各个代理函数
+	switch imageModel.Storage {
 	case "default":
-		proxyLocalFile(c, imageUrl, image.MimeType, setting)
+		proxyLocalFile(c, imageUrl, imageModel.MimeType, setting, watermarkCfg)
 
 	case "webdav":
-		proxyWebDAVFile(c, imageUrl, image.MimeType, image.FileSize, setting, webDAVClient)
+		proxyWebDAVFile(c, imageUrl, imageModel.MimeType, imageModel.FileSize, setting, webDAVClient, watermarkCfg)
 
 	case "s3", "r2":
 		// 初始化S3客户端
@@ -120,15 +138,21 @@ func ImageProxy(c *gin.Context) {
 			return
 		}
 		// 代理S3/R2文件
-		proxyS3File(c, imageUrl, image.MimeType, image.FileSize, setting, image.Storage, s3Client)
+		proxyS3File(c, imageUrl, imageModel.MimeType, imageModel.FileSize, setting, imageModel.Storage, s3Client, watermarkCfg)
+
+	case "ftp":
+		proxyFTPFile(c, imageUrl, imageModel.MimeType, setting, watermarkCfg)
+
+	case "telegram":
+		ProxyTelegramFile(c, imageUrl, imageModel.FileName, imageModel.MimeType, setting, watermarkCfg)
 
 	default:
-		c.JSON(http.StatusUnprocessableEntity, result.Error(422, fmt.Sprintf("不支持的存储类型: %s", image.Storage)))
+		c.JSON(http.StatusUnprocessableEntity, result.Error(422, fmt.Sprintf("不支持的存储类型: %s", imageModel.Storage)))
 	}
 }
 
-// proxyS3File S3/R2文件代理
-func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, cfg models.Settings, storageType string, s3Client *awss3.Client) {
+// proxyS3File S3/R2文件代理（添加水印支持）
+func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, cfg models.Settings, storageType string, s3Client *awss3.Client, watermarkCfg watermark.WatermarkConfig) {
 	// 清理objectKey（去除开头的/，适配S3路径规则）
 	objectKey = strings.TrimPrefix(objectKey, "/")
 
@@ -178,13 +202,35 @@ func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, cfg
 	}
 	defer resp.Body.Close()
 
-	// 2. 设置响应头
+	// 2. 处理水印
+	var contentReader io.Reader = resp.Body
+	if watermarkCfg.Enable {
+		processedReader, err := watermark.ProcessImageWithWatermark(resp.Body, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理S3文件水印失败: %v", err)
+			// 失败时重新获取原始流（需要重新请求）
+			resp2, _ := s3Client.GetObject(ctx, &getInput)
+			if resp2 != nil {
+				defer resp2.Body.Close()
+				contentReader = resp2.Body
+			}
+		} else {
+			contentReader = processedReader
+		}
+	}
+
+	// 3. 设置响应头
 	c.Header("Content-Type", mimeType)
-	// 优先使用S3返回的文件大小，其次使用数据库中存储的大小
-	if resp.ContentLength != nil && *resp.ContentLength > 0 {
-		c.Header("Content-Length", strconv.FormatInt(*resp.ContentLength, 10))
-	} else if fileSize > 0 {
-		c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+	// 如果添加了水印，不设置Content-Length（因为内容已改变）
+	if !watermarkCfg.Enable {
+		// 优先使用S3返回的文件大小，其次使用数据库中存储的大小
+		if resp.ContentLength != nil && *resp.ContentLength > 0 {
+			c.Header("Content-Length", strconv.FormatInt(*resp.ContentLength, 10))
+		} else if fileSize > 0 {
+			c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+		}
+	} else {
+		c.Header("Transfer-Encoding", "chunked")
 	}
 	// 缓存控制（永久缓存）
 	c.Header("Cache-Control", "public, max-age=31536000")
@@ -193,19 +239,19 @@ func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, cfg
 	// 跨域支持（可选）
 	c.Header("Access-Control-Allow-Origin", "*")
 
-	// 3. 流式传输文件（避免内存溢出）
+	// 4. 流式传输文件（避免内存溢出）
 	// 设置响应状态码
 	c.Status(http.StatusOK)
 	// 分块传输，每次4KB
 	buf := make([]byte, 4096)
-	_, err = io.CopyBuffer(c.Writer, resp.Body, buf)
+	_, err = io.CopyBuffer(c.Writer, contentReader, buf)
 	if err != nil && err != io.EOF {
 		log.Printf("S3/R2文件传输失败 [key:%s]: %v", objectKey, err)
 	}
 }
 
-// proxyWebDAVFile WebDAV文件代理
-func proxyWebDAVFile(c *gin.Context, relPath, mimeType string, fileSize int64, cfg models.Settings, client *webdav.WebDAVClient) {
+// proxyWebDAVFile WebDAV文件代理（添加水印支持）
+func proxyWebDAVFile(c *gin.Context, relPath, mimeType string, fileSize int64, cfg models.Settings, client *webdav.WebDAVClient, watermarkCfg watermark.WatermarkConfig) {
 	// client为空时重新初始化
 	if client == nil {
 		client = webdav.Client(webdav.Config{
@@ -243,26 +289,47 @@ func proxyWebDAVFile(c *gin.Context, relPath, mimeType string, fileSize int64, c
 		return
 	}
 
+	// 处理水印
+	var contentReader io.Reader = resp.Body
+	if watermarkCfg.Enable {
+		processedReader, err := watermark.ProcessImageWithWatermark(resp.Body, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理WebDAV文件水印失败: %v", err)
+			// 重新获取原始文件
+			resp2, _ := client.WebDAVGetFile(ctx, relPath)
+			if resp2 != nil {
+				defer resp2.Body.Close()
+				contentReader = resp2.Body
+			}
+		} else {
+			contentReader = processedReader
+		}
+	}
+
 	// 设置响应头
 	c.Header("Content-Type", mimeType)
-	if resp.ContentLength > 0 {
-		c.Header("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
-	} else if fileSize > 0 {
-		c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+	if !watermarkCfg.Enable {
+		if resp.ContentLength > 0 {
+			c.Header("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+		} else if fileSize > 0 {
+			c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+		}
+	} else {
+		c.Header("Transfer-Encoding", "chunked")
 	}
 	c.Header("Cache-Control", "public, max-age=31536000")
 	c.Header("X-Storage-Type", "webdav")
 	c.Header("Access-Control-Allow-Origin", "*")
 
 	// 流式传输文件
-	_, err = io.Copy(c.Writer, resp.Body)
+	_, err = io.Copy(c.Writer, contentReader)
 	if err != nil {
 		log.Printf("WebDAV文件传输失败：%v", err)
 	}
 }
 
-// proxyLocalFile 本地文件代理
-func proxyLocalFile(c *gin.Context, realPath string, mimeType string, cfg models.Settings) {
+// proxyLocalFile 本地文件代理（添加水印支持）
+func proxyLocalFile(c *gin.Context, realPath string, mimeType string, cfg models.Settings, watermarkCfg watermark.WatermarkConfig) {
 	fullPath := filepath.Join(filepath.Clean(realPath))
 	// 去除第一个/和\
 	fullPath = strings.TrimPrefix(fullPath, "/")
@@ -282,6 +349,38 @@ func proxyLocalFile(c *gin.Context, realPath string, mimeType string, cfg models
 		return
 	}
 
+	// 如果启用水印
+	if watermarkCfg.Enable {
+		file, err := os.Open(fullPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, result.Error(500, "打开文件失败"))
+			return
+		}
+		defer file.Close()
+
+		// 处理水印
+		processedReader, err := watermark.ProcessImageWithWatermark(file, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理本地文件水印失败: %v", err)
+			// 失败时返回原始文件
+			c.File(fullPath)
+			return
+		}
+
+		// 设置响应头
+		c.Header("Content-Type", mimeType)
+		c.Header("Cache-Control", "public, max-age=31536000")
+		c.Header("X-Storage-Type", "default")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Transfer-Encoding", "chunked")
+
+		// 传输处理后的图片
+		c.Status(http.StatusOK)
+		io.Copy(c.Writer, processedReader)
+		return
+	}
+
+	// 未启用水印，使用原始逻辑
 	// 设置响应头
 	c.Header("Content-Type", mimeType)
 	c.Header("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
@@ -291,4 +390,300 @@ func proxyLocalFile(c *gin.Context, realPath string, mimeType string, cfg models
 
 	// 流式传输
 	c.File(fullPath)
+}
+
+// FTP代理（添加水印支持）
+func proxyFTPFile(c *gin.Context, ftpPath string, mimeType string, cfg models.Settings, watermarkCfg watermark.WatermarkConfig) {
+	// 如果启用水印，不强制删除Content-Length
+	if !watermarkCfg.Enable {
+		c.Header("Transfer-Encoding", "chunked")
+		// 强制删除Content-Length
+		c.Writer.Header().Del("Content-Length")
+	}
+
+	// 清理FTP路径
+	ftpPath = cleanFTPPath(ftpPath)
+
+	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
+		Host:     cfg.FTPHost,
+		Port:     cfg.FTPPort,
+		User:     cfg.FTPUser,
+		Password: cfg.FTPPass,
+		Timeout:  60,
+	})
+	defer func() {
+		if err := ftpUtil.Close(); err != nil {
+			if !strings.Contains(err.Error(), "227 Entering Passive Mode") {
+				log.Printf("FTP连接关闭失败：%v", err)
+			}
+		}
+	}()
+
+	// 获取文件流
+	fileReader, _, err := ftpUtil.GetFileStreamReader(ftpPath)
+	if err != nil {
+		log.Printf("获取FTP文件流失败（路径：%s）：%v", ftpPath, err)
+		if strings.Contains(err.Error(), "550") {
+			c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "文件不存在或PureFTPd权限不足"))
+		} else {
+			c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "FTP文件获取失败："+err.Error()))
+		}
+		return
+	}
+	defer func() {
+		if err := fileReader.Close(); err != nil {
+			if !strings.Contains(err.Error(), "227 Entering Passive Mode") {
+				log.Printf("FTP文件流关闭失败：%v", err)
+			}
+		}
+	}()
+
+	// 处理水印
+	var contentReader io.Reader = fileReader
+	if watermarkCfg.Enable {
+		processedReader, err := watermark.ProcessImageWithWatermark(fileReader, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理FTP文件水印失败: %v", err)
+			// 重新获取原始文件流
+			fileReader2, _, _ := ftpUtil.GetFileStreamReader(ftpPath)
+			if fileReader2 != nil {
+				defer fileReader2.Close()
+				contentReader = fileReader2
+			}
+		} else {
+			contentReader = processedReader
+		}
+	}
+
+	c.Header("Content-Type", mimeType)
+	c.Header("Cache-Control", "public, max-age=31536000")
+	c.Header("X-Storage-Type", "ftp")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Connection", "close")
+
+	if watermarkCfg.Enable {
+		c.Header("Transfer-Encoding", "chunked")
+	}
+
+	c.Status(http.StatusOK)
+
+	buf := make([]byte, 4096)
+	totalWritten := int64(0)
+	for {
+		n, err := contentReader.Read(buf)
+		if n > 0 {
+			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
+				break
+			}
+			c.Writer.Flush()
+			totalWritten += int64(n)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			c.Writer.WriteHeader(http.StatusInternalServerError)
+			break
+		}
+	}
+	c.Writer.Flush()
+	c.Abort()
+}
+
+// Telegram 代理（添加水印支持）
+func ProxyTelegramFile(c *gin.Context, realPath string, telegramFileName string, mimeType string, cfg models.Settings, watermarkCfg watermark.WatermarkConfig) {
+	// 1. 统一响应头
+	if !watermarkCfg.Enable {
+		c.Header("Transfer-Encoding", "chunked")
+		c.Writer.Header().Del("Content-Length")
+	}
+	c.Header("Content-Type", mimeType)
+	c.Header("Cache-Control", "public, max-age=31536000")
+	c.Header("X-Storage-Type", "telegram")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Connection", "close")
+
+	// 2. 校验Telegram配置
+	if cfg.TGBotToken == "" {
+		log.Printf("Telegram BotToken 为空")
+		c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "telegram配置异常：bot token为空"))
+		return
+	}
+
+	// 获取数据库
+	db := database.GetDB()
+	if db == nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, result.Error(500, "获取数据库连接失败"))
+		return
+	}
+	var telegramModel models.ImageTeleGram
+	if err := db.DB.Where("file_name = ?", telegramFileName).First(&telegramModel).Error; err != nil {
+		if strings.Contains(err.Error(), "record not found") {
+			c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "telegram文件不存在或file id无效"))
+		} else {
+			log.Printf("查询telegram文件信息失败：%v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, result.Error(500, "查询telegram文件信息失败"))
+		}
+		return
+	}
+
+	if telegramModel.TGFileId == "" {
+		c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "telegram文件无有效file id"))
+		return
+	}
+
+	// 3. 调用telegram包解析FileId
+	// 检查是否为缩略图（链接格式：/uploads/Y/d/thumbnails/xxxxx.webp）
+	var fileId string
+	if strings.Contains(realPath, "/thumbnails/") && strings.HasSuffix(realPath, ".webp") {
+		fileId = telegram.ParseFileIdFromTelegramPath(telegramModel.TGThumbnailFileId)
+	} else {
+		fileId = telegram.ParseFileIdFromTelegramPath(telegramModel.TGFileId)
+	}
+
+	if fileId == "" {
+		log.Printf("无效的Telegram路径：%s", telegramModel.TGFileId)
+		c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "无效的telegram文件路径"))
+		return
+	}
+
+	// 4. 初始化Telegram客户端
+	tgClient := telegram.NewClient(cfg.TGBotToken)
+	tgClient.Timeout = 60 * time.Second // 延长超时
+	tgClient.Retry = 3                  // 重试次数
+
+	// 5. 调用telegram包获取文件流
+	fileReader, err := telegram.GetTelegramFileStreamReader(tgClient, fileId)
+	if err != nil {
+		log.Printf("获取Telegram文件流失败（FileId：%s）：%v", fileId, err)
+		if strings.Contains(err.Error(), "file not found") || strings.Contains(err.Error(), "invalid file id") {
+			c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "telegram文件不存在或file id无效"))
+		} else {
+			c.AbortWithStatusJSON(http.StatusBadGateway, result.Error(502, "telegram文件获取失败："+err.Error()))
+		}
+		return
+	}
+	defer func() {
+		if err := fileReader.Close(); err != nil {
+			log.Printf("Telegram文件流关闭失败：%v", err)
+		}
+	}()
+
+	// 6. 处理水印
+	var contentReader io.Reader = fileReader
+	if watermarkCfg.Enable {
+		processedReader, err := watermark.ProcessImageWithWatermark(fileReader, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理Telegram文件水印失败: %v", err)
+			// 重新获取原始文件流
+			fileReader2, _ := telegram.GetTelegramFileStreamReader(tgClient, fileId)
+			if fileReader2 != nil {
+				defer fileReader2.Close()
+				contentReader = fileReader2
+			}
+		} else {
+			contentReader = processedReader
+		}
+	}
+
+	// 7. 流式返回
+	c.Status(http.StatusOK)
+	buf := make([]byte, 4096)
+	totalWritten := int64(0)
+	for {
+		n, err := contentReader.Read(buf)
+		if n > 0 {
+			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
+				log.Printf("响应写入失败：%v", writeErr)
+				break
+			}
+			c.Writer.Flush()
+			totalWritten += int64(n)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Printf("Telegram文件流读取失败：%v", err)
+			c.Writer.WriteHeader(http.StatusInternalServerError)
+			break
+		}
+	}
+	c.Writer.Flush()
+	c.Abort()
+}
+
+// 辅助函数
+func cleanFTPPath(path string) string {
+	path = strings.ReplaceAll(path, "\\", "/")
+	path = strings.TrimPrefix(path, "/")
+	path = strings.ReplaceAll(path, "//", "/")
+	path = strings.TrimSuffix(path, "/")
+	return path
+}
+
+// 辅助函数，校验来源
+func checkReferer(referer string, whiteList string, selfDomain string) bool {
+	if referer == "" {
+		return true
+	}
+
+	refererDomain, err := extractDomainFromReferer(referer)
+	if err != nil {
+		return false
+	}
+
+	selfDomain = strings.TrimSpace(strings.ToLower(selfDomain))
+	if selfDomain != "" {
+		if refererDomain == selfDomain || strings.HasSuffix(refererDomain, "."+selfDomain) {
+			return true
+		}
+	}
+
+	whiteListDomains := strings.Split(strings.TrimSpace(whiteList), ",")
+
+	domainSet := make(map[string]bool)
+	for _, d := range whiteListDomains {
+		domain := strings.TrimSpace(d)
+		if domain != "" {
+			domainSet[domain] = true
+		}
+	}
+
+	for allowedDomain := range domainSet {
+		if refererDomain == allowedDomain {
+			return true
+		}
+		if strings.HasSuffix(refererDomain, "."+allowedDomain) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func extractDomainFromReferer(referer string) (string, error) {
+	if !strings.HasPrefix(referer, "http") {
+		referer = "http://" + referer
+	}
+
+	// 解析URL
+	parsedURL, err := url.Parse(referer)
+	if err != nil {
+		return "", err
+	}
+
+	host := parsedURL.Hostname()
+
+	return strings.ToLower(host), nil
+}
+
+// 辅助函数，获取本站域名
+func GetSelfDomain(c *gin.Context) string {
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.Request.Host
+	}
+	domain := strings.Split(host, ":")[0]
+	return strings.ToLower(domain)
 }

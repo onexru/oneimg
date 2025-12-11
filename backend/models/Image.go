@@ -14,5 +14,7 @@ type Image struct {
 	Height    int       `json:"height"`
 	Storage   string    `json:"storage" gorm:"default:default"`
 	UserId    int       `json:"user_id" gorm:"not null;default:1"`
+	MD5       string    `json:"md5"`
+	UUID      string    `json:"uuid" gorm:"not null;default:'00000000-0000-0000-0000-000000000000'"`
 	CreatedAt time.Time `json:"created_at"`
 }

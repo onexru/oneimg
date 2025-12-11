@@ -11,9 +11,12 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/ftp"
+	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/s3"
 	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -54,6 +57,15 @@ func DeleteImage(c *gin.Context) {
 		return
 	}
 
+	// 校验权限
+	if !CheckImageAccessPermission(c, image) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code": 403,
+			"msg":  "无权访问",
+		})
+		return
+	}
+
 	var deleteStatus bool
 	// 检查存储
 	switch image.Storage {
@@ -65,6 +77,12 @@ func DeleteImage(c *gin.Context) {
 		deleteStatus = DeleteS3StorageImage(image)
 	case "webdav":
 		deleteStatus = DeleteWebDavStorageImage(image)
+	case "ftp":
+		deleteStatus = DeleteFtpStorageImage(image)
+	case "telegram":
+		deleteStatus = DeleteTelegramStorageImage(image)
+	default:
+		deleteStatus = false
 	}
 
 	// 删除数据库记录
@@ -187,4 +205,86 @@ func DeleteWebDavStorageImage(image models.Image) (deleteStatus bool) {
 		deleteFile(image.Thumbnail)
 	}
 	return deleteFile(image.Url)
+}
+
+// 删除FTP存储的图片
+func DeleteFtpStorageImage(image models.Image) (deleteStatus bool) {
+	// 获取系统配置
+	setting, err := settings.GetSettings()
+	if err != nil {
+		return false
+	}
+	// 初始化FTP客户端
+	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
+		Host:     setting.FTPHost,
+		Port:     setting.FTPPort,
+		User:     setting.FTPUser,
+		Password: setting.FTPPass,
+		Timeout:  60,
+	})
+
+	// 删除图片
+	if err := ftpUtil.DeleteImage(image.Url); err != nil {
+		return !true
+	}
+
+	// 检查是否存在缩略图
+	if image.Thumbnail != "" {
+		// 删除缩略图
+		if err := ftpUtil.DeleteImage(image.Thumbnail); err != nil {
+			return !true
+		}
+	}
+	return true
+}
+
+// 删除TG存储的图片
+func DeleteTelegramStorageImage(image models.Image) (deleteStatus bool) {
+	// 获取系统配置
+	setting, err := settings.GetSettings()
+	if err != nil {
+		return false
+	}
+
+	// 查询图片ID
+	db := database.GetDB()
+	if db == nil {
+		// 数据库连接失败忽略错误，防止阻塞线程
+	}
+	var telegramModel models.ImageTeleGram
+	if err := db.DB.Where("file_name = ?", image.FileName).First(&telegramModel).Error; err != nil {
+		// 查询失败忽略错误，防止阻塞线程
+	}
+
+	tgClient := telegram.NewClient(setting.TGBotToken)
+	tgClient.Timeout = 20 * time.Second
+	tgClient.Retry = 3
+
+	uploader := telegram.NewTelegramUploader(tgClient)
+
+	// 直接删除，不检查是否成功
+	uploader.DeletePhoto(setting.TGReceivers, telegramModel.TGMessageId)
+
+	// 检查是否存在缩略图
+	if image.Thumbnail != "" {
+		// 删除缩略图，不检查是否成功
+		uploader.DeletePhoto(setting.TGReceivers, telegramModel.TGThumbnailMessageId)
+	}
+	// 直接返回成功
+	return true
+}
+
+// 辅助函数：权限校验
+func CheckImageAccessPermission(c *gin.Context, image models.Image) bool {
+	currentUserUUID := GetUUID(c)
+	currentUsername := c.GetString("username")
+	// 如果是管理员UUID直接通过
+	if currentUserUUID == "00000000-0000-0000-0000-000000000000" {
+		return true
+	}
+	// 如果是游客则需要同时满足md5校验和UUID校验
+	if image.UUID == GetUUID(c) && md5.Md5(currentUsername+image.FileName) == image.MD5 {
+		return true
+	}
+	return false
 }

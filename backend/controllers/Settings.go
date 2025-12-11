@@ -1,10 +1,14 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,6 +28,9 @@ type UpdateSettingsRequest struct {
 type GetSettingsRequest struct {
 	Keys []string `json:"keys"`
 }
+
+// 十六进制颜色格式正则
+var hexColorRegex = regexp.MustCompile(`^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 func GetSettings(c *gin.Context) {
 	var req GetSettingsRequest
@@ -63,6 +70,12 @@ func UpdateSettings(c *gin.Context) {
 	settings, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
+		return
+	}
+
+	// 校验设置数据
+	if err := validateSettingData(req.Key, req.Value); err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, err.Error()))
 		return
 	}
 
@@ -151,17 +164,189 @@ func updateSettingsField(settings *models.Settings, key string, value any) error
 	}
 
 	// 4. 转换value类型为字段实际类型
-	valueVal := reflect.ValueOf(value)
-	if valueVal.Type() != fieldType {
-		// 尝试类型转换（支持常见类型：bool/string/int等）
-		if !valueVal.Type().ConvertibleTo(fieldType) {
-			return fmt.Errorf("设置项 %s 类型不匹配，期望 %s，实际 %T",
-				key, fieldType, value)
-		}
-		valueVal = valueVal.Convert(fieldType)
+	convertedValue, err := convertValueToTargetType(key, value, fieldType)
+	if err != nil {
+		return err
 	}
+
+	valueVal := reflect.ValueOf(convertedValue)
 
 	// 5. 设置字段值
 	targetField.Set(valueVal)
+	return nil
+}
+
+func convertValueToTargetType(key string, value any, targetType reflect.Type) (any, error) {
+	valueVal := reflect.ValueOf(value)
+	valueType := valueVal.Type()
+
+	// 类型已匹配，直接返回
+	if valueType == targetType {
+		return value, nil
+	}
+
+	// 场景1：反射支持直接转换（如 int→float64、bool→int 等）
+	if valueType.ConvertibleTo(targetType) {
+		return valueVal.Convert(targetType).Interface(), nil
+	}
+
+	// 场景2：反射不支持直接转换，手动处理常见类型解析
+	switch targetType.Kind() {
+	// 处理 string → float64（解决watermark_opac的核心问题）
+	case reflect.Float64:
+		if valueType.Kind() == reflect.String {
+			strVal := valueVal.String()
+			floatVal, err := strconv.ParseFloat(strVal, 64)
+			if err != nil {
+				return nil, fmt.Errorf("设置项 %s 类型转换失败，期望 float64，实际 string（值：%s），错误：%v",
+					key, strVal, err)
+			}
+			return floatVal, nil
+		}
+
+	// 处理 string → int/int64
+	case reflect.Int:
+		if valueType.Kind() == reflect.String {
+			strVal := valueVal.String()
+			intVal, err := strconv.Atoi(strVal)
+			if err != nil {
+				return nil, fmt.Errorf("设置项 %s 类型转换失败，期望 int，实际 string（值：%s），错误：%v",
+					key, strVal, err)
+			}
+			return intVal, nil
+		}
+	case reflect.Int64:
+		if valueType.Kind() == reflect.String {
+			strVal := valueVal.String()
+			int64Val, err := strconv.ParseInt(strVal, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("设置项 %s 类型转换失败，期望 int64，实际 string（值：%s），错误：%v",
+					key, strVal, err)
+			}
+			return int64Val, nil
+		}
+
+	// 处理 string → bool
+	case reflect.Bool:
+		if valueType.Kind() == reflect.String {
+			strVal := valueVal.String()
+			boolVal, err := strconv.ParseBool(strVal)
+			if err != nil {
+				return nil, fmt.Errorf("设置项 %s 类型转换失败，期望 bool，实际 string（值：%s），错误：%v",
+					key, strVal, err)
+			}
+			return boolVal, nil
+		}
+	case reflect.String:
+		// 所有基础类型都可以转为string
+		return fmt.Sprintf("%v", value), nil
+	}
+
+	// 不支持的转换类型
+	return nil, fmt.Errorf("设置项 %s 类型不匹配，期望 %s，实际 %T",
+		key, targetType, value)
+}
+
+func validateSettingData(key string, value any) error {
+	switch key {
+	case "watermark_text":
+		// 1. 水印文字长度校验（兼容字符串类型）
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("水印文字必须是字符串类型，实际类型：%T", value)
+		}
+		if len(text) > 20 {
+			return fmt.Errorf("水印文字长度不能超过20个字符（当前：%d）", len(text))
+		}
+
+	case "watermark_size":
+		// 2. 水印字体大小校验
+		var size int
+		switch v := value.(type) {
+		case int:
+			size = v
+		case string:
+			// 字符串转int
+			s := strings.TrimSpace(v)
+			if s == "" {
+				return errors.New("水印字体大小不能为空")
+			}
+			num, err := strconv.Atoi(s)
+			if err != nil {
+				return fmt.Errorf("水印字体大小必须是整数（当前值：%s）", v)
+			}
+			size = num
+		default:
+			return fmt.Errorf("水印字体大小必须是整数或数字字符串，实际类型：%T", value)
+		}
+		// 范围校验
+		if size < 1 || size > 100 {
+			return fmt.Errorf("水印字体大小必须在1-100之间（当前：%d）", size)
+		}
+
+	case "watermark_color":
+		// 3. 水印颜色校验（防空 + 十六进制格式）
+		color, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("水印颜色必须是字符串类型，实际类型：%T", value)
+		}
+		color = strings.TrimSpace(color)
+		if color == "" {
+			return errors.New("水印字体颜色不能为空")
+		}
+		if !hexColorRegex.MatchString(color) {
+			return fmt.Errorf("水印颜色格式错误，请使用十六进制颜色码，当前值：%s", color)
+		}
+
+	case "watermark_opac":
+		// 4. 水印透明度校验（兼容字符串/float64/int，转为float64后校验0-1）
+		var opac float64
+		switch v := value.(type) {
+		case float64:
+			opac = v
+		case int:
+			opac = float64(v) // int转float64（如 1 → 1.0）
+		case string:
+			// 字符串转float64
+			s := strings.TrimSpace(v)
+			if s == "" {
+				return errors.New("水印透明度不能为空")
+			}
+			num, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				return fmt.Errorf("水印透明度必须是数字（当前值：%s）", v)
+			}
+			opac = num
+		default:
+			return fmt.Errorf("水印透明度必须是数字或数字字符串，实际类型：%T", value)
+		}
+		// 范围校验（0.0-1.0）
+		if opac < 0.0 || opac > 1.0 {
+			return fmt.Errorf("水印透明度必须在0-1之间（当前：%.2f）", opac)
+		}
+
+	case "watermark_pos":
+		// 5. 水印位置校验（防空 + 合法值）
+		pos, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("水印位置必须是字符串类型，实际类型：%T", value)
+		}
+		pos = strings.TrimSpace(pos)
+		if pos == "" {
+			return errors.New("水印位置不能为空")
+		}
+		// 合法位置集合
+		validPos := map[string]bool{
+			"top-left":     true,
+			"top-right":    true,
+			"bottom-left":  true,
+			"bottom-right": true,
+			"center":       true,
+		}
+		if !validPos[pos] {
+			return fmt.Errorf("水印位置参数不合法")
+		}
+	}
+
 	return nil
 }

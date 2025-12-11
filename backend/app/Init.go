@@ -17,6 +17,10 @@ type System struct {
 }
 
 func Init() *System {
+	// 生成默认.env文件
+	if !config.EnvExists() {
+		config.CreateDefaultEnv()
+	}
 	// 创建配置实例
 	config.NewConfig()
 	cfg := config.App

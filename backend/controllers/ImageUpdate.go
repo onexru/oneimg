@@ -6,6 +6,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/settings"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/uploads"
@@ -70,6 +71,8 @@ func UploadImages(c *gin.Context) {
 			Height:    fileResult.Height,
 			Storage:   fileResult.Storage,
 			UserId:    c.GetInt("user_id"),
+			MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
+			UUID:      GetUUID(c),
 		}
 
 		db := database.GetDB()

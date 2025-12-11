@@ -43,7 +43,22 @@ func GetImageList(c *gin.Context) {
 	var total int64
 
 	// 构建查询
-	query := db.Model(&models.Image{}).Where("user_id = ?", c.GetInt("user_id"))
+	query := db.Model(&models.Image{})
+
+	// 获取角色参数
+	role := c.Query("role")
+	if role != "" {
+		switch role {
+		case "admin":
+			query = query.Where("user_id == 1")
+		case "guest":
+			query = query.Where("user_id != 1")
+		}
+	}
+
+	if GetUUID(c) != "00000000-0000-0000-0000-000000000000" || role == "" {
+		query = query.Where("uuid = ?", GetUUID(c))
+	}
 
 	// 添加搜索条件
 	if search != "" {

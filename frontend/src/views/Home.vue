@@ -83,11 +83,21 @@
         >
           <!-- 图片区域 -->
           <div class="aspect-square overflow-hidden cursor-pointer rounded" @click.stop="previewImage(image)">
+            <div class="loading absolute inset-0 flex items-center justify-center z-0 text-slate-300">
+              <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
             <img 
               :src="getFullUrl(image.thumbnail || image.url)"
-              :alt="image.filename" 
-              class="recent-image w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              :alt="image.filename || '图片预览'" 
+              class="recent-image w-full h-full object-cover transition-all duration-500 group-hover:scale-110 opacity-0"
               loading="lazy"
+              @load="(e) => {
+                e.target.classList.remove('opacity-0');
+                e.target.parentElement.querySelector('.loading').classList.add('hidden')
+              }"
+              @error="handleImageError"
             />
           </div>
           <!-- 悬停操作栏 -->
@@ -172,9 +182,10 @@
 </template>
 
 <script setup>
+import errorImg from '@/assets/images/error.webp';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 
-// 核心：获取完整URL的函数
+// 获取完整URL的函数
 const getFullUrl = (path) => {
   if (!path) return ''
   if (typeof window !== 'undefined') {
@@ -197,7 +208,7 @@ let previewCopyMenu = false // 预览复制菜单（非响应式）
 let currentPreviewImage = null // 当前预览的图片
 let previewModalInstance = null // 预览弹窗实例（用于关闭控制）
 
-// 卡片复制菜单切换（简化逻辑）
+// 卡片复制菜单切换
 const toggleCardCopyMenu = (imageId) => {
   if (activeCopyMenu.value === imageId) {
     activeCopyMenu.value = null
@@ -206,9 +217,8 @@ const toggleCardCopyMenu = (imageId) => {
   }
 }
 
-// 全局点击关闭下拉框（增强版）
+// 全局点击关闭下拉框
 const handleGlobalClick = (e) => {
-  // 关闭卡片下拉框
   if (activeCopyMenu.value !== null) {
     const cardCopyMenus = document.querySelectorAll('.recent-item .relative.z-50')
     let isClickInside = false
@@ -296,7 +306,6 @@ const handlePaste = async (e) => {
   if (imageFiles.length > 0) {
     e.preventDefault()
     uploadFiles(imageFiles)
-    // 替换为 Message 成功提示
     Message.success(`从剪贴板粘贴了 ${imageFiles.length} 个图片`, {
       duration: 2000,
       position: 'top-right'
@@ -348,7 +357,6 @@ const uploadFiles = async (files) => {
     }
   } catch (error) {
     console.error('上传错误:', error)
-    // 替换为 Message 错误提示
     Message.error(`上传失败: ${error.message}`, {
       duration: 3000,
       position: 'top-right',
@@ -377,7 +385,6 @@ const loadRecentImages = async () => {
   } catch (error) {
     console.error('加载图片失败:', error)
     recentImages.value = []
-    // 替换为 Message 错误提示
     Message.error(`加载图片失败: ${error.message}`, {
       duration: 3000,
       position: 'top-right',
@@ -408,7 +415,6 @@ const copyImageLink = async (image, type) => {
   
   try {
     await navigator.clipboard.writeText(copyText)
-    // 替换为 Message 成功提示
     Message.success(`已复制${getTypeText(type)}格式`, {
       duration: 1500,
       position: 'top-right'
@@ -420,7 +426,6 @@ const copyImageLink = async (image, type) => {
     textArea.select()
     document.execCommand('copy')
     document.body.removeChild(textArea)
-    // 替换为 Message 成功提示
     Message.success(`已复制${getTypeText(type)}格式`, {
       duration: 1500,
       position: 'top-right'
@@ -458,9 +463,8 @@ const formatDate = (dateString) => {
     return date.toLocaleString('zh-CN')
 }
 
-// 快捷删除图片功能（保留确认弹窗）
+// 快捷删除图片功能
 const deleteImage = async (imageId) => {
-  // 保留需要用户确认的弹窗（PopupModal）
   const modal = new PopupModal({
     title: '确认删除',
     content: `
@@ -493,6 +497,11 @@ const deleteImage = async (imageId) => {
 }
 
 const deleteAsync = async (imageId) => { 
+  const loading = Loading.show({
+    text: '删除中...',
+    color: '#ff4d4f',
+    mask: true
+  })
   try {
     const response = await fetch(`/api/images/${imageId}`, {
       method: 'DELETE',
@@ -503,7 +512,6 @@ const deleteAsync = async (imageId) => {
     })
     
     if (response.ok) {
-      // 替换为 Message 成功提示
       Message.success('图片删除成功', {
         duration: 1500,
         position: 'top-right'
@@ -523,12 +531,13 @@ const deleteAsync = async (imageId) => {
     }
   } catch (error) {
     console.error('删除图片错误:', error)
-    // 替换为 Message 错误提示
     Message.error(`删除失败: ${error.message}`, {
       duration: 3000,
       position: 'top-right',
       showClose: true
     })
+  } finally {
+    await loading.hide();
   }
 }
 
@@ -541,10 +550,9 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-// 核心：图片预览（保留预览弹窗）
+// 核心：图片预览
 const previewImage = (image) => {
   if (!image || !image.url) {
-    // 替换为 Message 错误提示
     Message.error('图片信息不完整，无法预览', {
       duration: 2000,
       position: 'top-right'
@@ -574,7 +582,7 @@ const previewImage = (image) => {
             </button>
             <!-- 复制下拉框 -->
             <div 
-              class="absolute right-0 mt-1 w-36 bg-white dark:bg-dark-200 rounded-md shadow-xl z-101 transition-all duration-200 hidden opacity-0 translate-y-[-5px]"
+              class="absolute right-0 mt-1 w-36 bg-white dark:bg-dark-200 rounded-md shadow-xl z-101 transition-all duration-200 hidden opacity-0 translate-y-[-5px] z-[999]"
               id="previewCopyDropdown"
             >
               <div class="p-1">
@@ -623,12 +631,25 @@ const previewImage = (image) => {
       
       <!-- 预览图片区域 -->
       <div class="max-h-[360px] flex-1 overflow-auto flex items-center justify-center">
-        <a class="spotlight" href="${getFullUrl(image.url)}" data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)}">
-            <img 
-                src="${getFullUrl(image.url)}"
-                alt="${image.filename}" 
-                class="max-w-full w-fill max-h-[360px] object-contain rounded-lg"
-            />
+        <a 
+            class="spotlight min-w-full max-w-full min-h-[260px] block" 
+            href="${getFullUrl(image.url)}" 
+            data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)}"
+        >
+            <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden bg-slate-100 animate-pulse flex items-center justify-center">
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <svg class="w-10 h-10 text-slate-300 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </div>
+                <img 
+                    src="${getFullUrl(image.url)}"
+                    alt="${image.filename}" 
+                    class="max-w-full w-fill max-h-[360px] min-h-[260px] object-contain rounded-lg relative z-10 opacity-0 transition-opacity duration-300"
+                    onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse')"
+                    onerror="this.parentElement.classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.src='${errorImg}';"
+                />
+            </div>
         </a>
       </div>
       
@@ -705,7 +726,6 @@ const previewImage = (image) => {
     maskClose: true,
     zIndex: 10000,
     maxHeight: '90vh',
-    // 生命周期回调：清理资源
     onClose: () => {
       window.togglePreviewCopyMenu = null
       window.copyPreviewImageLink = null
@@ -721,7 +741,7 @@ const previewImage = (image) => {
   // 打开弹窗
   previewModalInstance.open()
 
-  // 处理弹窗内点击事件（阻止冒泡到遮罩）
+  // 处理弹窗内点击事件
   nextTick(() => {
     const previewContent = document.querySelector('.image-preview-popup')
     if (previewContent) {
@@ -734,7 +754,6 @@ const previewImage = (image) => {
 
 const downloadImage = (image) => {
   if (!image || !image.url) {
-    // 替换为 Message 错误提示
     Message.error('图片信息不完整，无法下载', {
       duration: 2000,
       position: 'top-right'
@@ -748,13 +767,17 @@ const downloadImage = (image) => {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
-  // 替换为 Message 信息提示
   Message.info('开始下载图片', {
     duration: 1500,
     position: 'top-right'
   })
   previewCopyMenu = false
   activeCopyMenu.value = null
+}
+
+const handleImageError = (event) => {
+    // 占位图（灰色背景+问号）
+    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOi9veWksei0pTwvdGV4dD48L3N2Zz4='
 }
 
 // 生命周期
@@ -780,7 +803,7 @@ onUnmounted(() => {
     previewModalInstance.close()
   }
   // 关闭所有通知
-  if (window.Message) {
+  if (window.onmessage) {
     Message.closeAll()
   }
 })

@@ -1,8 +1,11 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -39,25 +42,103 @@ type Config struct {
 	SessionSecret string
 }
 
-// 设置全局
+// 全局配置实例
 var App *Config
 
-func NewConfig() {
+// 检查.env文件是否存在
+func EnvExists() bool {
+	_, err := os.Stat(".env")
+	return !os.IsNotExist(err)
+}
 
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+// 创建默认.env文件
+func CreateDefaultEnv() {
+	// 1. 创建data目录（避免SQLite路径报错）
+	if err := os.MkdirAll("./data", 0755); err != nil {
+		log.Fatalf("创建data目录失败：%v", err)
 	}
 
+	// 2. 生成随机的SESSION_SECRET（32位base64编码）
+	sessionSecret := generateRandomSecret(32)
+
+	// 3. 直接定义.env模板内容
+	envTemplate := `# 服务器配置
+SERVER_PORT=8080
+
+# 数据库配置
+SQLITE_PATH=./data/data.db
+IS_MYSQL=false
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=oneimgxru
+
+# 文件上传配置
+MAX_FILE_SIZE=10485760
+ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp
+
+# 默认用户配置
+DEFAULT_USER=admin
+DEFAULT_PASS=123456
+
+# Session配置
+SESSION_SECRET=
+`
+
+	// 4. 替换模板中的SESSION_SECRET占位符
+	envContent := strings.Replace(envTemplate, "SESSION_SECRET=", "SESSION_SECRET="+sessionSecret, 1)
+
+	// 5. 写入.env文件
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("获取当前工作目录失败：%v", err)
+	}
+	envPath := filepath.Join(wd, ".env")
+
+	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+		log.Fatalf("生成默认.env文件失败：%v", err)
+	}
+
+	log.Printf("✅ 首次启动：自动生成.env文件（路径：%s）", envPath)
+}
+
+// 生成指定长度的随机密钥（base64编码）
+func generateRandomSecret(length int) string {
+	bytes := make([]byte, length)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		log.Fatalf("生成随机密钥失败：%v", err)
+	}
+	return base64.URLEncoding.EncodeToString(bytes)
+}
+
+// 初始化配置（优先加载外部.env，无则生成默认）
+func NewConfig() {
+	// 1. 检查.env文件，不存在则生成
+	if !EnvExists() {
+		CreateDefaultEnv()
+	}
+
+	// 2. 加载.env文件（此时必存在）
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("加载.env文件失败：%v", err)
+	}
+
+	// 3. 解析配置项
 	maxFileSize, _ := strconv.ParseInt(getEnv("MAX_FILE_SIZE", "10485760"), 10, 64)
-	allowedTypes := strings.Split(getEnv("ALLOWED_TYPES", "image/jpeg,image/png,image/gif"), ",")
-	// 端口
+	allowedTypes := strings.Split(getEnv("ALLOWED_TYPES", "image/jpeg,image/png,image/gif,image/webp"), ",")
 	port := getEnv("SERVER_PORT", getEnv("PORT", "8080"))
 
-	// Sqlite3数据库
+	// Sqlite3配置
 	sqlitePath := getEnv("SQLITE_PATH", "./data/data.db")
+	// 确保SQLite目录存在
+	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0755); err != nil {
+		log.Printf("警告：创建SQLite目录失败：%v", err)
+	}
 
-	// Mysql数据库
+	// Mysql配置
 	isMysql := getEnv("IS_MYSQL", "false") == "true"
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort, _ := strconv.Atoi(getEnv("DB_PORT", "3306"))
@@ -65,16 +146,17 @@ func NewConfig() {
 	dbPassword := getEnv("DB_PASSWORD", "")
 	dbName := getEnv("DB_NAME", "oneimgxru")
 
-	// 默认用户
+	// 默认用户配置
 	defaultUser := getEnv("DEFAULT_USER", "admin")
 	defaultPass := getEnv("DEFAULT_PASS", "123456")
 
-	// JWT配置
-	jwtSecret := getEnv("JWT_SECRET", "your-secret-key-change-this-in-production")
+	// JWT配置（默认生成随机密钥，避免硬编码）
+	jwtSecret := getEnv("JWT_SECRET", generateRandomSecret(32))
 
-	// Session配置
-	sessionSecret := getEnv("SESSION_SECRET", "your-session-secret-key-change-this-in-production")
+	// Session配置（读取.env中的值，无则生成）
+	sessionSecret := getEnv("SESSION_SECRET", generateRandomSecret(32))
 
+	// 初始化全局配置
 	App = &Config{
 		Port:          port,
 		SqlitePath:    sqlitePath,
@@ -91,8 +173,11 @@ func NewConfig() {
 		JWTSecret:     jwtSecret,
 		SessionSecret: sessionSecret,
 	}
+
+	log.Println("✅ 配置初始化完成")
 }
 
+// 获取环境变量（带默认值）
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

@@ -68,7 +68,7 @@ func InitDB(cfg *config.Config) {
 	log.Println("数据库连接成功")
 
 	// 自动迁移数据表
-	err = db.DB.AutoMigrate(&models.User{}, &models.Image{}, &models.Settings{})
+	err = db.DB.AutoMigrate(&models.User{}, &models.Image{}, &models.Settings{}, &models.ImageTeleGram{})
 	if err != nil {
 		log.Fatal("数据库迁移失败:", err)
 	}

@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"net/http"
+	"regexp"
+	"strings"
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
@@ -24,6 +26,8 @@ type AccountResponse struct {
 	Message string `json:"message"`
 	Success bool   `json:"success"`
 }
+
+var uuidRegex = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 // ChangeAccountInfo 修改密码
 func ChangeAccountInfo(c *gin.Context) {
@@ -95,6 +99,15 @@ func ChangeAccountInfo(c *gin.Context) {
 
 	// 如果用户名存在修改用户
 	if req.NewUsername != "" {
+		if isTouristUsername(req.NewUsername) {
+			c.JSON(http.StatusBadRequest, AccountResponse{
+				Code:    400,
+				Message: "游客保留用户名",
+				Success: false,
+			})
+			return
+		}
+
 		var existingUser models.User
 		if err := db.Where("username = ? AND id != ?", req.NewUsername, userID).First(&existingUser).Error; err == nil {
 			c.JSON(http.StatusBadRequest, AccountResponse{
@@ -175,6 +188,11 @@ func ChangeAccountInfo(c *gin.Context) {
 	})
 }
 
+// isTouristUsername 辅助函数，检查是否为游客账号
+func isTouristUsername(username string) bool {
+	return strings.HasPrefix(username, "guest_") || username == "guest" || uuidRegex.MatchString(username)
+}
+
 // ClearAllSessions 清除所有会话
 func ClearAllSessions(c *gin.Context) {
 	// 获取当前session
@@ -197,4 +215,14 @@ func ClearAllSessions(c *gin.Context) {
 		Message: "所有会话已清除",
 		Success: true,
 	})
+}
+
+// 辅助函数，获取用户UUID
+func GetUUID(c *gin.Context) string {
+	uuidRegex := regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+	if uuidRegex.MatchString(c.GetString("username")) {
+		return c.GetString("username")
+	} else {
+		return "00000000-0000-0000-0000-000000000000"
+	}
 }

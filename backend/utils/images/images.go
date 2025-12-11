@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"oneimg/backend/config"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/watermark"
 	"strings"
 	"time"
 
@@ -112,6 +113,13 @@ func (s *ImageService) ProcessImage(
 		"image/heif":    ".heif", // HEIF格式
 	}
 
+	// 将主图转化成image.Image用于生成缩略图
+	reader := bytes.NewReader(processedBytes)
+	img, _, err = image.Decode(reader)
+	if err != nil {
+		return nil, fmt.Errorf("decode image failed: %w", err)
+	}
+
 	// 6. 生成缩略图
 	thumbnailBytes, err := s.generateThumbnail(img, finalFormat, finalMimeType)
 	if err != nil {
@@ -143,6 +151,24 @@ func (s *ImageService) processMainImage(
 	// 特殊格式直接返回原数据
 	if s.isSpecialFormat(format, mimeType) {
 		return fileBytes, format, mimeType, nil
+	}
+
+	// 添加水印
+	if setting.WatermarkEnable {
+		watermarkCfg := watermark.WatermarkSetting(setting)
+		fileReader := bytes.NewReader(fileBytes)
+		processedReader, err := watermark.ProcessImageWithWatermark(fileReader, mimeType, watermarkCfg)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("添加水印失败：%w", err)
+		}
+		fileBytes, err = io.ReadAll(processedReader)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("读取水印后图片数据失败：%w", err)
+		}
+		img, _, err = image.Decode(bytes.NewReader(fileBytes))
+		if err != nil {
+			return nil, "", "", fmt.Errorf("解码水印后图片失败：%w", err)
+		}
 	}
 
 	// WebP格式处理

@@ -16,10 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"oneimg/backend/config"
+	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/s3"
+	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
 )
 
@@ -27,6 +30,8 @@ import (
 type S3R2Uploader struct{}
 type WebDAVUploader struct{}
 type DefaultUploader struct{}
+type FTPUploader struct{}
+type TelegramUploader struct{}
 
 // S3/R2上传实现
 func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
@@ -98,6 +103,7 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 
 	return &interfaces.ImageUploadResult{
 		Success:      true,
+		Message:      "上传成功",
 		FileName:     uniqueFileName,
 		FileSize:     int64(len(processedImage.CompressedBytes)),
 		MimeType:     contentType,
@@ -168,6 +174,85 @@ func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *mod
 
 	return &interfaces.ImageUploadResult{
 		Success:      true,
+		Message:      "上传成功",
+		FileName:     uniqueFileName,
+		FileSize:     int64(len(processedImage.CompressedBytes)),
+		MimeType:     processedImage.MimeType,
+		URL:          url,
+		ThumbnailURL: thumbnailURL,
+		Storage:      setting.StorageType,
+		Width:        processedImage.Width,
+		Height:       processedImage.Height,
+		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+	}, nil
+}
+
+// FTP上传实现
+func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+	// 1. 验证图片
+	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+		return nil, fmt.Errorf("图片验证失败: %v", err)
+	}
+
+	// 2. 打开文件
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %v", err)
+	}
+	defer file.Close()
+
+	// 3. 处理图片（压缩、生成缩略图等）
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting)
+	if err != nil {
+		return nil, fmt.Errorf("图片处理失败: %v", err)
+	}
+
+	// 4. 生成唯一文件名
+	uniqueFileName := processedImage.UniqueFileName
+
+	// 5. 构建FTP目录结构（年/月）
+	now := time.Now()
+	year := now.Format("2006")
+	month := now.Format("01")
+	subDir := PathJoin("uploads", year, month)
+	objectPath := PathJoin(subDir, uniqueFileName)
+
+	// 初始化FTP客户端
+	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
+		Host:     setting.FTPHost,
+		Port:     setting.FTPPort,
+		User:     setting.FTPUser,
+		Password: setting.FTPPass,
+		Timeout:  10,
+	})
+	defer ftpUtil.Close()
+	err = ftpUtil.UploadImage(
+		objectPath,
+		processedImage.CompressedBytes,
+		processedImage.MimeType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("FTP上传失败：%v", err)
+	}
+
+	// 检查是否上传缩略图
+	thumbnailURL := ""
+	if setting.Thumbnail {
+		err := ftpUtil.UploadImage(
+			PathJoin(subDir, "thumbnails", uniqueFileName),
+			processedImage.ThumbnailBytes,
+			"image/webp",
+		)
+		if err == nil {
+			thumbnailURL = "/uploads/" + year + "/" + month + "/thumbnails/" + uniqueFileName
+		}
+	}
+
+	url := "/uploads/" + year + "/" + month + "/" + uniqueFileName
+
+	return &interfaces.ImageUploadResult{
+		Success:      true,
+		Message:      "上传成功",
 		FileName:     uniqueFileName,
 		FileSize:     int64(len(processedImage.CompressedBytes)),
 		MimeType:     processedImage.MimeType,
@@ -251,6 +336,108 @@ func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *mo
 		Width:        processedImage.Width,
 		Height:       processedImage.Height,
 		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+	}, nil
+}
+
+// Telegram上传实现
+func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+	// 1. 验证图片
+	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+		return nil, fmt.Errorf("图片验证失败: %v", err)
+	}
+
+	// 2. 打开文件
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %v", err)
+	}
+	defer file.Close()
+
+	// 3. 处理图片
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting)
+	if err != nil {
+		return nil, fmt.Errorf("图片处理失败: %v", err)
+	}
+
+	// 4. 基础参数校验
+	if setting.TGBotToken == "" {
+		return nil, fmt.Errorf("telegram bot token 不能为空")
+	}
+	if setting.TGReceivers == "" {
+		return nil, fmt.Errorf("telegram receivers 不能为空")
+	}
+
+	now := time.Now()
+	year := now.Format("2006")
+	month := now.Format("01")
+
+	// 5. 初始化TG客户端
+	tgClient := telegram.NewClient(setting.TGBotToken)
+	tgClient.Timeout = 20 * time.Second
+	tgClient.Retry = 3
+
+	uniqueFileName := processedImage.UniqueFileName
+
+	// 上传主图片
+	fileID, messageID, err := tgClient.UploadPhotoByBytes(
+		setting.TGReceivers,
+		processedImage.CompressedBytes,
+		processedImage.UniqueFileName,
+		fmt.Sprintf("上传图片: %s", processedImage.UniqueFileName),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Telegram上传图片失败")
+	}
+
+	// 7. 上传缩略图（如果开启）
+	thumbnailURL := ""
+	thumbFileIDURL := ""
+	thumbFileMessageID := 0
+	if setting.Thumbnail && len(processedImage.ThumbnailBytes) > 0 {
+		thumbFileID, thumbMessageID, err := tgClient.UploadPhotoByBytes(
+			setting.TGReceivers,
+			processedImage.ThumbnailBytes,
+			fmt.Sprintf("thumbnail_%s", uniqueFileName),
+			fmt.Sprintf("缩略图: %s", processedImage.UniqueFileName),
+		)
+		if err == nil {
+			// Telegram没有直接的URL，这里存储fileID作为标识
+			thumbFileIDURL = thumbFileID
+			thumbFileMessageID = thumbMessageID
+			thumbnailURL = fmt.Sprintf("/uploads/%s/%s/thumbnails/%s", year, month, uniqueFileName)
+		} else {
+			log.Printf("Telegram上传缩略图失败: %v", err)
+		}
+	}
+
+	url := "/uploads/" + year + "/" + month + "/" + uniqueFileName
+
+	telegramModel := models.ImageTeleGram{
+		TGFileId:             fileID,
+		TGThumbnailFileId:    thumbFileIDURL,
+		TGMessageId:          messageID,
+		TGThumbnailMessageId: thumbFileMessageID,
+		FileName:             uniqueFileName,
+	}
+	db := database.GetDB()
+	if db != nil {
+		if err := db.DB.Create(&telegramModel).Error; err != nil {
+			return nil, fmt.Errorf("保存telegram图片信息到数据库失败")
+		}
+	}
+
+	return &interfaces.ImageUploadResult{
+		Success:      true,
+		Message:      "Telegram上传成功",
+		FileName:     processedImage.UniqueFileName,
+		FileSize:     int64(len(processedImage.CompressedBytes)),
+		MimeType:     processedImage.MimeType,
+		URL:          url,
+		ThumbnailURL: thumbnailURL,
+		Storage:      setting.StorageType, // 存储类型标识
+		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		Width:        processedImage.Width,
+		Height:       processedImage.Height,
 	}, nil
 }
 

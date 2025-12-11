@@ -94,7 +94,7 @@ const navItems = [
 ]
 
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-if (userInfo?.username != 'guest' && userInfo?.username != null) {
+if (userInfo?.isTourist != true) {
   navItems.push(
     { path: '/account', icon: 'user-settings-line', name: '账户设置' },
     { path: '/settings', icon: 'settings-line', name: '系统设置' }

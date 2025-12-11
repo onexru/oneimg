@@ -18,6 +18,18 @@ type Settings struct {
 	TGReceivers   string `gorm:"column:tg_receivers;default:''" json:"tg_receivers"`        // TG接收者（多个用逗号分隔）
 	TGNoticeText  string `gorm:"column:tg_notice_text;default:''" json:"tg_notice_text"`    // TG通知文本
 
+	// 水印设置
+	WatermarkEnable bool    `gorm:"column:watermark_enable;default:false" json:"watermark_enable"`    // 是否启用水印（默认不启用）
+	WatermarkText   string  `gorm:"column:watermark_text;default:'初春图床'" json:"watermark_text"`       // 水印文字（默认为初春图床）
+	WatermarkPos    string  `gorm:"column:watermark_pos;default:'bottom-right'" json:"watermark_pos"` // 水印位置（默认为右下角）
+	WatermarkSize   int     `gorm:"column:watermark_size;default:10" json:"watermark_size"`           // 水印字体大小（默认为10）
+	WatermarkColor  string  `gorm:"column:watermark_color;default:'#000000'" json:"watermark_color"`  // 水印字体颜色（默认为黑色）
+	WatermarkOpac   float64 `gorm:"column:watermark_opac;default:0.5" json:"watermark_opac"`          // 水印透明度（默认为0.5）
+
+	// 来源白名单设置
+	RefererWhiteEnable bool   `gorm:"column:referer_white_enable;default:false" json:"referer_white_enable"` // 是否启用白名单
+	RefererWhiteList   string `gorm:"column:referer_white_list;default:''" json:"referer_white_list"`        // 白名单（多个用逗号分隔）
+
 	// 存储相关配置
 	StorageType string `gorm:"column:storage_type;default:'default'" json:"storage_type"`   // 存储类型：default/s3/r2/webdav
 	StoragePath string `gorm:"column:storage_path;default:'./uploads'" json:"storage_path"` // 本地存储路径（默认./uploads）
@@ -32,6 +44,12 @@ type Settings struct {
 	WebdavURL  string `gorm:"column:webdav_url;default:''" json:"webdav_url"`
 	WebdavUser string `gorm:"column:webdav_user;default:''" json:"webdav_user"`
 	WebdavPass string `gorm:"column:webdav_pass;default:''" json:"webdav_pass"`
+
+	// FTP配置
+	FTPHost string `gorm:"column:ftp_host;default:''" json:"ftp_host"`
+	FTPUser string `gorm:"column:ftp_user;default:''" json:"ftp_user"`
+	FTPPass string `gorm:"column:ftp_pass;default:''" json:"ftp_pass"`
+	FTPPort int    `gorm:"column:ftp_port;default:21" json:"ftp_port"`
 }
 
 // TableName 指定表名（避免GORM自动复数）
