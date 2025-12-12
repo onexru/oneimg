@@ -278,12 +278,12 @@ func DeleteTelegramStorageImage(image models.Image) (deleteStatus bool) {
 func CheckImageAccessPermission(c *gin.Context, image models.Image) bool {
 	currentUserUUID := GetUUID(c)
 	currentUsername := c.GetString("username")
-	// 如果是管理员UUID直接通过
-	if currentUserUUID == "00000000-0000-0000-0000-000000000000" {
+	// 如果是管理员直接通过
+	if c.GetInt("user_role") == 1 {
 		return true
 	}
 	// 如果是游客则需要同时满足md5校验和UUID校验
-	if image.UUID == GetUUID(c) && md5.Md5(currentUsername+image.FileName) == image.MD5 {
+	if image.UUID == currentUserUUID && md5.Md5(currentUsername+image.FileName) == image.MD5 {
 		return true
 	}
 	return false

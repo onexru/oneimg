@@ -32,6 +32,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 获取用户信息
 		userID := session.Get("user_id")
+		userRole := session.Get("user_role")
 		username := session.Get("username")
 
 		if userID == nil || username == nil {
@@ -47,6 +48,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		session.Set("logged_in", true)
 
 		c.Set("user_id", userID)
+		c.Set("user_role", userRole)
 		c.Set("username", username)
 
 		// 继续处理请求
@@ -57,9 +59,9 @@ func AuthMiddleware() gin.HandlerFunc {
 func AdminOnlyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 获取用户ID
-		userID := c.GetInt("user_id")
+		userRole := c.GetInt("user_role")
 
-		if userID != 1 {
+		if userRole != 1 {
 			c.JSON(http.StatusForbidden, AuthResponse{
 				Code:    403,
 				Message: "无权访问",

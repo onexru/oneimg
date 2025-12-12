@@ -1,4 +1,3 @@
-
 class GuestFingerprint {
   // 1. 持久化存储配置
   static STORAGE_KEY = "guest_unique_id_v3"; // 版本号避免兼容问题
@@ -20,7 +19,11 @@ class GuestFingerprint {
     // 设置过期时间
     const expire = Date.now() + this.EXPIRE_DAYS * 24 * 60 * 60 * 1000;
     // 持久化到localStorage（Cookie兜底，防止localStorage被禁）
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ uuid, expire }));
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ uuid, expire }));
+    } catch (e) {
+      console.warn("localStorage存储失败，使用Cookie兜底", e);
+    }
     this.setCookie(this.STORAGE_KEY, JSON.stringify({ uuid, expire }), this.EXPIRE_DAYS);
 
     return uuid;
@@ -36,10 +39,14 @@ class GuestFingerprint {
 
   // Cookie兜底存储（localStorage失效时）
   static setCookie(name, value, days) {
-    const date = new Date();
-    date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-    const expires = "; expires=" + date.toUTCString();
-    document.cookie = name + "=" + (value || "")  + expires + "; path=/; SameSite=Lax";
+    try {
+      const date = new Date();
+      date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+      const expires = "; expires=" + date.toUTCString();
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/; SameSite=Lax";
+    } catch (e) {
+      console.warn("Cookie设置失败", e);
+    }
   }
 
   // 3. 核心：获取平台/系统信息（替换废弃的 navigator.platform）
@@ -137,16 +144,40 @@ class GuestFingerprint {
     };
   }
 
-  // 5. 生成融合特征哈希（防篡改，服务端会重新计算校验）
+  // 新增：简易哈希函数（降级方案，替代SHA256）
+  static simpleHash(str) {
+    let hash = 0;
+    if (str.length === 0) return hash.toString(16).padStart(64, "0");
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转为32位整数
+    }
+    // 转为64位十六进制（对齐SHA256长度）
+    return Math.abs(hash).toString(16).padStart(64, "0");
+  }
+
+  // 5. 生成融合特征哈希
   static async generateFusionHash() {
     const features = this.getStableFeatures();
-    // 固定顺序拼接（避免前端篡改特征顺序）
+    // 固定顺序拼接
     const keys = ["timezone", "language", "osName", "osVersion", "deviceType", "hardwareConcurrency", "deviceMemory", "maxTouchPoints"];
     const featureStr = keys.map(key => features[key]).join("|");
-    // SHA256哈希（不可逆，防特征泄露）
-    const encoder = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(featureStr));
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+    const isSecureContext = window.isSecureContext || (location.protocol === "https:") || (location.hostname === "localhost");
+    if (isSecureContext && crypto.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(featureStr));
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+      } catch (e) {
+        console.warn("SHA256哈希失败，使用简易哈希", e);
+        return this.simpleHash(featureStr);
+      }
+    } else {
+      console.warn("非安全上下文/crypto.subtle不可用，使用简易哈希");
+      return this.simpleHash(featureStr);
+    }
   }
 
   // 6. 组装请求参数（每次请求携带）
@@ -155,15 +186,12 @@ class GuestFingerprint {
     const fusionHash = await this.generateFusionHash();
     const features = this.getStableFeatures();
     return {
-      guest_uuid: mainUUID,       // 主标识
-      fusion_hash: fusionHash,    // 融合特征哈希（用于校验）
-      stable_features: features   // 原始特征（服务端重新计算哈希）
+      guest_uuid: mainUUID,
+      fusion_hash: fusionHash,
+      stable_features: features
     };
   }
 }
-
-// 挂载到window，方便全局调用
 window.GuestFingerprint = GuestFingerprint;
-
 // 导出模块
 export default GuestFingerprint;

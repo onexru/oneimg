@@ -56,7 +56,7 @@ func GetImageList(c *gin.Context) {
 		}
 	}
 
-	if GetUUID(c) != "00000000-0000-0000-0000-000000000000" || role == "" {
+	if c.GetInt("user_role") != 1 || role == "" {
 		query = query.Where("uuid = ?", GetUUID(c))
 	}
 

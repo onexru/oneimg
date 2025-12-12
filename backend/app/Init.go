@@ -76,6 +76,7 @@ func InitDefaultUser(cfg *config.Config, db *database.Database) {
 	// 创建默认用户
 	defaultUser := models.User{
 		Username: defaultUsername,
+		Role:     1,
 		Password: hashedPassword,
 	}
 

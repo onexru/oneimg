@@ -222,7 +222,9 @@ func GetUUID(c *gin.Context) string {
 	uuidRegex := regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 	if uuidRegex.MatchString(c.GetString("username")) {
 		return c.GetString("username")
-	} else {
+	} else if c.GetString("username") == "00000000-0000-0000-0000-000000000000" {
 		return "00000000-0000-0000-0000-000000000000"
+	} else {
+		return c.GetString("username")
 	}
 }

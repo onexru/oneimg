@@ -42,7 +42,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	if err != nil {
 		panic("加载前端文件失败：" + err.Error())
 	}
-	assetsFS, err := fs.Sub(distFS, "assets")
+	assetsFS, _ := fs.Sub(distFS, "assets")
 	r.StaticFS("/assets", http.FS(assetsFS))
 
 	// 静态资源
@@ -99,24 +99,16 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			return
 		}
 
-		// 【新增调试日志】打印当前distFS的根路径和文件列表
-		log.Printf("尝试读取index.html，distFS根路径：%v", distFS)
-		// 列出distFS中的文件（调试用）
 		if files, err := fs.ReadDir(distFS, "."); err == nil {
 			var fileNames []string
 			for _, f := range files {
 				fileNames = append(fileNames, f.Name())
 			}
-			log.Printf("distFS下的文件列表：%v", fileNames)
 		} else {
 			log.Printf("读取distFS文件列表失败：%s", err)
 		}
-
-		// 从嵌入的FS中读取index.html
 		indexContent, err := fs.ReadFile(distFS, "index.html")
 		if err != nil {
-			// 【新增详细错误日志】
-			log.Printf("读取index.html失败：%s", err)
 			c.String(http.StatusInternalServerError, "加载前端页面失败：%s", err)
 			return
 		}

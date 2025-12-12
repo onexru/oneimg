@@ -2,6 +2,12 @@
 
 一个功能完整的现代化图床管理系统，基于 Vue.js 3 + Go 构建，支持POW验证、剪贴板上传等高级功能。
 
+## 开发者
+
+- [onexru](https://github.com/onexru)
+- [雾创岛](https://www.tr0.cn)
+- [打赏赞助](https://www.cv0.cn/Index/Reward.php)
+
 ## 🐳 Docker 部署
 
 ### 环境要求
