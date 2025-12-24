@@ -7,7 +7,7 @@ import (
 // Settings 系统配置模型（全局唯一配置）
 // 注意：该表应只有一条记录（ID=1），所有配置项存储在同一条记录中
 type Settings struct {
-	ID            int    `gorm:"primarykey;column:id" json:"id"`
+	ID            int    `gorm:"primarykey;column:id;autoIncrement" json:"id"`
 	OriginalImage bool   `gorm:"column:original_image;default:false" json:"original_image"` // 是否保存原图（默认保存）
 	SaveWebp      bool   `gorm:"column:save_webp;default:true" json:"save_webp"`            // 是否保存webp格式（默认保存）
 	Thumbnail     bool   `gorm:"column:thumbnail;default:true" json:"thumbnail"`            // 是否生成缩略图（默认生成）
@@ -17,6 +17,8 @@ type Settings struct {
 	TGBotToken    string `gorm:"column:tg_bot_token;default:''" json:"tg_bot_token"`        // TG机器人Token
 	TGReceivers   string `gorm:"column:tg_receivers;default:''" json:"tg_receivers"`        // TG接收者（多个用逗号分隔）
 	TGNoticeText  string `gorm:"column:tg_notice_text;default:''" json:"tg_notice_text"`    // TG通知文本
+	StartAPI      bool   `gorm:"column:start_api;default:false" json:"start_api"`           // 是否启用API（默认关闭）
+	APIToken      string `gorm:"column:api_token;default:''" json:"api_token"`              // API Token
 
 	// 水印设置
 	WatermarkEnable bool    `gorm:"column:watermark_enable;default:false" json:"watermark_enable"`    // 是否启用水印（默认不启用）
@@ -33,6 +35,14 @@ type Settings struct {
 	// 存储相关配置
 	StorageType string `gorm:"column:storage_type;default:'default'" json:"storage_type"`   // 存储类型：default/s3/r2/webdav
 	StoragePath string `gorm:"column:storage_path;default:'./uploads'" json:"storage_path"` // 本地存储路径（默认./uploads）
+
+	// SEO 设置
+	SEOTitle       string `gorm:"column:seo_title;default:'初春图床'" json:"seo_title"`                             // SEO标题（默认为初春图床）
+	SEODescription string `gorm:"column:seo_description;default:'初春图床，一个免费、稳定、高效的图床服务'" json:"seo_description"` // SEO描述（默认为初春图床，一个免费、稳定、高效的图床服务）
+	SEOKeywords    string `gorm:"column:seo_keywords;default:'初春网络,雾创岛,初春图床,图床,免费,稳定,高效'" json:"seo_keywords"`  // SEO关键词（默认为初春网络,雾创岛,初春图床,图床,免费,稳定,高效）
+	SEOICP         string `gorm:"column:seo_icp;default:''" json:"seo_icp"`                                     // SEO ICP备案（默认为空）
+	PublicSecurity string `gorm:"column:public_security;default:''" json:"public_security"`                     // SEO 公安备案（默认为空）
+	SEOicon        string `gorm:"column:seo_icon;default:''" json:"seo_icon"`                                   // SEO ICON（默认为空）
 
 	// S3配置（兼容S3协议的对象存储）
 	S3Endpoint  string `gorm:"column:s3_endpoint;default:''" json:"s3_endpoint"`

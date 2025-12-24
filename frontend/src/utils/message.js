@@ -6,7 +6,7 @@ class Message {
     duration: 3000, // 自动关闭时长（毫秒），0表示不自动关闭
     position: 'top-right', // 显示位置：top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
     offset:75, // 距离边界的偏移量（像素）
-    zIndex: 9999, // 层级（高于普通元素，低于PopupModal）
+    zIndex: 99999, // 层级（高于普通元素，低于PopupModal）
     showClose: false, // 是否显示关闭按钮
     onClose: null // 关闭回调函数
   };

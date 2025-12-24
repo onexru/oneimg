@@ -60,6 +60,26 @@ func GetLoginSettings(c *gin.Context) {
 	))
 }
 
+// 返回网站SEO信息
+func GetSEOSettings(c *gin.Context) {
+	settings, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(500, result.Error(500, "获取设置失败"))
+		return
+	}
+
+	c.JSON(200, result.Success("ok",
+		map[string]any{
+			"seo_title":       settings.SEOTitle,
+			"seo_description": settings.SEODescription,
+			"seo_keywords":    settings.SEOKeywords,
+			"seo_icp":         settings.SEOICP,
+			"public_security": settings.PublicSecurity,
+			"seo_icon":        settings.SEOicon,
+		},
+	))
+}
+
 func UpdateSettings(c *gin.Context) {
 	var req UpdateSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

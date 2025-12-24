@@ -94,6 +94,9 @@ func DeleteImage(c *gin.Context) {
 		return
 	}
 
+	// 删除关联tag
+	db.Where("image_id = ?", image.Id).Delete(models.ImageToTags{})
+
 	if !deleteStatus {
 		c.JSON(http.StatusOK, result.Success(
 			"记录删除成功,物理删除失败",

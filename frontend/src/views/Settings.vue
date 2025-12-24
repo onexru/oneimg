@@ -11,7 +11,6 @@
         <!-- 主要内容 -->
         <div class="container mx-auto px-4 pb-16">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-
                 <!-- 系统配置卡片 -->
                 <div class="order-1 md:order-2 w-full p-0 mx-auto">
                     <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
@@ -74,30 +73,6 @@
                                 />
                                 <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
                                     默认模板：{username} {date} 上传了图片 {filename}，存储容器[{StorageType}]
-                                </div>
-                            </div>
-                            
-                            <!-- 存储类型：下拉框变更保存 -->
-                            <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="storage_type">
-                                    存储类型
-                                </label>
-                                <select 
-                                    id="storage_type"
-                                    v-model="systemSettings.storage_type"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    @change="handleSelectChange('storage_type', systemSettings.storage_type)"
-                                >
-                                    <option value="" disabled>请选择存储类型</option>
-                                    <option value="default">本地存储</option>
-                                    <option value="s3">S3</option>
-                                    <option value="r2">R2</option>
-                                    <option value="webdav">WebDav</option>
-                                    <option value="ftp">FTP</option>
-                                    <option value="telegram">Telegram</option>
-                                </select>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    选择Telegram存储必须使用海外服务器，否则无法正常上传、查看、删除图片
                                 </div>
                             </div>
                             
@@ -207,6 +182,56 @@
                                     1. 仅需填写域名（支持主域名），多个以英文逗号分隔；<br>
                                     2. 无需填写协议（http://），无需填写端口（:80）；<br>
                                     3. 如果开启了来源白名单，那么仅能从这些来源访问图片资源（直接打开不受限制）
+                                </div>
+                            </div>
+
+                            <div class="setting-group"> 
+                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="api_token">
+                                    API Token
+                                </label>
+                                <div class="relative w-full">
+                                    <input 
+                                        id="api_token"
+                                        v-model="systemSettings.api_token"
+                                        type="text" 
+                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                        placeholder="API Token"
+                                        @blur="handleFieldBlur('api_token', systemSettings.api_token)"
+                                    />
+                                    <button
+                                        type="button"
+                                        class="bg-primary absolute right-0 top-0 h-full hover:bg-primary-dark text-white px-3 py-[7px] rounded-r-lg transition-colors duration-200 flex items-center justify-center"
+                                        @click="generateApiToken"
+                                    >
+                                        生成
+                                    </button>
+                                </div>
+                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                    1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}
+                                </div>
+                            </div>
+
+                            <!-- 存储类型：下拉框变更保存 -->
+                            <div class="setting-group">
+                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="storage_type">
+                                    存储类型
+                                </label>
+                                <select 
+                                    id="storage_type"
+                                    v-model="systemSettings.storage_type"
+                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    @change="handleSelectChange('storage_type', systemSettings.storage_type)"
+                                >
+                                    <option value="" disabled>请选择存储类型</option>
+                                    <option value="default">本地存储</option>
+                                    <option value="s3">S3</option>
+                                    <option value="r2">R2</option>
+                                    <option value="webdav">WebDav</option>
+                                    <option value="ftp">FTP</option>
+                                    <option value="telegram">Telegram</option>
+                                </select>
+                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                    选择Telegram存储必须使用海外服务器，否则无法正常上传、查看、删除图片
                                 </div>
                             </div>
 
@@ -382,6 +407,106 @@
 
                 <!-- 系统设置卡片（开关部分不变） -->
                 <div class="order-2 md:order-1 w-full p-0 mx-auto">
+                    <!-- SEO设置卡片 -->
+                    <div class="panel-content p-6 mb-4 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md space-y-6">
+                        <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
+                            <span class="panel-icon mr-2 text-2xl">
+                                <i class="ri-seo-line"></i>
+                            </span>
+                            SEO 设置
+                        </h2>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_title">
+                                网站标题
+                            </label>
+                            <input 
+                                id="seo_title"
+                                v-model="systemSettings.seo_title"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                placeholder="请输入网站标题"
+                                @blur="handleFieldBlur('seo_title', systemSettings.seo_title)"
+                            />
+                        </div>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_description">
+                                网站标题
+                            </label>
+                            <textarea
+                                id="seo_description"
+                                v-model="systemSettings.seo_description"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                rows="3"
+                                placeholder="请输入网站描述"
+                                @blur="handleFieldBlur('seo_description', systemSettings.seo_description)"
+                            ></textarea>
+                        </div>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_keywords">
+                                网站关键词
+                            </label>
+                            <textarea
+                                id="seo_keywords"
+                                v-model="systemSettings.seo_keywords"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                rows="3"
+                                placeholder="请输入网站关键词"
+                                @blur="handleFieldBlur('seo_keywords', systemSettings.seo_keywords)"
+                            ></textarea>
+                        </div>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_icp">
+                                网站备案号
+                            </label>
+                            <input 
+                                id="seo_icp"
+                                v-model="systemSettings.seo_icp"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                placeholder="请输入网站备案号"
+                                @blur="handleFieldBlur('seo_icp', systemSettings.seo_icp)"
+                            />
+                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                输入网站备案号会在页面底部显示备案信息
+                            </div>
+                        </div>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="public_security">
+                                网站公安备案号
+                            </label>
+                            <input 
+                                id="public_security"
+                                v-model="systemSettings.public_security"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                placeholder="请输入网站公安备案号"
+                                @blur="handleFieldBlur('public_security', systemSettings.public_security)"
+                            />
+                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                输入网站公安备案号会在页面底部显示公安备案信息
+                            </div>
+                        </div>
+                        <div class="setting-group"> 
+                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_icon">
+                                网站小图标
+                            </label>
+                            <input 
+                                id="seo_icon"
+                                v-model="systemSettings.seo_icon"
+                                type="text"
+                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                placeholder="请输入网站小图标"
+                                @blur="handleFieldBlur('seo_icon', systemSettings.seo_icon)"
+                            />
+                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                输入网站小图标URL会替换默认的小图标
+                            </div>
+                        </div>
+                    </div>
+
+
                     <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
                         <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
                             <span class="panel-icon mr-2 text-2xl">
@@ -517,6 +642,22 @@
                                     <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
                                 </label>
                             </div>
+                            <div class="setting-group flex items-center justify-between py-2">
+                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    启用API
+                                </label>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        v-model="systemSettings.start_api"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('start_api', systemSettings.start_api)"
+                                    >
+                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
+                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                </label>
+                            </div>
+                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">启用API必须设置API Token。</div>
                         </div>
                     </div>
                 </div>
@@ -560,7 +701,15 @@ const systemSettings = reactive({
     watermark_color: '',
     watermark_opac: '',
     referer_white_list: '',
-    referer_white_enable: false
+    referer_white_enable: false,
+    seo_title: '',
+    seo_description: '',
+    seo_keywords: '',
+    seo_icp: '',
+    public_security: '',
+    seo_icon: '',
+    api_token: '',
+    start_api: false
 })
 
 const updateSetting = reactive({})
@@ -617,8 +766,31 @@ const saveSetting = async (key, value) => {
     }, 300)
 }
 
+const generateApiToken = () => {
+    const token = generate32BitTokenMixCase();
+    systemSettings.api_token = token;
+    saveSetting('api_token', token)
+}
+
+const generate32BitTokenMixCase = () => {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  let token = '';
+  for (let i = 0; i < 32; i++) {
+    const randomIndex = Math.floor(Math.random() * chars.length);
+    token += chars[randomIndex];
+  }
+  return token;
+}
+
 // 开关状态变更统一处理方法
 const handleSwitchChange = (key, value) => {
+    if (key == "start_api") {
+        if (systemSettings.api_token == '') {
+            message.warning('请先填写API Token')
+            systemSettings.start_api = false
+            return
+        }
+    }
     saveSetting(key, value)
 }
 

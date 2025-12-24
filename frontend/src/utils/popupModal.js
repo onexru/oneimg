@@ -92,8 +92,8 @@ class PopupModal {
     
     // 标题
     this.titleEl = document.createElement('h3');
-    this.titleEl.className = 'font-semibold text-lg text-dark-300 dark:text-light-100';
-    this.titleEl.textContent = this.config.title;
+    this.titleEl.className = 'font-semibold text-lg text-dark-300 dark:text-light-100 w-[50%] truncate';
+    this.titleEl.innerHTML = this.config.title;
     this.header.appendChild(this.titleEl);
 
     // 关闭按钮

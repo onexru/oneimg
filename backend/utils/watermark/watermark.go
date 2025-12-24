@@ -61,7 +61,7 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 		FontSize:          24,
 		FontSizeRatio:     0.02,
 		MinFontSize:       10,
-		MaxFontSize:       50,
+		MaxFontSize:       500,
 		FontColor:         "FFFFFF",
 		Opacity:           1.0,
 		FontPath:          "jyhphy.ttf",
@@ -150,7 +150,7 @@ func WatermarkSetting(setting models.Settings) WatermarkConfig {
 	var (
 		ratio     = 0.02
 		minSize   = 10
-		maxSize   = 50
+		maxSize   = 500
 		dynamicOn = true
 		fontSize  = 24
 	)

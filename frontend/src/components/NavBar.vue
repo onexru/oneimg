@@ -12,8 +12,8 @@
             <i class="ri-align-justify"></i>
           </button>
           <div class="flex items-center gap-2 font-semibold text-xl">
-            <div class="w-10 h-10 rounded-md bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white font-bold">雾</div>
-            <span>初春图床</span>
+            <div class="w-10 h-10 rounded-md bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white font-bold">{{getFirstWord(seoTitle)}}</div>
+            <span>{{ seoTitle }}</span>
           </div>
         </div>
         
@@ -79,17 +79,19 @@ import { useRouter, useRoute } from 'vue-router'
 const router = useRouter()
 const route = useRoute()
 
-// 1. 定义 ref 引用
+// 定义 ref 引用
 const themeToggleRef = ref(null)
 const sidebarToggleRef = ref(null)
 const sidebarRef = ref(null)
 const sidebarOverlayRef = ref(null)
 const logoutRef = ref(null)
+const seoTitle = ref('初春图床');
 
-// 2. 导航菜单数据
+// 导航菜单数据
 const navItems = [
   { path: '/', icon: 'home-line', name: '首页' },
   { path: '/gallery', icon: 'nft-line', name: '画廊' },
+  { path: '/tags', icon: 'bookmark-line', name: 'Tags' },
   { path: '/stats', icon: 'numbers-fill', name: '统计' }
 ]
 
@@ -109,12 +111,12 @@ const isRouteActive = (targetPath) => {
   return route.path.startsWith(targetPath)
 }
 
-// 3. 导航点击事件
+// 导航点击事件
 const handleNavClick = () => {
   closeSidebar()
 }
 
-// 4. 主题切换功能
+// 主题切换功能
 const storageKey = 'theme-preference'
 
 const detectUserThemePreference = () => {
@@ -136,7 +138,7 @@ const applyTheme = (theme) => {
   }
 }
 
-// 5. 侧边栏控制功能
+// 侧边栏控制功能
 const openSidebar = () => {
   if (sidebarRef.value) {
     sidebarRef.value.classList.remove('sidebar-closed')
@@ -161,7 +163,7 @@ const closeSidebar = () => {
   document.body.style.overflow = ''
 }
 
-// 6. 登出功能
+// 登出功能
 const handleLogout = async () => {
   if (typeof localStorage !== 'undefined') {
     localStorage.removeItem('token')
@@ -181,13 +183,31 @@ const handleLogout = async () => {
   } catch (error) {
     Message.error('登出失败')
   }
-}  
+}
 
-// 7. 组件挂载时初始化
+// 获取标题第一个字
+const getFirstWord = (title) => {
+  if (!title) return ''
+  return title.split('')[0]
+}
+
+const handleSeoUpdate = (data) => {
+  if (data?.seo_title) {
+    seoTitle.value = data.seo_title;
+  }
+};
+
+// 组件挂载时初始化
 onMounted(() => {
   // 初始化主题
   const initialTheme = detectUserThemePreference()
   applyTheme(initialTheme)
+
+  // 绑定 SEO 更新事件
+  window.seoBus?.onUpdate(handleSeoUpdate);
+  if (window.seoStting?.seo_title) {
+    seoTitle.value = window.seoStting.seo_title;
+  }
 
   // 绑定主题切换事件
   if (themeToggleRef.value) {
@@ -222,7 +242,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 
-// 8. 组件卸载时清理
+// 组件卸载时清理
 onUnmounted(() => {
   // 移除主题切换事件
   if (themeToggleRef.value) {
@@ -244,6 +264,9 @@ onUnmounted(() => {
     logoutRef.value.removeEventListener('click', handleLogout)
   }
 
+  // 移除SEO更新事件
+  window.seoBus.callbacks = window.seoBus.callbacks.filter(cb => cb !== handleSeoUpdate);
+
   // 移除窗口 resize 事件
   window.removeEventListener('resize', () => {})
 
@@ -251,10 +274,14 @@ onUnmounted(() => {
   document.body.style.overflow = ''
 })
 
-// 9. 初始化侧边栏状态
+// 初始化侧边栏状态
 onMounted(() => {
   if (window.innerWidth >= 1024) {
     closeSidebar()
+  }
+  // 加载SEO标题
+  if (window.seoStting?.seo_title) {
+    seoTitle.value = window.seoStting.seo_title;
   }
 })
 </script>
