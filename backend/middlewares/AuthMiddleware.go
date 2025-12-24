@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"net/http"
+	"oneimg/backend/models"
 	"oneimg/backend/utils/settings"
 	"strings"
 
@@ -19,19 +20,22 @@ type AuthResponse struct {
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
-		// 获取请求头中的token
-		authHeader := c.Request.Header.Get("Authorization")
+		setting, _ := settings.GetSettings()
 		apiToken := ""
-		parts := strings.SplitN(authHeader, "=", 2)
-		if len(parts) == 2 && strings.TrimSpace(parts[0]) == "oneimg_token" {
-			apiToken = strings.TrimSpace(parts[1])
-		}
+		if setting.StartAPI {
+			// 获取请求头中的token
+			authHeader := c.Request.Header.Get("Authorization")
+			parts := strings.SplitN(authHeader, "=", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "oneimg_token" {
+				apiToken = strings.TrimSpace(parts[1])
+			}
 
-		if validateToken(apiToken) {
-			c.Set("user_id", 1)
-			c.Set("user_role", 1)
-			c.Set("username", "admin")
-			c.Next()
+			if validateToken(setting, apiToken) {
+				c.Set("user_id", 1)
+				c.Set("user_role", 1)
+				c.Set("username", "admin")
+				c.Next()
+			}
 		}
 
 		// 获取session
@@ -74,8 +78,10 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-func validateToken(token string) bool {
-	setting, _ := settings.GetSettings()
+func validateToken(setting models.Settings, token string) bool {
+	if token == "" || setting.APIToken == "" {
+		return false
+	}
 	return token == setting.APIToken
 }
 

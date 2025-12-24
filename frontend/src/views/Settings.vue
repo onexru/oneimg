@@ -810,6 +810,14 @@ const handleFieldBlur = (key, value) => {
             }
         }
     }
+    if (key == 'api_token' && value == '') {
+        if (systemSettings.start_api) {
+            setTimeout(() => {
+                saveSetting("start_api", false)
+                systemSettings.start_api = false
+            }, 500);
+        }
+    }
     saveSetting(key, value)
 }
 
