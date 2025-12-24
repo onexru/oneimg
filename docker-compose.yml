@@ -4,7 +4,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./.env:/app/.env
       - ./data:/app/data
       - ./uploads:/app/uploads
     logging:
