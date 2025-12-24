@@ -95,7 +95,7 @@ func Login(c *gin.Context) {
 
 			touristID := int(generateTouristID(touristUUID))
 			touristUser := &models.User{
-				Id:       touristID,
+				ID:       touristID,
 				Role:     2,
 				Username: touristUUID,
 			}
@@ -111,7 +111,7 @@ func Login(c *gin.Context) {
 			c.JSON(http.StatusOK, result.Success("游客登录成功", map[string]any{
 				"token": session.ID(),
 				"user": &models.User{
-					Id:       touristUser.Id,
+					ID:       touristUser.ID,
 					Role:     2,
 					Username: touristUser.Username,
 				},
@@ -193,7 +193,7 @@ func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 	session := sessions.Default(c)
 
 	// 设置session数据
-	session.Set("user_id", user.Id)
+	session.Set("user_id", user.ID)
 	session.Set("user_role", user.Role)
 	session.Set("username", user.Username)
 	session.Set("logged_in", true)

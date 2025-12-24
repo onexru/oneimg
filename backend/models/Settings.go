@@ -7,7 +7,7 @@ import (
 // Settings 系统配置模型（全局唯一配置）
 // 注意：该表应只有一条记录（ID=1），所有配置项存储在同一条记录中
 type Settings struct {
-	ID            int    `gorm:"primarykey;column:id;autoIncrement" json:"id"`
+	ID            int    `gorm:"type:integer;primarykey;column:id;autoIncrement" json:"id"`
 	OriginalImage bool   `gorm:"column:original_image;default:false" json:"original_image"` // 是否保存原图（默认保存）
 	SaveWebp      bool   `gorm:"column:save_webp;default:true" json:"save_webp"`            // 是否保存webp格式（默认保存）
 	Thumbnail     bool   `gorm:"column:thumbnail;default:true" json:"thumbnail"`            // 是否生成缩略图（默认生成）

@@ -4,7 +4,7 @@ import "time"
 
 // 图片模型
 type Image struct {
-	Id        int       `json:"id" gorm:"primaryKey;autoIncrement"`
+	Id        int       `json:"id" gorm:"type:integer;primaryKey;autoIncrement"`
 	Url       string    `json:"url" gorm:"not null"`
 	Thumbnail string    `json:"thumbnail"`
 	FileName  string    `json:"filename" gorm:"not null"`
