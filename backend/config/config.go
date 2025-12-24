@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -47,21 +48,29 @@ var App *Config
 
 // 检查.env文件是否存在
 func EnvExists() bool {
-	_, err := os.Stat(".env")
-	return !os.IsNotExist(err)
+	info, err := os.Stat(".env")
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 // 创建默认.env文件
-func CreateDefaultEnv() {
-	// 1. 创建data目录（避免SQLite路径报错）
+func CreateDefaultEnv() error {
+	// 检查.env文件
+	if EnvExists() {
+		return nil
+	}
+
+	// 创建data目录
 	if err := os.MkdirAll("./data", 0755); err != nil {
 		log.Fatalf("创建data目录失败：%v", err)
 	}
 
-	// 2. 生成随机的SESSION_SECRET（32位base64编码）
+	// 生成随机的SESSION_SECRET（32位base64编码）
 	sessionSecret := generateRandomSecret(32)
 
-	// 3. 直接定义.env模板内容
+	// 直接定义.env模板内容
 	envTemplate := `# 服务器配置
 SERVER_PORT=8080
 
@@ -98,9 +107,11 @@ SESSION_SECRET=
 
 	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
 		log.Fatalf("生成默认.env文件失败：%v", err)
+		return fmt.Errorf("创建默认.env文件失败：%w", err)
 	}
 
 	log.Printf("✅ 首次启动：自动生成.env文件（路径：%s）", envPath)
+	return nil
 }
 
 // 生成指定长度的随机密钥（base64编码）
@@ -117,7 +128,9 @@ func generateRandomSecret(length int) string {
 func NewConfig() {
 	// 1. 检查.env文件，不存在则生成
 	if !EnvExists() {
-		CreateDefaultEnv()
+		if err := CreateDefaultEnv(); err != nil {
+			log.Fatalf("创建默认.env文件失败：%v", err)
+		}
 	}
 
 	// 2. 加载.env文件（此时必存在）

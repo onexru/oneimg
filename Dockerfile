@@ -53,10 +53,6 @@ COPY --from=backend-builder /app/main ./
 # 复制前端构建产物
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# 复制配置文件和创建必要目录
-COPY .env ./
-RUN mkdir -p ./data ./uploads
-
 # 暴露端口
 EXPOSE 8080
 
