@@ -230,11 +230,9 @@ const getFullUrl = (path) => {
   if (!path) return '';
   if (typeof window === 'undefined') return path;
   
-  // 优化：支持环境变量配置API前缀
-  if (path.startsWith('/')) {
-    return `${API_BASE_URL}${path}`;
-  }
-  return path;
+  // 处理绝对路径和相对路径
+  if (path.startsWith('http')) return path;
+  return `${window.location.origin}${path}`;
 };
 
 /**
@@ -449,7 +447,7 @@ const batchDeleteImages = async (deleteIds) => {
  * @returns {boolean} 是否删除成功
  */
 const deleteAsync = async (id) => {    
-  const loadingInstance = loading.show({
+  const loadingInstance = Loading.show({
     text: '删除中...',
     color: '#ff4d4f',
     mask: true
@@ -466,6 +464,8 @@ const deleteAsync = async (id) => {
     if (response.ok) {
       Message.success('图片删除成功');
       selectedImages.value = selectedImages.value.filter(imageId => imageId !== id);
+      // 重新加载列表
+      loadImages();
       return true;
     } else {
       const result = await response.json();
