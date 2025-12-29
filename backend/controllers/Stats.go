@@ -71,8 +71,14 @@ func GetDashboardStats(c *gin.Context) {
 	db.Model(&models.Image{}).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
 
 	// 获取本月上传数量
-	thisMonth := time.Now().Format("2006-01")
-	db.Model(&models.Image{}).Where("strftime('%Y-%m', created_at) = ?", thisMonth).Count(&stats.MonthUploads)
+	now := time.Now()
+	year := now.Year()
+	month := now.Month()
+
+	startTime := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endTime := startTime.AddDate(0, 1, 0)
+
+	db.Model(&models.Image{}).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
 
 	// 获取最近上传的图片
 	db.Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
