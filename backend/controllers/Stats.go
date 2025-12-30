@@ -13,10 +13,10 @@ import (
 
 // StatsResponse 统计响应结构
 type StatsResponse struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // DashboardStats 仪表板统计数据
