@@ -26,7 +26,6 @@ cd oneimg
 ```bash
 docker compose up -d
 ```
-
 3. **访问系统**
 - `http://localhost:8080`
 
@@ -34,6 +33,19 @@ docker compose up -d
 ```bash
 docker compose down
 ```
+
+### 直接使用镜像
+```bash
+docker run -d \
+--name oneimg \
+-p 8080:8080 \
+-v /data/app:/app \
+--restart unless-stopped \
+onexru/oneimg-oneimg
+```
+
+### 获取TelegramID
+使用机器人[@userinfobot](https://t.me/userinfobot) 发送/start 即可获取TelegramID
 
 ### 数据持久化
 系统数据和上传的图片通过 Docker 数据卷保持持久化：
