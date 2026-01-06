@@ -9,7 +9,9 @@
 - [打赏赞助](https://www.cv0.cn/Index/Reward.php)
 
 ## Demo
-- [初春图床v3.0](https://www.ip6s.com)
+[初春图床v3.0](https://www.ip6s.com)
+
+**默认账号密码**
 ``` 默认账号
 admin
 ```
