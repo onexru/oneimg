@@ -1,7 +1,7 @@
 <template>
     <div class="login flex items-center justify-center p-4">
         <!-- 全局加载遮罩 -->
-        <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+        <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 md:ml-[255px]">
             <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px]">
                 <!-- 加载动画 -->
                 <div class="loading-spinner w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
@@ -70,7 +70,7 @@
         <!-- POW验证弹窗 -->
         <div 
             v-if="showModal" 
-            class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 transition-opacity duration-300"
+            class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 transition-opacity duration-300  md:ml-[255px]"
             @click="closeModal" id="powModal" style="display: none;"
         >
             <div class="modal bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 transform transition-all duration-300 scale-100" @click.stop>
@@ -160,7 +160,7 @@ const handleTouristLogin = async () => {
         setLoadingState('正在启动', '准备安全验证...', 10);
         setTimeout(() => {
             // 优化进度提示
-            setLoadingState('加载验证', '正在加载验证界面...', 60);
+            setLoadingState('加载验证', '正在加载验证界面...', 20);
             showModal.value = true;
         }, 500);
     } else {
@@ -183,7 +183,7 @@ const handleLogin = () => {
         setLoadingState('正在启动', '准备安全验证...', 10);
         setTimeout(() => {
             // 优化进度提示
-            setLoadingState('加载验证', '正在加载验证界面...', 60);
+            setLoadingState('加载验证', '正在加载验证界面...', 20);
             showModal.value = true;
         }, 500);
     } else {

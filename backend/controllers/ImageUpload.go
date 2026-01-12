@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"oneimg/backend/config"
@@ -52,6 +53,39 @@ func UploadImages(c *gin.Context) {
 		return
 	}
 
+	// 获取存储ID
+	var bucketID int
+	bucketIDStr := c.PostForm("bucket_id")
+	if bucketIDStr != "" {
+		// 转换为int
+		bucketID, err = strconv.Atoi(bucketIDStr)
+		if err != nil {
+			uc.Fail(400, "存储ID无效")
+			return
+		}
+	} else {
+		bucketID = setting.DefaultStorage
+	}
+
+	// 检查游客上传
+	if isTouristUsername(c.GetString("username")) {
+		if setting.DefaultStorage != bucketID {
+			uc.Fail(403, "游客不能上传到非默认存储")
+			return
+		}
+	}
+
+	// 查询存储配置
+	var buckets models.Buckets
+	if err := db.DB.Where("id = ?", bucketID).First(&buckets).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			uc.Fail(400, "存储配置不存在")
+			return
+		}
+		uc.Fail(500, "存储配置查询失败：%v", err)
+		return
+	}
+
 	// 解析并校验上传文件
 	files, err := uc.ParseAndValidateFiles()
 	if err != nil {
@@ -59,8 +93,20 @@ func UploadImages(c *gin.Context) {
 		return
 	}
 
+	// 获取文件大小
+	var filesize uint64
+	if buckets.Id != 1 && buckets.Type != "telegram" {
+		for _, file := range files {
+			filesize += uint64(file.Size)
+		}
+		if (buckets.Usage + filesize) >= buckets.Capacity {
+			uc.Fail(400, "存储空间已满, 请切换存储")
+			return
+		}
+	}
+
 	// 获取存储上传器
-	uploader, err := uc.GetStorageUploader(&setting)
+	uploader, err := uc.GetStorageUploader(&setting, &buckets)
 	if err != nil {
 		uc.Fail(400, "%s", err.Error())
 		return
@@ -78,7 +124,7 @@ func UploadImages(c *gin.Context) {
 	successCount := 0
 
 	for _, file := range files {
-		fileResult, err := uploader.Upload(c, cfg, &setting, file)
+		fileResult, err := uploader.Upload(c, cfg, &setting, &buckets, file)
 		if err != nil {
 			// 单个文件上传失败不影响其他文件
 			uc.Fail(500, "文件[%s]上传失败：%v", file.Filename, err)
@@ -95,6 +141,7 @@ func UploadImages(c *gin.Context) {
 			Width:     fileResult.Width,
 			Height:    fileResult.Height,
 			Storage:   fileResult.Storage,
+			BucketId:  bucketID,
 			UserId:    c.GetInt("user_id"),
 			MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
 			UUID:      GetUUID(c),
@@ -102,6 +149,20 @@ func UploadImages(c *gin.Context) {
 
 		if db != nil {
 			db.DB.Create(&imageModel)
+		}
+
+		// 保存文件大小至存储
+		if fileResult.Storage != "default" {
+			fileSizeUint := uint64(fileResult.FileSize)
+			result := db.DB.Model(&models.Buckets{}).
+				Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, fileSizeUint).
+				UpdateColumn("usage", gorm.Expr("usage + ?", fileSizeUint))
+			if result.Error != nil {
+				log.Printf("更新Usage失败：%v", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				log.Printf("更新Usage无生效，原因：1.桶ID不存在 2.usage+文件大小>容量 3.数据无变更")
+			}
 		}
 
 		// 上传时关联图片标签
@@ -124,7 +185,7 @@ func UploadImages(c *gin.Context) {
 				Username:    c.GetString("username"),
 				Date:        time.Now().Format("2006-01-02 15:04:05"),
 				Filename:    fileResult.FileName,
-				StorageType: setting.StorageType,
+				StorageType: buckets.Type,
 				URL:         c.Request.Host + fileResult.URL,
 			}
 
@@ -406,4 +467,48 @@ func AddImageTags(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result.Success("批量添加标签成功", nil))
+}
+
+// 获取上传配置
+func GetUploadConfig(c *gin.Context) {
+	var tags []models.Tags
+	var buckets []models.Buckets
+
+	db := database.GetDB().DB
+	query := db.Model(&models.Tags{})
+	// 获取标签列表
+	if err := query.Find(&tags).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取标签列表失败"))
+		return
+	}
+
+	if err := db.Model(&models.Buckets{}).Find(&buckets).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取存储桶列表失败"))
+		return
+	}
+
+	var bucketRes []map[string]any
+	for _, bucket := range buckets {
+		// 过滤已满的存储桶
+		if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
+			continue
+		}
+		res := map[string]any{
+			"id":   bucket.Id,
+			"name": bucket.Name,
+			"type": bucket.Type,
+		}
+		bucketRes = append(bucketRes, res)
+	}
+
+	setting, _ := settings.GetSettings()
+
+	// 构造返回参数
+	config := map[string]any{
+		"buckets":        bucketRes,
+		"tags":           tags,
+		"default_bucket": setting.DefaultStorage,
+	}
+
+	c.JSON(http.StatusOK, result.Success("ok", config))
 }

@@ -3,14 +3,14 @@
         <!-- 页面头部 -->
         <div class="settings-header container mx-auto px-4 py-4">
             <h1 class="page-title flex items-center text-2xl md:text-3xl font-bold">
-                设置
+                系统设置
             </h1>
             <p class="page-description text-gray-600 dark:text-gray-400 mt-2">管理您的系统设置</p>
         </div>
 
         <!-- 主要内容 -->
         <div class="container mx-auto px-4 pb-16">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(480px,1fr))] gap-8">
                 <!-- 系统配置卡片 -->
                 <div class="order-1 md:order-2 w-full p-0 mx-auto">
                     <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
@@ -22,6 +22,28 @@
                         </h2>
                         
                         <div class="account-form space-y-6">
+                            <!-- 默认存储 -->
+                            <div class="setting-group">
+                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="default_storage">
+                                    系统默认存储
+                                </label>
+                                <select 
+                                    id="default_storage"
+                                    v-model="systemSettings.default_storage"
+                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    @change="handleSelectChange('default_storage', systemSettings.default_storage)"
+                                >
+                                    <option 
+                                        v-for="bucket in presetBuckets" 
+                                        :key="bucket.id"
+                                        :value="bucket.id"
+                                        >{{ bucket.name }} ({{ bucket.type }})</option>
+                                </select>
+                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                    选择后系统将使用该存储作为默认存储，游客仅能使用该存储
+                                </div>
+                            </div>
+                            
                             <!-- TG Bot Token：失去焦点保存 -->
                             <div class="setting-group">
                                 <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="tg_bot_token">
@@ -36,7 +58,7 @@
                                     @blur="handleFieldBlur('tg_bot_token', systemSettings.tg_bot_token)"
                                 />
                                 <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    存储选择Telegram时必填
+                                    发送Telegram通知时必填
                                 </div>
                             </div>
                             
@@ -54,7 +76,7 @@
                                     @blur="handleFieldBlur('tg_receivers', systemSettings.tg_receivers)"
                                 />
                                 <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    存储选择Telegram时必填
+                                    发送Telegram通知时必填
                                 </div>
                             </div>
                             
@@ -208,197 +230,6 @@
                                 </div>
                                 <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
                                     1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}
-                                </div>
-                            </div>
-
-                            <!-- 存储类型：下拉框变更保存 -->
-                            <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="storage_type">
-                                    存储类型
-                                </label>
-                                <select 
-                                    id="storage_type"
-                                    v-model="systemSettings.storage_type"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    @change="handleSelectChange('storage_type', systemSettings.storage_type)"
-                                >
-                                    <option value="" disabled>请选择存储类型</option>
-                                    <option value="default">本地存储</option>
-                                    <option value="s3">S3</option>
-                                    <option value="r2">R2</option>
-                                    <option value="webdav">WebDav</option>
-                                    <option value="ftp">FTP</option>
-                                    <option value="telegram">Telegram</option>
-                                </select>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    选择Telegram存储必须使用海外服务器，否则无法正常上传、查看、删除图片
-                                </div>
-                            </div>
-
-                            <!-- S3/R2配置：失去焦点保存 -->
-                            <div v-if="['s3', 'r2'].includes(systemSettings.storage_type)" class="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-700">
-                                <h3 class="font-bold text-sm text-gray-800 dark:text-gray-200">S3/R2 配置</h3>
-                                
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="s3_endpoint">
-                                        S3 Endpoint
-                                    </label>
-                                    <input 
-                                        id="s3_endpoint"
-                                        v-model="systemSettings.s3_endpoint"
-                                        type="text" 
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="如：s3.us-west-004.backblazeb2.com"
-                                        @blur="handleFieldBlur('s3_endpoint', systemSettings.s3_endpoint)"
-                                    />
-                                </div>
-                                
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="s3_access_key">
-                                        S3 AccessKey
-                                    </label>
-                                    <input 
-                                        id="s3_access_key"
-                                        v-model="systemSettings.s3_access_key"
-                                        type="text" 
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="S3访问密钥ID"
-                                        @blur="handleFieldBlur('s3_access_key', systemSettings.s3_access_key)"
-                                    />
-                                </div>
-                                
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="s3_secret_key">
-                                        S3 SecretKey
-                                    </label>
-                                    <input 
-                                        id="s3_secret_key"
-                                        v-model="systemSettings.s3_secret_key"
-                                        type="password" 
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="S3私有访问密钥"
-                                        @blur="handleFieldBlur('s3_secret_key', systemSettings.s3_secret_key)"
-                                    />
-                                </div>
-                                
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="S3Bucket">
-                                        S3 Bucket
-                                    </label>
-                                    <input 
-                                        id="S3Bucket"
-                                        v-model="systemSettings.s3_bucket"
-                                        type="text" 
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="存储桶名称"
-                                        @blur="handleFieldBlur('s3_bucket', systemSettings.s3_bucket)"
-                                    />
-                                </div>
-                            </div>
-
-                            <!-- WebDAV配置：失去焦点保存 -->
-                            <div v-if="systemSettings.storage_type === 'webdav'" class="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-700"> 
-                                <h3 class="font-bold text-sm text-gray-800 dark:text-gray-200">WebDav 配置</h3>
-
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="webdav_url">
-                                        WebDav URL
-                                    </label>
-                                    <input 
-                                        id="webdav_url"
-                                        v-model="systemSettings.webdav_url"
-                                        type="text"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 WebDav 地址"
-                                        @blur="handleFieldBlur('webdav_url', systemSettings.webdav_url)"
-                                    />
-                                </div>
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="webdav_user">
-                                        WebDav 用户名
-                                    </label>
-                                    <input 
-                                        id="webdav_user"
-                                        v-model="systemSettings.webdav_user"
-                                        type="text"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 WebDav 用户名"
-                                        @blur="handleFieldBlur('webdav_user', systemSettings.webdav_user)"
-                                    />
-                                </div>
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="webdav_pass">
-                                        WebDav 密码
-                                    </label>
-                                    <input 
-                                        id="webdav_pass"
-                                        v-model="systemSettings.webdav_pass"
-                                        type="password"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 WebDav 密码"
-                                        @blur="handleFieldBlur('webdav_pass', systemSettings.webdav_pass)"
-                                    />
-                                </div>
-                            </div>
-
-                            <!-- FTP配置：失去焦点保存 -->
-                            <div v-if="systemSettings.storage_type === 'ftp'" class="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-700"> 
-                                <h3 class="font-bold text-sm text-gray-800 dark:text-gray-200">FTP 配置</h3>
-
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ftp_host">
-                                        FTP HOST
-                                    </label>
-                                    <input 
-                                        id="ftp_host"
-                                        v-model="systemSettings.ftp_host"
-                                        type="text"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 FTP IP或域名"
-                                        @blur="handleFieldBlur('ftp_host', systemSettings.ftp_host)"
-                                    />
-                                </div>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    直接填写IP或域名，无需填写 ftp:// 或者 sftp://
-                                </div>
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ftp_port">
-                                        FTP 端口
-                                    </label>
-                                    <input 
-                                        id="ftp_port"
-                                        v-model="systemSettings.ftp_port"
-                                        type="number"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="FTP 默认端口号 21"
-                                        @blur="handleFieldBlur('ftp_port', systemSettings.ftp_port)"
-                                    />
-                                </div>
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ftp_user">
-                                        FTP 用户名
-                                    </label>
-                                    <input 
-                                        id="ftp_user"
-                                        v-model="systemSettings.ftp_user"
-                                        type="password"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 FTP 用户名"
-                                        @blur="handleFieldBlur('ftp_user', systemSettings.ftp_user)"
-                                    />
-                                </div>
-                                <div class="setting-group"> 
-                                    <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ftp_pass">
-                                        FTP 密码
-                                    </label>
-                                    <input 
-                                        id="ftp_pass"
-                                        v-model="systemSettings.ftp_pass"
-                                        type="password"
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="请填写 FTP 登录密码"
-                                        @blur="handleFieldBlur('ftp_pass', systemSettings.ftp_pass)"
-                                    />
                                 </div>
                             </div>
                         </div>
@@ -658,6 +489,22 @@
                                 </label>
                             </div>
                             <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">启用API必须设置API Token。</div>
+                            <div class="setting-group flex items-center justify-between py-2">
+                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    保存源文件名
+                                </label>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        v-model="systemSettings.save_original_name"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('save_original_name', systemSettings.save_original_name)"
+                                    >
+                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
+                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                </label>
+                            </div>
+                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">启用保存原图功能将不自带重命名。</div>
                         </div>
                     </div>
                 </div>
@@ -670,7 +517,11 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import message from '@/utils/message.js'
-
+// 存储相关
+const presetBuckets = ref([
+  { id: "1", name: '默认存储', type: "default" },
+]);
+// 系统设置项
 const systemSettings = reactive({
     id: 1,
     original_image: false,
@@ -682,18 +533,6 @@ const systemSettings = reactive({
     tg_bot_token: '',
     tg_receivers: '',
     tg_notice_text: '',
-    storage_type: '',
-    s3_endpoint: '',
-    s3_access_key: '',
-    s3_secret_key: '',
-    s3_bucket: '',
-    webdav_url: '',
-    webdav_user: '',
-    webdav_pass: '',
-    ftp_host: '',
-    ftp_port: 21,
-    ftp_user: '',
-    ftp_pass: '',
     watermark_enable: '',
     watermark_text: '',
     watermark_pos: '',
@@ -709,7 +548,9 @@ const systemSettings = reactive({
     public_security: '',
     seo_icon: '',
     api_token: '',
-    start_api: false
+    start_api: false,
+    save_original_name: false,
+    default_storage: 1
 })
 
 const updateSetting = reactive({})
@@ -766,6 +607,28 @@ const saveSetting = async (key, value) => {
     }, 300)
 }
 
+/**
+ * 获取存储列表
+ */
+const getBucketsList = async () => {
+  try {
+    const response = await fetch(`/api/buckets/list`, {
+      method: 'GET',
+      headers: getRequestHeaders(),
+    });
+    
+    const result = await response.json();
+    if (response.ok && result.code === 200) {
+      presetBuckets.value = result.data || [];
+    } else {
+      throw new Error(result.message || '获取存储列表失败');
+    }
+  } catch (error) {
+    console.error('获取存储列表失败:', error);
+    Message.error(error.message || '获取存储列表失败');
+  }
+};
+
 const generateApiToken = () => {
     const token = generate32BitTokenMixCase();
     systemSettings.api_token = token;
@@ -791,6 +654,20 @@ const handleSwitchChange = (key, value) => {
             return
         }
     }
+
+    if(key == 'tg_notice' && value === true){
+        if (systemSettings.tg_bot_token == '' || systemSettings.tg_receivers == '') {
+            if(systemSettings.tg_notice === true){
+                message.warning('请先配置机器人令牌')
+                setTimeout(() => {
+                    systemSettings.tg_notice = false
+                    saveSetting("tg_notice", 'false')
+                }, 1500)
+                
+                return
+            }
+        }
+    }
     saveSetting(key, value)
 }
 
@@ -798,12 +675,11 @@ const handleSwitchChange = (key, value) => {
 const handleFieldBlur = (key, value) => {
     if (key == 'tg_bot_token' || key == 'tg_receivers') {
         if (systemSettings.tg_bot_token == '' || systemSettings.tg_receivers == '') {
-            if(systemSettings.storage_type === 'telegram'){
-                // 未设置机器人令牌和接收者列表时，自动切回默认存储方式
-                message.warning('配置不完整，切回默认存储方式')
+            if(systemSettings.tg_notice === true){
+                message.warning('请先配置机器人令牌')
                 setTimeout(() => {
-                    systemSettings.storage_type = 'default'
-                    saveSetting("storage_type", 'default')
+                    systemSettings.tg_notice = false
+                    saveSetting("tg_notice", 'false')
                 }, 1500)
                 
                 return
@@ -823,18 +699,6 @@ const handleFieldBlur = (key, value) => {
 
 // 下拉框变更处理
 const handleSelectChange = (key, value) => {
-    if(key == 'storage_type' && value === 'telegram'){
-        if(!systemSettings.tg_bot_token || !systemSettings.tg_receivers){
-            message.warning('请先填写机器人令牌和接收者列表')
-            // 重置下拉
-            if(updateSetting?.storage_type) {
-                systemSettings.storage_type = updateSetting.storage_type
-            } else {
-                systemSettings.storage_type = 'default'
-            }
-            return
-        }
-    }
     saveSetting(key, value)
 }
 
@@ -865,7 +729,8 @@ const getSettings = async () => {
 }
 
 onMounted(() => {
-    getSettings()
+    getSettings();
+    getBucketsList();
 })
 </script>
 

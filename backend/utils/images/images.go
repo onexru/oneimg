@@ -15,6 +15,7 @@ import (
 	"oneimg/backend/config"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/watermark"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-// 常量定义 - 提取魔法数字和固定值
+// 常量定义
 const (
 	DefaultCompressQuality = 85
 	OriginalQuality        = 100
@@ -35,7 +36,7 @@ const (
 
 // 特殊格式常量
 var (
-	specialFormats   = []string{"gif"}
+	specialFormats   = []string{"gif", "svg"}
 	specialMimeTypes = []string{
 		"image/gif",
 		"image/svg+xml",
@@ -43,6 +44,7 @@ var (
 	ErrUnsupportedFormat  = errors.New("unsupported image format")
 	ErrFileTooLarge       = errors.New("file size exceeds limit")
 	ErrMissingContentType = errors.New("missing content type")
+	ErrSVGThumbnail       = errors.New("svg thumbnail generation not supported")
 )
 
 type ImageService struct{}
@@ -82,15 +84,19 @@ func (s *ImageService) ProcessImage(
 	}
 
 	// 2. 解码图片（获取原图信息）
-	img, format, err := s.decodeImage(bytes.NewReader(fileBytes))
+	img, format, err := s.decodeImage(bytes.NewReader(fileBytes), header.Header.Get("Content-Type")) // 新增MIME参数
 	if err != nil {
 		return nil, fmt.Errorf("decode image failed: %w", err)
 	}
 
 	// 3. 获取图片基本信息
+	var width, height int
 	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
+	if format != "svg" {
+		width, height = bounds.Dx(), bounds.Dy()
+	}
 	mimeType := header.Header.Get("Content-Type")
+	originalFileName := header.Filename
 
 	// 4. 处理主图片（压缩/格式转换）
 	processedBytes, finalFormat, finalMimeType, err := s.processMainImage(
@@ -102,31 +108,36 @@ func (s *ImageService) ProcessImage(
 
 	// 5. 处理文件扩展名
 	outputExt := map[string]string{
-		"image/jpeg":    ".jpg",  // JPEG格式
-		"image/png":     ".png",  // PNG格式
-		"image/gif":     ".gif",  // GIF格式
-		"image/webp":    ".webp", // WebP格式
-		"image/svg+xml": ".svg",  // SVG格式
-		"image/bmp":     ".bmp",  // BMP格式
-		"image/tiff":    ".tiff", // TIFF格式
-		"image/heic":    ".heic", // HEIC格式
-		"image/heif":    ".heif", // HEIF格式
+		"image/jpeg":    ".jpg",
+		"image/png":     ".png",
+		"image/gif":     ".gif",
+		"image/webp":    ".webp",
+		"image/svg+xml": ".svg",
+		"image/bmp":     ".bmp",
+		"image/tiff":    ".tiff",
+		"image/heic":    ".heic",
+		"image/heif":    ".heif",
 	}
 
-	// 将主图转化成image.Image用于生成缩略图
-	reader := bytes.NewReader(processedBytes)
-	img, _, err = image.Decode(reader)
+	// 6. 生成缩略图（SVG单独处理）
+	thumbnailBytes, err := s.generateThumbnail(img, finalFormat, finalMimeType, fileBytes) // 新增原始字节参数
 	if err != nil {
-		return nil, fmt.Errorf("decode image failed: %w", err)
+		// SVG缩略图生成失败不中断流程，返回空字节或原文件
+		log.Printf("generate thumbnail failed: %v, use original file as thumbnail", err)
+		thumbnailBytes = fileBytes // SVG用原文件作为缩略图
 	}
 
-	// 6. 生成缩略图
-	thumbnailBytes, err := s.generateThumbnail(img, finalFormat, finalMimeType)
-	if err != nil {
-		return nil, fmt.Errorf("generate thumbnail failed: %w", err)
+	// 7. 处理文件名
+	fileName := ""
+	originalNameExt := filepath.Ext(originalFileName)
+	originalNameWithoutExt := strings.TrimSuffix(originalFileName, originalNameExt)
+	if setting.SaveOriginalName {
+		fileName = originalNameWithoutExt + outputExt[finalMimeType]
+	} else {
+		fileName = generateUniqueFileName(outputExt[finalMimeType])
 	}
 
-	// 7. 组装返回结果
+	// 8. 组装返回结果
 	return &ProcessedImage{
 		OriginalBytes:   fileBytes,
 		CompressedBytes: processedBytes,
@@ -136,7 +147,7 @@ func (s *ImageService) ProcessImage(
 		Format:          finalFormat,
 		MimeType:        finalMimeType,
 		OutputExt:       outputExt[finalMimeType],
-		UniqueFileName:  generateUniqueFileName(outputExt[finalMimeType]),
+		UniqueFileName:  fileName,
 	}, nil
 }
 
@@ -148,8 +159,11 @@ func (s *ImageService) processMainImage(
 	fileSize int64,
 	setting models.Settings,
 ) ([]byte, string, string, error) {
-	// 特殊格式直接返回原数据
+	// 特殊格式（GIF/SVG）直接返回原数据，不处理水印和压缩
 	if s.isSpecialFormat(format, mimeType) {
+		if format == "svg" || mimeType == "image/svg+xml" {
+			return fileBytes, "svg", "image/svg+xml", nil
+		}
 		return fileBytes, format, mimeType, nil
 	}
 
@@ -212,12 +226,18 @@ func (s *ImageService) processMainImage(
 	return compressed, format, mimeType, nil
 }
 
-// generateThumbnail 生成缩略图
+// generateThumbnail 生成缩略图（新增SVG处理）
 func (s *ImageService) generateThumbnail(
 	img image.Image,
 	format, mimeType string,
+	originalBytes []byte, // 新增原始字节参数，用于SVG
 ) ([]byte, error) {
-	// 特殊格式生成JPEG缩略图
+	// SVG单独处理：返回原文件作为缩略图
+	if format == "svg" || mimeType == "image/svg+xml" {
+		return originalBytes, ErrSVGThumbnail // 返回原文件并提示SVG缩略图不支持
+	}
+
+	// 特殊格式（GIF）生成JPEG缩略图
 	if s.isSpecialFormat(format, mimeType) {
 		return s.generateJPEGThumbnail(img, ThumbnailMaxWidth, ThumbnailMaxHeight, ThumbnailQuality)
 	}
@@ -241,15 +261,21 @@ func (s *ImageService) isSpecialFormat(format, mimeType string) bool {
 	return false
 }
 
-// decodeImage 解码图片，支持webp/gif/png/jpeg等格式
-// 优化点：减少内存拷贝，按优先级解码
-func (s *ImageService) decodeImage(reader io.Reader) (image.Image, string, error) {
+// decodeImage 解码图片，支持webp/gif/png/jpeg/SVG等格式
+// 优化点：增加SVG处理，避免解码失败
+func (s *ImageService) decodeImage(reader io.Reader, mimeType string) (image.Image, string, error) {
 	// 读取数据到缓冲区（复用）
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, "", fmt.Errorf("read image data: %w", err)
 	}
 	buf := bytes.NewReader(data)
+
+	// 优先处理SVG（MIME类型判断）
+	if mimeType == "image/svg+xml" || strings.HasPrefix(strings.ToLower(string(data[:100])), "<svg") {
+		// SVG返回空的image.Image（不解析矢量图），格式标记为svg
+		return image.NewRGBA(image.Rect(0, 0, 0, 0)), "svg", nil
+	}
 
 	// 按优先级解码（常用格式优先）
 	decodeFuncs := []struct {
@@ -294,7 +320,7 @@ func (s *ImageService) convertToWebP(img image.Image, quality int) ([]byte, erro
 	return data, nil
 }
 
-// compressWebP 压缩webp图片（复用转换逻辑）
+// compressWebP 压缩webp图片
 func (s *ImageService) compressWebP(img image.Image, quality int) ([]byte, error) {
 	return s.convertToWebP(img, quality)
 }
@@ -331,6 +357,11 @@ func (s *ImageService) generateJPEGThumbnail(
 	img image.Image,
 	maxWidth, maxHeight, quality int,
 ) ([]byte, error) {
+	// 空图片（如SVG）直接返回空字节
+	if img.Bounds().Dx() == 0 && img.Bounds().Dy() == 0 {
+		return []byte{}, ErrSVGThumbnail
+	}
+
 	// 调整图片大小（保持宽高比）
 	thumbnail := imaging.Fit(img, maxWidth, maxHeight, imaging.Lanczos)
 
@@ -349,6 +380,11 @@ func (s *ImageService) generateWebPThumbnail(
 	img image.Image,
 	maxWidth, maxHeight, quality int,
 ) ([]byte, error) {
+	// 空图片（如SVG）直接返回空字节
+	if img.Bounds().Dx() == 0 && img.Bounds().Dy() == 0 {
+		return []byte{}, ErrSVGThumbnail
+	}
+
 	// 调整图片大小
 	thumbnail := imaging.Fit(img, maxWidth, maxHeight, imaging.Lanczos)
 

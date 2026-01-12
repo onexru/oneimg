@@ -70,9 +70,15 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			// 用户信息接口
 			auth.GET("/user/status", controllers.CheckLoginStatus)
 
+			// 获取上传配置
+			auth.GET("/uploadConfig", controllers.GetUploadConfig)
+
 			// 标签管理接口
 			auth.GET("/tags", controllers.GetTags)
 			auth.DELETE("/tags/:id", controllers.DeleteTag)
+
+			// 存储桶列表
+			auth.GET("/buckets/list", controllers.GetBucketsList)
 
 			// 统计数据
 			auth.GET("/stats/dashboard", controllers.GetDashboardStats)
@@ -94,6 +100,12 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			{
 				// 新增标签
 				auth.POST("/tags", controllers.AddTag)
+
+				// 存储管理接口
+				auth.GET("/buckets", controllers.GetBuckets)
+				auth.POST("/buckets", controllers.AddBuckets)
+				auth.POST("/buckets/update/:id", controllers.UpdateBuckets)
+				auth.DELETE("/buckets/:id", controllers.DeleteBuckets)
 
 				// 账户管理接口
 				auth.POST("/account/change", controllers.ChangeAccountInfo)

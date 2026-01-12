@@ -26,5 +26,5 @@ type ImageUploadResult struct {
 
 // Upload 上传处理接口
 type StorageUploader interface {
-	Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*ImageUploadResult, error)
+	Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*ImageUploadResult, error)
 }

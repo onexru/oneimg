@@ -3,14 +3,14 @@
         <!-- 页面头部 -->
         <div class="settings-header container mx-auto px-4 py-4">
             <h1 class="page-title flex items-center text-2xl md:text-3xl font-bold">
-                设置
+                账户设置
             </h1>
             <p class="page-description text-gray-600 dark:text-gray-400 mt-2">管理您的系统账户</p>
         </div>
 
         <!-- 主要内容 -->
-        <div class="container mx-auto px-4 pb-16">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="container mx-auto pb-16">
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(480px,1fr))] gap-6">
 
                 <div class="mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8">
@@ -195,7 +195,7 @@ const updateAccount = async () => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}` // 补充授权头，与其他页面保持一致
+                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
             },
             body: JSON.stringify({
                 new_username: newUsername,

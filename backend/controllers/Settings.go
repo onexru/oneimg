@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -133,13 +134,10 @@ func filterSettings(settings *models.Settings, keys []string) *models.Settings {
 		if jsonTag == "" {
 			continue
 		}
-		for _, key := range keys {
-			if jsonTag == key {
-				dstField := dstVal.FieldByName(srcField.Name)
-				if dstField.IsValid() && dstField.CanSet() {
-					dstField.Set(srcFieldVal)
-				}
-				break
+		if slices.Contains(keys, jsonTag) {
+			dstField := dstVal.FieldByName(srcField.Name)
+			if dstField.IsValid() && dstField.CanSet() {
+				dstField.Set(srcFieldVal)
 			}
 		}
 	}
@@ -365,6 +363,29 @@ func validateSettingData(key string, value any) error {
 		}
 		if !validPos[pos] {
 			return fmt.Errorf("水印位置参数不合法")
+		}
+	case "default_storage":
+		// 检查存储配置是否存在
+		db := database.GetDB().DB
+
+		var id int
+		switch v := value.(type) {
+		case int:
+			id = v
+		case string:
+			num64, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return fmt.Errorf("%s", "解析失败: "+err.Error())
+			}
+			id = int(num64)
+		}
+
+		Buckets := models.Buckets{
+			Id: id,
+		}
+
+		if err := db.First(&Buckets).Error; err != nil {
+			return fmt.Errorf("存储桶不存在")
 		}
 	}
 

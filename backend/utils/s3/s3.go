@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"oneimg/backend/models"
+	utilsBuckets "oneimg/backend/utils/buckets"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -13,7 +14,7 @@ import (
 )
 
 // 创建S3客户端
-func NewS3Client(setting models.Settings) (*s3.Client, error) {
+func NewS3Client(setting models.Settings, buckets models.Buckets) (*s3.Client, error) {
 	var (
 		endpoint  string
 		bucket    string
@@ -21,13 +22,21 @@ func NewS3Client(setting models.Settings) (*s3.Client, error) {
 		secretKey string
 		region    = "auto" // R2使用auto区域
 	)
-	endpoint = setting.S3Endpoint
-	bucket = setting.S3Bucket
-	accessKey = setting.S3AccessKey
-	secretKey = setting.S3SecretKey
 
-	if setting.StorageType == "s3" {
+	switch buckets.Type {
+	case "s3":
+		storageConfig := utilsBuckets.ConvertToS3Bucket(buckets.Config)
+		endpoint = storageConfig.S3Endpoint
+		bucket = storageConfig.S3Bucket
+		accessKey = storageConfig.S3AccessKey
+		secretKey = storageConfig.S3SecretKey
 		region = "us-east-1"
+	case "r2":
+		storageConfig := utilsBuckets.ConvertToR2Bucket(buckets.Config)
+		endpoint = storageConfig.R2Endpoint
+		bucket = storageConfig.R2Bucket
+		accessKey = storageConfig.R2AccessKey
+		secretKey = storageConfig.R2SecretKey
 	}
 
 	if accessKey == "" || secretKey == "" {

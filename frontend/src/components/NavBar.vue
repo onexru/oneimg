@@ -1,13 +1,13 @@
 <template>
   <!-- 顶部导航栏 -->
-  <header class="bg-light-100/80 dark:bg-dark-300/80 backdrop-blur-md border-b border-light-200 dark:border-dark-100 py-3 fixed top-0 left-0 right-0 z-40 transition-all duration-300">
+  <header class="bg-light-100/80 dark:bg-dark-300/80 backdrop-blur-md border-b border-light-200 dark:border-dark-100 py-3 fixed top-0 left-0 right-0 z-40 transition-all duration-300 md:ml-[255px]">
     <div class="container mx-auto px-4">
       <div class="flex justify-between items-center">
         <!-- 左侧Logo和菜单按钮 -->
         <div class="flex items-center gap-3">
           <button 
             ref="sidebarToggleRef"
-            class="w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 transition-all duration-200 flex items-center justify-center"
+            class="md:hidden w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 transition-all duration-200 flex items-center justify-center"
           >
             <i class="ri-align-justify"></i>
           </button>
@@ -28,7 +28,8 @@
           </button>
 
           <button 
-            ref="logoutRef"
+            v-if="isLogin"
+            @click="handleLogout"
             class="w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 hover:text-primary transition-all duration-200 flex items-center justify-center"
           >
             <i class="ri-logout-circle-r-line"></i>
@@ -41,9 +42,9 @@
   <!-- 侧边栏 -->
   <div 
     ref="sidebarRef"
-    class="fixed top-0 left-0 h-full w-64 bg-light-100 dark:bg-dark-300 border-r border-light-200 dark:border-dark-100 z-50 transition-transform duration-300 sidebar-closed"
+    class="fixed top-0 left-0 h-full w-64 bg-light-100 transition-all dark:bg-dark-300 border-r border-light-200 dark:border-dark-100 z-50 transition-transform duration-300 sidebar-closed md:sidebar-open"
   >
-    <div class="p-4 border-b border-light-200 dark:border-dark-100">
+    <div class="p-5 border-b border-light-200 transition-all dark:border-dark-100">
         <h3 class="font-medium text-secondary">导航菜单</h3>
     </div>
     <nav class="p-2">
@@ -53,7 +54,7 @@
               :to="item.path"
               :class="[
                 'flex items-center px-3 py-3 rounded-md transition-all duration-200',
-                isRouteActive(item.path) ? 'bg-primary/10 text-primary' : 'hover:bg-light-100 dark:hover:bg-dark-300 text-secondary hover:text-primary'
+                isRouteActive(item.path) ? 'bg-primary/10 text-primary' : 'hover:bg-light-100 dark:hover:bg-dark-300 text-secondary hover:text-primary transition-all'
               ]"
               @click="handleNavClick"
             >
@@ -73,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
@@ -84,24 +85,33 @@ const themeToggleRef = ref(null)
 const sidebarToggleRef = ref(null)
 const sidebarRef = ref(null)
 const sidebarOverlayRef = ref(null)
-const logoutRef = ref(null)
 const seoTitle = ref('初春图床');
-
+const isLogin = ref(false);
 // 导航菜单数据
-const navItems = [
-  { path: '/', icon: 'home-line', name: '首页' },
-  { path: '/gallery', icon: 'nft-line', name: '画廊' },
-  { path: '/tags', icon: 'bookmark-line', name: 'Tags' },
-  { path: '/stats', icon: 'numbers-fill', name: '统计' }
-]
+const navItems = ref([]);
+const refreshNavItems = () => {
+  const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+  navItems.value.splice(0);
+  isLogin.value = !!userInfo.username;
 
-const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-if (userInfo?.isTourist != true) {
-  navItems.push(
-    { path: '/account', icon: 'user-settings-line', name: '账户设置' },
-    { path: '/settings', icon: 'settings-line', name: '系统设置' }
-  )
-}
+  if (!isLogin.value) {
+    navItems.value.push({ path: '/login', icon: 'login-circle-line', name: '登录' });
+  } else {
+    navItems.value.push(
+      { path: '/', icon: 'home-line', name: '首页' },
+      { path: '/gallery', icon: 'nft-line', name: '画廊' },
+      { path: '/tags', icon: 'bookmark-line', name: 'Tags' },
+      { path: '/stats', icon: 'numbers-fill', name: '统计' }
+    );
+    if (userInfo?.isTourist !== true) {
+      navItems.value.push(
+        { path: '/buckets', icon: 'database-2-line', name: '存储桶'},
+        { path: '/account', icon: 'user-settings-line', name: '账户设置' },
+        { path: '/settings', icon: 'settings-line', name: '系统设置' }
+      );
+    }
+  }
+};
 
 const isRouteActive = (targetPath) => {
   const exactMatchPaths = ['/', '/login', '/404']
@@ -113,7 +123,9 @@ const isRouteActive = (targetPath) => {
 
 // 导航点击事件
 const handleNavClick = () => {
-  closeSidebar()
+  if (window.innerWidth < 768) {
+    closeSidebar()
+  }
 }
 
 // 主题切换功能
@@ -145,10 +157,14 @@ const openSidebar = () => {
     sidebarRef.value.classList.add('sidebar-open')
   }
   if (sidebarOverlayRef.value) {
-    sidebarOverlayRef.value.classList.remove('overlay-hidden')
-    sidebarOverlayRef.value.classList.add('overlay-visible')
+    if (window.innerWidth < 768) {
+      sidebarOverlayRef.value.classList.remove('overlay-hidden')
+      sidebarOverlayRef.value.classList.add('overlay-visible')
+    }
   }
-  document.body.style.overflow = 'hidden'
+  if (window.innerWidth < 768) {
+    document.body.style.overflow = 'hidden'
+  }
 }
 
 const closeSidebar = () => {
@@ -163,19 +179,16 @@ const closeSidebar = () => {
   document.body.style.overflow = ''
 }
 
-// 登出功能
 const handleLogout = async () => {
   if (typeof localStorage !== 'undefined') {
     localStorage.removeItem('token')
     localStorage.removeItem('userInfo')
   }
   try{
-
-    await fetch('/api/logout', {
-      method: 'POST'
-    })
+    await fetch('/api/logout', { method: 'POST' })
     Message.success('登出成功')
     setTimeout(() => {
+      refreshNavItems();
       router.push('/login').catch(err => {
         console.log('跳转登录页失败：', err)
       })
@@ -228,17 +241,17 @@ onMounted(() => {
     sidebarOverlayRef.value.addEventListener('click', closeSidebar)
   }
 
-  // 绑定登出事件
-  if (logoutRef.value) {
-    logoutRef.value.addEventListener('click', handleLogout)
-  }
-
   // 窗口大小变化事件
   const handleResize = () => {
-    if (window.innerWidth >= 1024) {
+    if (window.innerWidth <= 768) {
       closeSidebar()
     }
+    if (window.innerWidth >= 768) {
+      openSidebar()
+    }
   }
+  refreshNavItems();
+  window.refreshNavItems = refreshNavItems;
   window.addEventListener('resize', handleResize)
 })
 
@@ -259,26 +272,20 @@ onUnmounted(() => {
     sidebarOverlayRef.value.removeEventListener('click', closeSidebar)
   }
 
-  // 移除登出事件
-  if (logoutRef.value) {
-    logoutRef.value.removeEventListener('click', handleLogout)
-  }
-
   // 移除SEO更新事件
   window.seoBus.callbacks = window.seoBus.callbacks.filter(cb => cb !== handleSeoUpdate);
 
   // 移除窗口 resize 事件
-  window.removeEventListener('resize', () => {})
+  window.removeEventListener('resize', () => {});
 
   // 恢复页面滚动
-  document.body.style.overflow = ''
+  document.body.style.overflow = '';
+
+  delete window.refreshNavItems;
 })
 
 // 初始化侧边栏状态
 onMounted(() => {
-  if (window.innerWidth >= 1024) {
-    closeSidebar()
-  }
   // 加载SEO标题
   if (window.seoStting?.seo_title) {
     seoTitle.value = window.seoStting.seo_title;

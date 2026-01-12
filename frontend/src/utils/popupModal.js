@@ -129,7 +129,7 @@ class PopupModal {
   }
 
   /**
-   * 单独绑定遮罩事件（修复核心）
+   * 单独绑定遮罩事件
    */
   bindMaskEvent() {
     // 确保mask和maskClose都为true时才绑定
@@ -214,6 +214,10 @@ class PopupModal {
       // 绑定值变化事件
       input.addEventListener('change', (e) => {
         this.state.formData[field.name] = e.target.value;
+        // 返回事件
+        if (field.onChange) {
+          field.onChange(this, e.target.value);
+        }
       });
 
       fieldGroup.appendChild(input);
@@ -369,6 +373,42 @@ class PopupModal {
       this.config.formFields = options.formFields;
       this.renderFormContent();
     }
+  }
+
+  /**
+   * 追加表单字段
+   * @param {Array} newFields - 要追加的新字段数组
+   * @param {Array} keepFieldNames - 要保留的原有字段名数组
+   */
+  appendFormFields(newFields = [], keepFieldNames = []) {
+    // 仅在表单类型下生效
+    if (this.config.type !== 'form') {
+      return;
+    }
+
+    // 过滤要保留的原有字段
+    const keepFields = this.config.formFields.filter(field => {
+      return keepFieldNames.includes(field.name);
+    });
+
+    // 回填已输入的数据到新字段
+    const filledNewFields = newFields.map(field => ({
+      ...field,
+      defaultValue: this.state.formData[field.name] || field.value || ''
+    }));
+
+    // 拼接新的字段数组
+    const finalFields = [...keepFields, ...filledNewFields];
+
+    // 更新表单配置并重新渲染
+    this.update({ formFields: finalFields });
+
+    // 同步更新表单数据
+    filledNewFields.forEach(field => {
+      if (!this.state.formData[field.name]) {
+        this.state.formData[field.name] = field.value || '';
+      }
+    });
   }
 
   /**

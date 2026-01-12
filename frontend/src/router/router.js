@@ -60,6 +60,14 @@ const routes = [
     }
   },
   {
+    path: '/buckets',
+    name: 'Buckets',
+    component: () => import('@/views/Buckets.vue'),
+    meta: {
+      title: '存储列表'
+    }
+  },
+  {
     path: '/account',
     name: 'Account',
     component: () => import('@/views/Account.vue'),
@@ -156,22 +164,30 @@ router.beforeEach(async (to, from, next) => {
     // 验证本地用户信息
     const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
     if (!userInfo.username) {
+      window.refreshNavItems && window.refreshNavItems();
       return next('/login');
     }
 
     // 验证登录状态
     const response = await fetch('/api/user/status');
     if (!response.ok) {
+      // 删除本地用户信息
+      localStorage.removeItem('userInfo');
+      window.refreshNavItems && window.refreshNavItems();
       throw new Error(`登录状态验证失败：${response.status}`);
     }
 
     const result = await response.json();
     if (result.code !== 200 || !result.data.logged_in) {
+      localStorage.removeItem('userInfo');
+      window.refreshNavItems && window.refreshNavItems();
       return next('/login');
     }
 
     // 验证用户名一致性
     if (userInfo.username !== result.data.username) {
+      localStorage.removeItem('userInfo');
+      window.refreshNavItems && window.refreshNavItems();
       return next('/login');
     }
 

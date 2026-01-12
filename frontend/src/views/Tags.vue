@@ -1,5 +1,5 @@
 <template>
-    <div class="pt-6 md:px-6 lg:px-8 xl:container xl:mx-auto">
+    <div class="pt-6 md:px-4 xl:container xl:mx-auto">
         <!-- 标签管理卡片 -->
         <div class="bg-white dark:bg-dark-200 rounded-xl shadow-md dark:shadow-dark-md p-5 transition-all duration-300 hover:shadow-lg dark:hover:shadow-dark-lg">
             <h2 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">

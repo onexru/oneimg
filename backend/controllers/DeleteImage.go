@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/result"
@@ -22,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // DeleteImage 删除图片
@@ -66,21 +70,32 @@ func DeleteImage(c *gin.Context) {
 		return
 	}
 
+	// 获取存储配置
+	var bucket models.Buckets
+	if err := db.Where("id = ?", image.BucketId).First(&bucket).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusForbidden, result.Error(400, "存储配置不存在"))
+			return
+		}
+		c.JSON(http.StatusForbidden, result.Error(400, "存储配置查询失败"))
+		return
+	}
+
 	var deleteStatus bool
 	// 检查存储
 	switch image.Storage {
 	case "default":
 		deleteStatus = DeleteDefaultStorageImage(image)
 	case "s3":
-		deleteStatus = DeleteS3StorageImage(image)
+		deleteStatus = DeleteS3StorageImage(image, bucket)
 	case "r2":
-		deleteStatus = DeleteS3StorageImage(image)
+		deleteStatus = DeleteS3StorageImage(image, bucket)
 	case "webdav":
-		deleteStatus = DeleteWebDavStorageImage(image)
+		deleteStatus = DeleteWebDavStorageImage(image, bucket)
 	case "ftp":
-		deleteStatus = DeleteFtpStorageImage(image)
+		deleteStatus = DeleteFtpStorageImage(image, bucket)
 	case "telegram":
-		deleteStatus = DeleteTelegramStorageImage(image)
+		deleteStatus = DeleteTelegramStorageImage(image, bucket)
 	default:
 		deleteStatus = false
 	}
@@ -92,6 +107,16 @@ func DeleteImage(c *gin.Context) {
 			"msg":  "删除图片记录失败",
 		})
 		return
+	}
+
+	// 对应存储减去存储空间
+	if image.BucketId != 1 {
+		result := db.Model(&models.Buckets{}).
+			Where("id = ? AND usage >= ?", image.BucketId, image.FileSize).
+			UpdateColumn("usage", gorm.Expr("usage - ?", image.FileSize))
+		if result.Error != nil {
+			log.Printf("更新Usage失败：%v", result.Error)
+		}
 	}
 
 	// 删除关联tag
@@ -135,20 +160,25 @@ func DeleteDefaultStorageImage(image models.Image) (deleteStatus bool) {
 }
 
 // 删除S3存储的图片
-func DeleteS3StorageImage(image models.Image) (deleteStatus bool) {
+func DeleteS3StorageImage(image models.Image, bucket models.Buckets) (deleteStatus bool) {
 	// 获取系统配置
 	setting, err := settings.GetSettings()
 	if err != nil {
 		return false
 	}
 	// 获取S3客户端
-	s3Client, err := s3.NewS3Client(setting)
+	s3Client, err := s3.NewS3Client(setting, bucket)
 	if err != nil {
 		return false
 	}
 	objectKey := strings.TrimPrefix(image.Url, "/")
-	bucket := setting.S3Bucket
-	if bucket == "" || objectKey == "" {
+
+	// 获取存储配置
+	storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
+
+	// 弃用
+	// bucket := setting.S3Bucket
+	if objectKey == "" {
 		return false
 	}
 
@@ -157,7 +187,7 @@ func DeleteS3StorageImage(image models.Image) (deleteStatus bool) {
 	defer cancel()
 
 	_, err = s3Client.DeleteObject(ctx, &awss3.DeleteObjectInput{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(storageConfig.S3Bucket),
 		Key:    aws.String(objectKey),
 	})
 
@@ -165,7 +195,7 @@ func DeleteS3StorageImage(image models.Image) (deleteStatus bool) {
 	if image.Thumbnail != "" {
 		objectKey = strings.TrimPrefix(image.Thumbnail, "/")
 		_, err = s3Client.DeleteObject(ctx, &awss3.DeleteObjectInput{
-			Bucket: aws.String(bucket),
+			Bucket: aws.String(storageConfig.S3Bucket),
 			Key:    aws.String(objectKey),
 		})
 	}
@@ -178,17 +208,15 @@ func DeleteS3StorageImage(image models.Image) (deleteStatus bool) {
 }
 
 // 删除WebDAV存储的图片
-func DeleteWebDavStorageImage(image models.Image) (deleteStatus bool) {
-	// 获取系统配置
-	setting, err := settings.GetSettings()
-	if err != nil {
-		return false
-	}
+func DeleteWebDavStorageImage(image models.Image, bucket models.Buckets) (deleteStatus bool) {
+	// 获取存储配置
+	storageConfig := buckets.ConvertToWebDavBucket(bucket.Config)
+
 	// 获取WebDav客户端
 	client := webdav.Client(webdav.Config{
-		BaseURL:  setting.WebdavURL,
-		Username: setting.WebdavUser,
-		Password: setting.WebdavPass,
+		BaseURL:  storageConfig.WebdavURL,
+		Username: storageConfig.WebdavUser,
+		Password: storageConfig.WebdavPass,
 		Timeout:  30 * time.Second,
 	})
 
@@ -211,18 +239,15 @@ func DeleteWebDavStorageImage(image models.Image) (deleteStatus bool) {
 }
 
 // 删除FTP存储的图片
-func DeleteFtpStorageImage(image models.Image) (deleteStatus bool) {
-	// 获取系统配置
-	setting, err := settings.GetSettings()
-	if err != nil {
-		return false
-	}
+func DeleteFtpStorageImage(image models.Image, bucket models.Buckets) (deleteStatus bool) {
+	// 获取存储配置
+	storageConfig := buckets.ConvertToFTPBucket(bucket.Config)
 	// 初始化FTP客户端
 	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
-		Host:     setting.FTPHost,
-		Port:     setting.FTPPort,
-		User:     setting.FTPUser,
-		Password: setting.FTPPass,
+		Host:     storageConfig.FTPHost,
+		Port:     storageConfig.FTPPort,
+		User:     storageConfig.FTPUser,
+		Password: storageConfig.FTPPass,
 		Timeout:  60,
 	})
 
@@ -242,12 +267,9 @@ func DeleteFtpStorageImage(image models.Image) (deleteStatus bool) {
 }
 
 // 删除TG存储的图片
-func DeleteTelegramStorageImage(image models.Image) (deleteStatus bool) {
-	// 获取系统配置
-	setting, err := settings.GetSettings()
-	if err != nil {
-		return false
-	}
+func DeleteTelegramStorageImage(image models.Image, bucket models.Buckets) (deleteStatus bool) {
+	// 获取存储配置
+	storageConfig := buckets.ConvertToTelegramBucket(bucket.Config)
 
 	// 查询图片ID
 	db := database.GetDB()
@@ -259,19 +281,19 @@ func DeleteTelegramStorageImage(image models.Image) (deleteStatus bool) {
 		// 查询失败忽略错误，防止阻塞线程
 	}
 
-	tgClient := telegram.NewClient(setting.TGBotToken)
+	tgClient := telegram.NewClient(storageConfig.TGBotToken)
 	tgClient.Timeout = 20 * time.Second
 	tgClient.Retry = 3
 
 	uploader := telegram.NewTelegramUploader(tgClient)
 
 	// 直接删除，不检查是否成功
-	uploader.DeletePhoto(setting.TGReceivers, telegramModel.TGMessageId)
+	uploader.DeletePhoto(storageConfig.TGReceivers, telegramModel.TGMessageId)
 
 	// 检查是否存在缩略图
 	if image.Thumbnail != "" {
 		// 删除缩略图，不检查是否成功
-		uploader.DeletePhoto(setting.TGReceivers, telegramModel.TGThumbnailMessageId)
+		uploader.DeletePhoto(storageConfig.TGReceivers, telegramModel.TGThumbnailMessageId)
 	}
 	// 直接返回成功
 	return true

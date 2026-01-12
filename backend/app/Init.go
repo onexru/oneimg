@@ -95,28 +95,36 @@ func InitDefaultStorage(db *database.Database) {
 	// 默认路径
 	storagePath := "/uploads"
 
-	// 查询是否已存在存储配置，固定ID为1
+	// 查询是否已存在存储配置
 	var count int64
-	db.DB.Model(&models.Settings{}).Count(&count)
+	db.DB.Model(&models.Buckets{}).Where("type = ?", storageType).Count(&count)
 
 	if count > 0 {
 		log.Println("存储配置已存在，跳过默认存储初始化")
 		return
 	}
 
-	storage := models.Settings{
-		OriginalImage: false,
-		SaveWebp:      true,
-		Thumbnail:     true,
-		Tourist:       false,
-		TGNotice:      false,
-		StorageType:   storageType,
-		StoragePath:   storagePath,
+	Config := map[string]any{
+		"storagePath": storagePath,
 	}
+
+	// 创建默认存储配置
+	storage := models.Buckets{
+		Id:       1,
+		Name:     "本地默认存储",
+		Type:     storageType,
+		Capacity: 0, // 无限容量
+		Config:   Config,
+		Usage:    0,
+	}
+
 	result := db.DB.Create(&storage)
 	if result.Error != nil {
 		log.Fatal("创建默认存储配置失败:", result.Error)
 	}
 
-	log.Printf("默认存储配置创建成功 - 存储类型: %s, 存储路径: %s", storage.StorageType, storage.StoragePath)
+	log.Printf("默认存储配置创建成功 - 存储类型: %s, 存储路径: %s", storage.Type, storagePath)
+
+	// 版本存储迁移
+	Migrate(db)
 }

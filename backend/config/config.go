@@ -93,7 +93,7 @@ DB_SKIP_CERT_VERIFY=false
 
 # 文件上传配置
 MAX_FILE_SIZE=10485760
-ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp
+ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp,image/svg+xml
 
 # 默认用户配置
 DEFAULT_USER=admin

@@ -31,7 +31,7 @@
           </div>
         </div>
         
-        <!-- 批量操作和视图切换 -->
+        <!-- 批量操作 -->
         <div class="flex items-center gap-4">
           
           <div v-if="selectedImages.length > 0" class="batch-actions flex items-center gap-2">
@@ -67,10 +67,29 @@
         </label>
       </div>
 
+      <!-- 存储分类选择 -->
+       <div class="max-w-[360px] mb-4 flex items-center gap-2">
+        <div class="text-gray-600 dark:text-gray-400 text-sm">
+            <span class="text-nowrap">存储分类：</span>
+        </div>
+        <select 
+          class="w-full px-3 py-2 border border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+          v-model="selectedBucket"
+          @change="loadImages"
+        >
+          <option value="null">全部</option>
+          <option 
+            v-for="bucket in presetBuckets" 
+            :key="bucket.id"
+            :value="bucket.id"
+          >{{ bucket.name }}</option>
+        </select>
+      </div>
+
       <!-- 标签分类选择 -->
        <div class="tags-container flex flex-wrap items-center gap-2 mb-4">
             <div class="text-gray-600 dark:text-gray-400 text-sm">
-                <span>Tag分类：</span>
+                <span class="text-nowrap">Tag分类：</span>
             </div>
             <div class="px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm cursor-pointer
             hover:ring-2 ring-primary ease-in-out duration-300 dark:ring-offset-gray-900"
@@ -125,6 +144,11 @@
                 :class="getRoleTagClass(image.user_id)"
               >
                 {{ image.user_id == '1' ? '管理员' : '游客' }}
+              </span>
+              <span 
+                class="image-role text-xs text-white mt-1 px-2 py-0.5 rounded-2xl inline-block absolute left-[75px] top-[5px] z-[999] bg-success"
+              >
+                {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
               </span>
               <div class="loading absolute inset-0 flex items-center justify-center z-0 text-slate-300">
                 <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
@@ -322,6 +346,8 @@ const totalPages = ref(1);
 const roleImage = ref("admin");
 const isAdmin = ref(false);
 const presetTags = ref([]);
+const presetBuckets = ref([]);
+const selectedBucket = ref(null);
 const selectedImages = ref([]); // 选中的图片ID数组
 const selectedTags = ref([]); // 选中的标签ID数组
 const selectAll = ref(false); // 全选状态
@@ -385,6 +411,31 @@ const getTagsList = async () => {
 };
 
 /**
+ * 获取存储列表
+ */
+const getBucketsList = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/buckets/list`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      }
+    });
+    
+    const result = await response.json();
+    if (response.ok && result.code === 200) {
+      presetBuckets.value = result.data || [];
+    } else {
+      throw new Error(result.message || '获取存储列表失败');
+    }
+  } catch (error) {
+    console.error('获取存储列表失败:', error);
+    Message.error(error.message || '获取存储列表失败');
+  }
+};  
+
+/**
  * 加载图片列表
  */
 const loadImages = async () => {
@@ -398,7 +449,8 @@ const loadImages = async () => {
       sort_by: 'created_at',
       sort_order: 'desc',
       role: roleImage.value,
-      tags: selectedTags.value
+      tags: selectedTags.value,
+      bucket: selectedBucket.value
     });
     
     const response = await fetch(`${API_BASE_URL}/api/images?${params}`, {
@@ -923,6 +975,9 @@ const generatePreviewContent = (image) => {
           <span class="text-xs px-2 py-0.5 rounded" style="${roleClass}">
             ${image.user_id == '1' ? '管理员' : '游客'}
           </span>
+          <span class="text-xs text-white px-2 py-0.5 rounded bg-success">
+            ${presetBuckets.value.find(bucket => bucket.id == image.bucket_id)?.name}
+          </span>
         </div>
         <div class="flex gap-1">
           <!-- 下载按钮 -->
@@ -953,7 +1008,7 @@ const generatePreviewContent = (image) => {
         >
           <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden animate-pulse flex items-center justify-center">
             <div class="absolute inset-0 flex items-center justify-center">
-              <svg class="w-10 h-10 text-slate-300 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
+              <svg class="w-10 h-10 text-slate-300 animate-spin loading-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </div>
@@ -961,7 +1016,7 @@ const generatePreviewContent = (image) => {
               src="${getFullUrl(image.url)}"
               alt="${image.filename}" 
               class="max-w-full w-fill max-h-[360px] min-h-[260px] object-contain rounded-lg relative z-10 opacity-0 transition-opacity duration-300"
-              onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse')"
+              onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse'); this.parentElement.querySelector('.loading-svg').classList.add('hidden');"
               onerror="this.parentElement.classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.src='${errorImg}';"
             />
           </div>
@@ -1234,6 +1289,7 @@ onMounted(() => {
   
   // 加载数据
   getTagsList();
+  getBucketsList();
   loadImages();
 });
 

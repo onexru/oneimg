@@ -13,10 +13,10 @@ import (
 
 // StatsResponse 统计响应结构
 type StatsResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-	Data    any    `json:"data,omitempty"`
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // DashboardStats 仪表板统计数据
@@ -189,7 +189,7 @@ func GetImageStats(c *gin.Context) {
 	// 获取查询参数
 	period := c.DefaultQuery("period", "month") // day, week, month, year
 
-	var stats interface{}
+	var stats any
 
 	switch period {
 	case "day":

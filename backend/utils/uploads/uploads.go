@@ -19,6 +19,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/s3"
@@ -34,7 +35,7 @@ type FTPUploader struct{}
 type TelegramUploader struct{}
 
 // S3/R2上传实现
-func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
@@ -63,8 +64,7 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 	objectKey := PathJoin(subDir, uniqueFileName)
 
 	// 获取S3/R2客户端
-
-	client, err := s3.NewS3Client(*setting)
+	client, err := s3.NewS3Client(*setting, *bucket)
 	if err != nil {
 		return nil, fmt.Errorf("创建S3/R2客户端失败：%v", err)
 	}
@@ -75,8 +75,10 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 		contentType = fileHeader.Header.Get("Content-Type")
 	}
 
+	// 获取Bucket
+	storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
 	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket:      aws.String(setting.S3Bucket),
+		Bucket:      aws.String(storageConfig.S3Bucket),
 		Key:         aws.String(objectKey),
 		Body:        bytes.NewReader(processedImage.CompressedBytes),
 		ContentType: aws.String(contentType),
@@ -89,7 +91,7 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 	// 检查是否上传缩略图
 	if setting.Thumbnail {
 		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-			Bucket:      aws.String(setting.S3Bucket),
+			Bucket:      aws.String(storageConfig.S3Bucket),
 			Key:         aws.String(PathJoin("uploads", year, month, "thumbnails", uniqueFileName)), // 缩略图存放路径
 			Body:        bytes.NewReader(processedImage.ThumbnailBytes),
 			ContentType: aws.String("image/webp"),
@@ -109,7 +111,7 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 		MimeType:     contentType,
 		URL:          url,
 		ThumbnailURL: thumbnailURL,
-		Storage:      setting.StorageType,
+		Storage:      bucket.Type,
 		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
 		Width:        processedImage.Width,
 		Height:       processedImage.Height,
@@ -117,7 +119,7 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 }
 
 // WebDAV上传实现
-func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
@@ -146,11 +148,14 @@ func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *mod
 	subDir := filepath.Join("uploads", year, month)
 	objectPath := filepath.Join("/", subDir, uniqueFileName)
 
+	// 获取存储配置
+	storageConfig := buckets.ConvertToWebDavBucket(bucket.Config)
+
 	// 初始化WebDAV客户端
 	client := webdav.Client(webdav.Config{
-		BaseURL:  setting.WebdavURL,
-		Username: setting.WebdavUser,
-		Password: setting.WebdavPass,
+		BaseURL:  storageConfig.WebdavURL,
+		Username: storageConfig.WebdavUser,
+		Password: storageConfig.WebdavPass,
 		Timeout:  30 * time.Second,
 	})
 
@@ -180,7 +185,7 @@ func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *mod
 		MimeType:     processedImage.MimeType,
 		URL:          url,
 		ThumbnailURL: thumbnailURL,
-		Storage:      setting.StorageType,
+		Storage:      bucket.Type,
 		Width:        processedImage.Width,
 		Height:       processedImage.Height,
 		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
@@ -188,41 +193,44 @@ func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *mod
 }
 
 // FTP上传实现
-func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
-	// 1. 验证图片
+func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
-	// 2. 打开文件
+	// 打开文件
 	file, err := fileHeader.Open()
 	if err != nil {
 		return nil, fmt.Errorf("打开文件失败: %v", err)
 	}
 	defer file.Close()
 
-	// 3. 处理图片（压缩、生成缩略图等）
+	// 处理图片（压缩、生成缩略图等）
 	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
 
-	// 4. 生成唯一文件名
+	// 生成唯一文件名
 	uniqueFileName := processedImage.UniqueFileName
 
-	// 5. 构建FTP目录结构（年/月）
+	// 构建FTP目录结构（年/月）
 	now := time.Now()
 	year := now.Format("2006")
 	month := now.Format("01")
 	subDir := PathJoin("uploads", year, month)
 	objectPath := PathJoin(subDir, uniqueFileName)
 
+	// 获取存储配置
+	storageConfig := buckets.ConvertToFTPBucket(bucket.Config)
+
 	// 初始化FTP客户端
 	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
-		Host:     setting.FTPHost,
-		Port:     setting.FTPPort,
-		User:     setting.FTPUser,
-		Password: setting.FTPPass,
+		Host:     storageConfig.FTPHost,
+		Port:     storageConfig.FTPPort,
+		User:     storageConfig.FTPUser,
+		Password: storageConfig.FTPPass,
 		Timeout:  10,
 	})
 	defer ftpUtil.Close()
@@ -258,7 +266,7 @@ func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models
 		MimeType:     processedImage.MimeType,
 		URL:          url,
 		ThumbnailURL: thumbnailURL,
-		Storage:      setting.StorageType,
+		Storage:      bucket.Type,
 		Width:        processedImage.Width,
 		Height:       processedImage.Height,
 		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
@@ -266,7 +274,7 @@ func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models
 }
 
 // 本地默认上传实现
-func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
@@ -329,7 +337,7 @@ func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *mo
 		Message:      "上传成功",
 		URL:          fileURL,
 		ThumbnailURL: thumbnailURL,
-		Storage:      setting.StorageType,
+		Storage:      bucket.Type,
 		FileName:     uniqueFileName,
 		FileSize:     int64(len(processedImage.CompressedBytes)),
 		MimeType:     processedImage.MimeType,
@@ -340,39 +348,42 @@ func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *mo
 }
 
 // Telegram上传实现
-func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
-	// 1. 验证图片
+func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
-	// 2. 打开文件
+	// 打开文件
 	file, err := fileHeader.Open()
 	if err != nil {
 		return nil, fmt.Errorf("打开文件失败: %v", err)
 	}
 	defer file.Close()
 
-	// 3. 处理图片
+	// 处理图片
 	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
 
-	// 4. 基础参数校验
-	if setting.TGBotToken == "" {
-		return nil, fmt.Errorf("telegram bot token 不能为空")
-	}
-	if setting.TGReceivers == "" {
-		return nil, fmt.Errorf("telegram receivers 不能为空")
-	}
+	// 获取存储配置
+	storageConfig := buckets.ConvertToTelegramBucket(bucket.Config)
+
+	// 基础参数校验，设置存储时已校验，这里弃用
+	// if setting.TGBotToken == "" {
+	// 	return nil, fmt.Errorf("telegram bot token 不能为空")
+	// }
+	// if setting.TGReceivers == "" {
+	// 	return nil, fmt.Errorf("telegram receivers 不能为空")
+	// }
 
 	now := time.Now()
 	year := now.Format("2006")
 	month := now.Format("01")
 
 	// 5. 初始化TG客户端
-	tgClient := telegram.NewClient(setting.TGBotToken)
+	tgClient := telegram.NewClient(storageConfig.TGBotToken)
 	tgClient.Timeout = 20 * time.Second
 	tgClient.Retry = 3
 
@@ -380,7 +391,7 @@ func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *m
 
 	// 上传主图片
 	fileID, messageID, err := tgClient.UploadPhotoByBytes(
-		setting.TGReceivers,
+		storageConfig.TGReceivers,
 		processedImage.CompressedBytes,
 		processedImage.UniqueFileName,
 		fmt.Sprintf("上传图片: %s", processedImage.UniqueFileName),
@@ -395,7 +406,7 @@ func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *m
 	thumbFileMessageID := 0
 	if setting.Thumbnail && len(processedImage.ThumbnailBytes) > 0 {
 		thumbFileID, thumbMessageID, err := tgClient.UploadPhotoByBytes(
-			setting.TGReceivers,
+			storageConfig.TGReceivers,
 			processedImage.ThumbnailBytes,
 			fmt.Sprintf("thumbnail_%s", uniqueFileName),
 			fmt.Sprintf("缩略图: %s", processedImage.UniqueFileName),
@@ -434,7 +445,7 @@ func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *m
 		MimeType:     processedImage.MimeType,
 		URL:          url,
 		ThumbnailURL: thumbnailURL,
-		Storage:      setting.StorageType, // 存储类型标识
+		Storage:      bucket.Type, // 存储类型标识
 		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
 		Width:        processedImage.Width,
 		Height:       processedImage.Height,

@@ -23,6 +23,7 @@ type ImageWithTags struct {
 	Width     int           `json:"width" gorm:"column:width"`
 	Height    int           `json:"height" gorm:"column:height"`
 	Storage   string        `json:"storage" gorm:"column:storage"`
+	BucketId  int           `json:"bucket_id" gorm:"column:bucket_id"`
 	UserId    int           `json:"user_id" gorm:"column:user_id"`
 	Md5       string        `json:"md5" gorm:"column:md5"`
 	Uuid      string        `json:"uuid" gorm:"column:uuid"`
@@ -35,7 +36,7 @@ func (ImageWithTags) TableName() string {
 	return "images"
 }
 
-// GetImageList 获取图片列表（解决字段歧义+消除SA4010+完整功能）
+// GetImageList 获取图片列表
 func GetImageList(c *gin.Context) {
 	// 基础参数解析
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -74,8 +75,8 @@ func GetImageList(c *gin.Context) {
 	var filterTagIds []int
 	tagIdStr := c.Query("tags")
 	if tagIdStr != "" {
-		tagIdList := strings.Split(tagIdStr, ",")
-		for _, s := range tagIdList {
+		tagIdList := strings.SplitSeq(tagIdStr, ",")
+		for s := range tagIdList {
 			trimmed := strings.TrimSpace(s)
 			tid, err := strconv.Atoi(trimmed)
 			if err != nil {
@@ -93,6 +94,11 @@ func GetImageList(c *gin.Context) {
 	// 筛选图片ID
 	db := database.GetDB().DB
 	idQuery := db.Model(&models.Image{}).Select("images.id")
+
+	bucket := c.Query("bucket")
+	if bucket != "" && bucket != "all" && bucket != "null" {
+		idQuery = idQuery.Where("images.bucket_id = ?", bucket)
+	}
 
 	// 基础筛选：角色+权限+搜索
 	if role != "" {
@@ -132,26 +138,28 @@ func GetImageList(c *gin.Context) {
 	// 获取图片ID列表
 	var imageIds []int
 	imageIds = make([]int, 0)
-	if err := idQuery.Find(&imageIds).Error; err != nil {
+	if err := idQuery.Order(orderClause).
+		Offset(offset).
+		Limit(limit).
+		Find(&imageIds).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "筛选图片失败："+err.Error()))
 		return
 	}
 
 	// 统计总数和分页
 	total := int64(len(imageIds))
-	totalPages := (total + int64(limit) - 1) / int64(limit)
-	if offset > len(imageIds) {
-		imageIds = []int{}
-	} else if offset+limit > len(imageIds) {
-		imageIds = imageIds[offset:]
+	countQuery := idQuery.Offset(-1).Limit(-1)
+	if hasZeroTag || len(filterTagIds) > 0 {
+		countQuery.Distinct("images.id").Count(&total)
 	} else {
-		imageIds = imageIds[offset : offset+limit]
+		countQuery.Count(&total)
 	}
+	totalPages := (total + int64(limit) - 1) / int64(limit)
 
 	// 查询图片详情
 	var images []ImageWithTags
 	if len(imageIds) > 0 {
-		imageFields := "id, url, thumbnail, file_name, file_size, mime_type, width, height, storage, user_id, md5, uuid, created_at"
+		imageFields := "id, url, thumbnail, file_name, file_size, mime_type, width, height, storage, bucket_id, user_id, md5, uuid, created_at"
 		if err := db.Model(&ImageWithTags{}).
 			Select(imageFields).
 			Where("id IN (?)", imageIds).
