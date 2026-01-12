@@ -35,6 +35,9 @@ func Init() *System {
 	// 初始化默认用户
 	InitDefaultUser(cfg, db)
 
+	// 初始化系统设置
+	InitSettings(db)
+
 	// 初始化默认存储配置
 	InitDefaultStorage(db)
 
@@ -127,4 +130,18 @@ func InitDefaultStorage(db *database.Database) {
 
 	// 版本存储迁移
 	Migrate(db)
+}
+
+func InitSettings(db *database.Database) {
+	var count int64
+	db.DB.Model(&models.Settings{}).Count(&count)
+	if count > 0 {
+		log.Println("系统配置已存在，跳过系统配置初始化")
+		return
+	}
+	result := db.DB.Create(&models.Settings{})
+	if result.Error != nil {
+		log.Fatal("创建系统配置失败:", result.Error)
+	}
+	log.Printf("系统配置创建成功")
 }
