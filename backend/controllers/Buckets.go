@@ -324,7 +324,7 @@ func UpdateBuckets(c *gin.Context) {
 		capacitybytes = 0
 	}
 
-	if capacitybytes < bucket.Usage {
+	if capacitybytes < bucket.Usage && bucket.Type != "telegram" {
 		c.JSON(http.StatusBadRequest, result.Error(400, "总容量不能小于已使用容量"))
 		return
 	}
