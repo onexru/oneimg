@@ -16,7 +16,7 @@
     </div>
 
     <!-- 多存储卡片列表 -->
-    <div class="grid grid-cols-[repeat(auto-fit,minmax(460px,1fr))] gap-6">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
       <div
         v-for="storage in buckets"
         :key="storage.key"

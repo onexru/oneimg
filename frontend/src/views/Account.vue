@@ -10,7 +10,7 @@
 
         <!-- 主要内容 -->
         <div class="container mx-auto pb-16">
-            <div class="grid grid-cols-[repeat(auto-fit,minmax(480px,1fr))] gap-6">
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
 
                 <div class="mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8">
@@ -109,15 +109,48 @@
                         </form>
                     </div>
                 </div>
-
+                <!-- Github版本卡片 -->
                 <div class="mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8 text-center">
-                        <p>
-                            <b>我也不知道放啥，有好的建议欢迎发送邮件或进群反馈</b>
-                        </p>
-                        <p>邮箱：one@cvmail.cn</p>
-                        <p>QQ群：<a href="https://qm.qq.com/q/lzT9IDkKVG">790933369</a></p>
-                        <p>系统默认账号密码为：admin 123456</p>
+                        <h2 class="panel-title flex items-center text-xl font-semibold mb-6 justify-center">
+                            <span class="panel-icon mr-2 text-2xl">
+                                <i class="ri-github-fill"></i>
+                            </span>
+                            版本信息
+                        </h2>
+                        <!-- 加载中状态 -->
+                        <div v-if="isLoadingVersion" class="py-8">
+                            <span class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block"></span>
+                            <p class="mt-3 text-gray-600 dark:text-gray-400">正在检查最新版本...</p>
+                        </div>
+                        <!-- 版本加载成功 -->
+                        <div v-else-if="latestVersion" class="space-y-5 py-4">
+                            <div class="text-4xl font-bold text-primary">
+                                {{ latestVersion.tag_name }}
+                            </div>
+                            <p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+                                {{ latestVersion.name || '最新稳定版本' }}
+                            </p>
+                            <p class="text-gray-600 dark:text-gray-400 leading-relaxed p-6 border-2 border-dashed border-blue-600 rounded-md">
+                                {{ latestVersion.body || '暂无更新日志' }}
+                            </p>
+                            <div class="text-sm text-gray-500 dark:text-gray-500 mt-2">
+                                更新时间：{{ formatReleaseDate(latestVersion.published_at) }}
+                            </div>
+                            <a 
+                                :href="latestVersion.html_url" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                class="inline-block mt-4 py-2.5 px-6 border border-primary text-primary hover:bg-primary hover:text-white rounded-lg transition-colors"
+                            >
+                                前往更新
+                            </a>
+                        </div>
+                        <!-- 加载失败状态 -->
+                        <div v-else class="py-8 text-gray-600 dark:text-gray-400">
+                            <i class="ri-error-warning-line text-2xl mb-2"></i>
+                            <p>版本信息加载失败，请稍后重试</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -126,7 +159,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import message from '@/utils/message.js'
 
@@ -142,6 +175,38 @@ const accountForm = ref({
 
 // 加载状态
 const isUpdatingAccount = ref(false)
+const isLoadingVersion = ref(true)
+const latestVersion = ref(null)
+
+// 格式化发布时间
+const formatReleaseDate = (dateStr) => {
+    if (!dateStr) return ''
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+// 获取Github最新版本信息
+const getLatestVersion = async () => {
+    try {
+        const res = await fetch('https://api.github.com/repos/onexru/oneimg/releases/latest')
+        if (res.ok) {
+            const data = await res.json()
+            latestVersion.value = data
+        } else {
+            throw new Error('版本接口请求失败')
+        }
+    } catch (err) {
+        message.error('版本信息加载失败')
+        console.error('版本请求异常：', err)
+    } finally {
+        isLoadingVersion.value = false
+    }
+}
+
+// 页面挂载时自动请求版本信息
+onMounted(() => {
+    getLatestVersion()
+})
 
 // 更新账户信息
 const updateAccount = async () => {

@@ -10,7 +10,7 @@
 
         <!-- 主要内容 -->
         <div class="container mx-auto px-4 pb-16">
-            <div class="grid grid-cols-[repeat(auto-fit,minmax(480px,1fr))] gap-8">
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-8">
                 <!-- 系统配置卡片 -->
                 <div class="order-1 md:order-2 w-full p-0 mx-auto">
                     <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
