@@ -49,7 +49,7 @@ docker compose down
 docker run -d \
 --name oneimg \
 -p 8080:8080 \
--v /data/app:/app \
+-v /data/oneimg:/app/data \
 --restart unless-stopped \
 onexru/oneimg-oneimg
 ```
