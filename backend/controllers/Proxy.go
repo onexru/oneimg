@@ -120,12 +120,20 @@ func ImageProxy(c *gin.Context) {
 
 	case "webdav":
 		proxyWebDAVFile(c, imageUrl, imageModel.MimeType, imageModel.FileSize, bucket, watermarkCfg)
-
-	case "s3", "r2":
+	case "r2":
 		// 初始化S3客户端
 		s3Client, err := s3.NewS3Client(setting, bucket)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("S3/R2客户端初始化失败: %v", err)))
+			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("R2客户端初始化失败: %v", err)))
+			return
+		}
+		proxyR2File(c, imageUrl, imageModel.MimeType, imageModel.FileSize, bucket, s3Client, watermarkCfg)
+
+	case "s3":
+		// 初始化S3客户端
+		s3Client, err := s3.NewS3Client(setting, bucket)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("S3客户端初始化失败: %v", err)))
 			return
 		}
 		// 代理S3/R2文件
@@ -142,7 +150,106 @@ func ImageProxy(c *gin.Context) {
 	}
 }
 
-// proxyS3File S3/R2文件代理（添加水印支持）
+// proxyR2File R2文件代理
+func proxyR2File(c *gin.Context, objectKey, mimeType string, fileSize int64, bucket models.Buckets, s3Client *awss3.Client, watermarkCfg watermark.WatermarkConfig) {
+	// 清理objectKey（去除开头的/，适配S3路径规则）
+	objectKey = strings.TrimPrefix(objectKey, "/")
+
+	// 获取存储配置
+	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
+
+	// 校验bucket和objectKey
+	if storageConfig.R2Bucket == "" || objectKey == "" {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "R2配置缺失（Bucket或ObjectKey为空）"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 1. 获取R2文件对象
+	getInput := awss3.GetObjectInput{
+		Bucket: aws.String(storageConfig.R2Bucket),
+		Key:    aws.String(objectKey),
+	}
+
+	resp, err := s3Client.GetObject(ctx, &getInput)
+	if err != nil {
+		// 区分不同错误类型
+		var noSuchKeyErr *types.NoSuchKey
+		if errors.As(err, &noSuchKeyErr) {
+			c.JSON(http.StatusNotFound, result.Error(404, "R2文件不存在"))
+			return
+		}
+
+		var respErr *smithyhttp.ResponseError
+		if errors.As(err, &respErr) {
+			statusCode := respErr.HTTPStatusCode()
+			switch statusCode {
+			case http.StatusForbidden:
+				c.JSON(http.StatusForbidden, result.Error(403, "R2文件访问权限不足"))
+				return
+			case http.StatusRequestTimeout:
+				c.JSON(http.StatusGatewayTimeout, result.Error(504, "R2请求超时"))
+				return
+			}
+		}
+
+		log.Printf("R2获取文件失败 [key:%s, bucket:%s]: %v", objectKey, bucket.Name, err)
+		c.JSON(http.StatusBadGateway, result.Error(502, "R2文件获取失败"))
+		return
+	}
+	defer resp.Body.Close()
+
+	// 2. 处理水印
+	var contentReader io.Reader = resp.Body
+	if watermarkCfg.Enable {
+		processedReader, err := watermark.ProcessImageWithWatermark(resp.Body, mimeType, watermarkCfg)
+		if err != nil {
+			log.Printf("处理R2文件水印失败: %v", err)
+			// 失败时重新获取原始流（需要重新请求）
+			resp2, _ := s3Client.GetObject(ctx, &getInput)
+			if resp2 != nil {
+				defer resp2.Body.Close()
+				contentReader = resp2.Body
+			}
+		} else {
+			contentReader = processedReader
+		}
+	}
+
+	// 3. 设置响应头
+	c.Header("Content-Type", mimeType)
+	// 如果添加了水印，不设置Content-Length（因为内容已改变）
+	if !watermarkCfg.Enable {
+		// 优先使用R2返回的文件大小，其次使用数据库中存储的大小
+		if resp.ContentLength != nil && *resp.ContentLength > 0 {
+			c.Header("Content-Length", strconv.FormatInt(*resp.ContentLength, 10))
+		} else if fileSize > 0 {
+			c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+		}
+	} else {
+		c.Header("Transfer-Encoding", "chunked")
+	}
+	// 缓存控制（永久缓存）
+	c.Header("Cache-Control", "public, max-age=31536000")
+	// 存储类型标识
+	c.Header("X-Storage-Type", bucket.Type)
+	// 跨域支持（可选）
+	c.Header("Access-Control-Allow-Origin", "*")
+
+	// 4. 流式传输文件（避免内存溢出）
+	// 设置响应状态码
+	c.Status(http.StatusOK)
+	// 分块传输，每次4KB
+	buf := make([]byte, 4096)
+	_, err = io.CopyBuffer(c.Writer, contentReader, buf)
+	if err != nil && err != io.EOF {
+		log.Printf("S3/R2文件传输失败 [key:%s]: %v", objectKey, err)
+	}
+}
+
+// proxyS3File S3文件代理（添加水印支持）
 func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, bucket models.Buckets, s3Client *awss3.Client, watermarkCfg watermark.WatermarkConfig) {
 	// 清理objectKey（去除开头的/，适配S3路径规则）
 	objectKey = strings.TrimPrefix(objectKey, "/")
@@ -152,14 +259,14 @@ func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, buc
 
 	// 校验bucket和objectKey
 	if storageConfig.S3Bucket == "" || objectKey == "" {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "S3/R2配置缺失（Bucket或ObjectKey为空）"))
+		c.JSON(http.StatusInternalServerError, result.Error(500, "S3配置缺失（Bucket或ObjectKey为空）"))
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 1. 获取S3/R2文件对象
+	// 1. 获取S3文件对象
 	getInput := awss3.GetObjectInput{
 		Bucket: aws.String(storageConfig.S3Bucket),
 		Key:    aws.String(objectKey),
@@ -187,8 +294,8 @@ func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, buc
 			}
 		}
 
-		log.Printf("S3/R2获取文件失败 [key:%s, bucket:%s]: %v", objectKey, bucket.Name, err)
-		c.JSON(http.StatusBadGateway, result.Error(502, "S3/R2文件获取失败"))
+		log.Printf("S3获取文件失败 [key:%s, bucket:%s]: %v", objectKey, bucket.Name, err)
+		c.JSON(http.StatusBadGateway, result.Error(502, "S3文件获取失败"))
 		return
 	}
 	defer resp.Body.Close()
@@ -237,7 +344,7 @@ func proxyS3File(c *gin.Context, objectKey, mimeType string, fileSize int64, buc
 	buf := make([]byte, 4096)
 	_, err = io.CopyBuffer(c.Writer, contentReader, buf)
 	if err != nil && err != io.EOF {
-		log.Printf("S3/R2文件传输失败 [key:%s]: %v", objectKey, err)
+		log.Printf("S3文件传输失败 [key:%s]: %v", objectKey, err)
 	}
 }
 

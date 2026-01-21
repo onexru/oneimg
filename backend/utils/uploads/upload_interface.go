@@ -66,8 +66,10 @@ func (uc *UploadContext) GetStorageUploader(setting *models.Settings, bucket *mo
 	switch bucket.Type {
 	case "default":
 		return &DefaultUploader{}, nil
-	case "s3", "r2":
-		return &S3R2Uploader{}, nil
+	case "r2":
+		return &R2Uploader{}, nil
+	case "s3":
+		return &S3Uploader{}, nil
 	case "webdav":
 		return &WebDAVUploader{}, nil
 	case "ftp":

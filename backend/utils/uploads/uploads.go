@@ -28,14 +28,15 @@ import (
 )
 
 // 所有上传器实现统一接口
-type S3R2Uploader struct{}
+type R2Uploader struct{}
+type S3Uploader struct{}
 type WebDAVUploader struct{}
 type DefaultUploader struct{}
 type FTPUploader struct{}
 type TelegramUploader struct{}
 
-// S3/R2上传实现
-func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+// R2 上传实现
+func (u *R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
 	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
@@ -63,13 +64,97 @@ func (u *S3R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *model
 	subDir := PathJoin("uploads", year, month)
 	objectKey := PathJoin(subDir, uniqueFileName)
 
-	// 获取S3/R2客户端
+	// 获取R2客户端
 	client, err := s3.NewS3Client(*setting, *bucket)
 	if err != nil {
-		return nil, fmt.Errorf("创建S3/R2客户端失败：%v", err)
+		return nil, fmt.Errorf("创建R2客户端失败：%v", err)
 	}
 
-	// 上传文件到S3/R2
+	// 上传文件到R2
+	contentType := "image/webp"
+	if !setting.SaveWebp {
+		contentType = fileHeader.Header.Get("Content-Type")
+	}
+
+	// 获取Bucket
+	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
+	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
+		Bucket:      aws.String(storageConfig.R2Bucket),
+		Key:         aws.String(objectKey),
+		Body:        bytes.NewReader(processedImage.CompressedBytes),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("R2上传失败：%v", err)
+	}
+
+	thumbnailURL := ""
+	// 检查是否上传缩略图
+	if setting.Thumbnail {
+		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
+			Bucket:      aws.String(storageConfig.R2Bucket),
+			Key:         aws.String(PathJoin("uploads", year, month, "thumbnails", uniqueFileName)), // 缩略图存放路径
+			Body:        bytes.NewReader(processedImage.ThumbnailBytes),
+			ContentType: aws.String("image/webp"),
+		})
+		if err == nil {
+			thumbnailURL = "/" + PathJoin("uploads", year, month, "thumbnails", uniqueFileName)
+		}
+	}
+
+	url := "/" + PathJoin("uploads", year, month, uniqueFileName)
+
+	return &interfaces.ImageUploadResult{
+		Success:      true,
+		Message:      "上传成功",
+		FileName:     uniqueFileName,
+		FileSize:     int64(len(processedImage.CompressedBytes)),
+		MimeType:     contentType,
+		URL:          url,
+		ThumbnailURL: thumbnailURL,
+		Storage:      bucket.Type,
+		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		Width:        processedImage.Width,
+		Height:       processedImage.Height,
+	}, nil
+}
+
+// S3上传实现
+func (u *S3Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+	// 验证图片
+	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+		return nil, fmt.Errorf("图片验证失败: %v", err)
+	}
+
+	// 打开文件
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %v", err)
+	}
+	defer file.Close()
+
+	// 处理图片
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting)
+	if err != nil {
+		return nil, fmt.Errorf("图片处理失败: %v", err)
+	}
+
+	uniqueFileName := processedImage.UniqueFileName
+
+	// 创建年/月子目录
+	now := time.Now()
+	year := now.Format("2006")
+	month := now.Format("01")
+	subDir := PathJoin("uploads", year, month)
+	objectKey := PathJoin(subDir, uniqueFileName)
+
+	// 获取S3客户端
+	client, err := s3.NewS3Client(*setting, *bucket)
+	if err != nil {
+		return nil, fmt.Errorf("创建S3客户端失败：%v", err)
+	}
+
+	// 上传文件到S3
 	contentType := "image/webp"
 	if !setting.SaveWebp {
 		contentType = fileHeader.Header.Get("Content-Type")
