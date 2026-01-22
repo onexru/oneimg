@@ -89,7 +89,7 @@ func DeleteImage(c *gin.Context) {
 	case "s3":
 		deleteStatus = DeleteS3StorageImage(image, bucket)
 	case "r2":
-		deleteStatus = DeleteS3StorageImage(image, bucket)
+		deleteStatus = DeleteR2StorageImage(image, bucket)
 	case "webdav":
 		deleteStatus = DeleteWebDavStorageImage(image, bucket)
 	case "ftp":
@@ -156,6 +156,52 @@ func DeleteDefaultStorageImage(image models.Image) (deleteStatus bool) {
 			// 文件可能已经不存在，记录日志但不阻止删除数据库记录
 		}
 	}
+	return true
+}
+
+// 删除R2存储的图片
+func DeleteR2StorageImage(image models.Image, bucket models.Buckets) (deleteStatus bool) {
+	// 获取系统配置
+	setting, err := settings.GetSettings()
+	if err != nil {
+		return false
+	}
+	// 获取S3客户端
+	s3Client, err := s3.NewS3Client(setting, bucket)
+	if err != nil {
+		return false
+	}
+	objectKey := strings.TrimPrefix(image.Url, "/")
+
+	// 获取存储配置
+	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
+
+	if objectKey == "" {
+		return false
+	}
+
+	// 构建删除请求
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = s3Client.DeleteObject(ctx, &awss3.DeleteObjectInput{
+		Bucket: aws.String(storageConfig.R2Bucket),
+		Key:    aws.String(objectKey),
+	})
+
+	// 检查是否存在缩略图
+	if image.Thumbnail != "" {
+		objectKey = strings.TrimPrefix(image.Thumbnail, "/")
+		_, err = s3Client.DeleteObject(ctx, &awss3.DeleteObjectInput{
+			Bucket: aws.String(storageConfig.R2Bucket),
+			Key:    aws.String(objectKey),
+		})
+	}
+
+	if err != nil {
+		return !true
+	}
+
 	return true
 }
 

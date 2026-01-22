@@ -121,7 +121,7 @@ func ImageProxy(c *gin.Context) {
 	case "webdav":
 		proxyWebDAVFile(c, imageUrl, imageModel.MimeType, imageModel.FileSize, bucket, watermarkCfg)
 	case "r2":
-		// 初始化R2客户端
+		// 初始化S3客户端
 		s3Client, err := s3.NewS3Client(setting, bucket)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("R2客户端初始化失败: %v", err)))
