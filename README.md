@@ -8,6 +8,9 @@
 - [雾创岛](https://www.tr0.cn)
 - [打赏赞助](https://www.cv0.cn/Index/Reward.php)
 
+## API文档
+- [API文档](https://www.tr0.cn/oneimgapi/)
+
 ## Demo
 [初春图床v3.0](https://www.ip6s.com)
 
