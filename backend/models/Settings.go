@@ -24,6 +24,10 @@ type Settings struct {
 	// 默认存储
 	DefaultStorage int `gorm:"column:default_storage;default:1" json:"default_storage"` // 默认存储（默认为 1）
 
+	// 默认上传配置
+	MaxFileSize  int    `gorm:"column:max_file_size;default:10485760" json:"max_file_size"` // 文件最大上传大小
+	AllowedTypes string `gorm:"column:allowed_types;default:'image/jpeg,image/png,image/gif,image/webp,image/svg+xml'" json:"allowed_types"`
+
 	// 水印设置
 	WatermarkEnable bool    `gorm:"column:watermark_enable;default:false" json:"watermark_enable"`    // 是否启用水印（默认不启用）
 	WatermarkText   string  `gorm:"column:watermark_text;default:'初春图床'" json:"watermark_text"`       // 水印文字（默认为初春图床）

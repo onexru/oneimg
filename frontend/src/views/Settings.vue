@@ -232,6 +232,35 @@
                                     1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}
                                 </div>
                             </div>
+                            <div class="setting-group"> 
+                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="max_file_size">
+                                    允许最大上传大小
+                                </label>
+                                <input 
+                                    id="max_file_size"
+                                    v-model="systemSettings.max_file_size"
+                                    type="number"
+                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    placeholder="允许最大上传大小"
+                                    @blur="handleFieldBlur('max_file_size', systemSettings.max_file_size)"
+                                />
+                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                    大小单位：字节，默认10mb
+                                </div>
+                            </div>
+                            <div class="setting-group"> 
+                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="allowed_types">
+                                    允许上传的图片类型
+                                </label>
+                                <input 
+                                    id="allowed_types"
+                                    v-model="systemSettings.allowed_types"
+                                    type="text"
+                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    placeholder="允许上传的图片类型"
+                                    @blur="handleFieldBlur('allowed_types', systemSettings.allowed_types)"
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -336,7 +365,6 @@
                             </div>
                         </div>
                     </div>
-
 
                     <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
                         <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
@@ -550,7 +578,9 @@ const systemSettings = reactive({
     api_token: '',
     start_api: false,
     save_original_name: false,
-    default_storage: 1
+    default_storage: 1,
+    max_file_size: 10485760,
+    allowed_types: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml'
 })
 
 const updateSetting = reactive({})

@@ -12,7 +12,6 @@ import (
 	"log"
 	"math/rand"
 	"mime/multipart"
-	"oneimg/backend/config"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/watermark"
 	"path/filepath"
@@ -393,8 +392,9 @@ func (s *ImageService) generateWebPThumbnail(
 }
 
 // ValidateImageFile 验证图片文件
-func ValidateImageFile(header *multipart.FileHeader, cfg *config.Config) error {
-	return ImageSvc.ValidateImage(header, cfg.AllowedTypes, cfg.MaxFileSize)
+func ValidateImageFile(header *multipart.FileHeader, setting *models.Settings) error {
+	allowedTypes := strings.Split(setting.AllowedTypes, ",")
+	return ImageSvc.ValidateImage(header, allowedTypes, int64(setting.MaxFileSize))
 }
 
 // ReadFileContent 读取文件内容

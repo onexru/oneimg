@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
-	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
@@ -14,7 +17,9 @@ import (
 	"oneimg/backend/utils/settings"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/uploads"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -112,19 +117,12 @@ func UploadImages(c *gin.Context) {
 		return
 	}
 
-	// 获取全局配置
-	cfg, ok := c.MustGet("config").(*config.Config)
-	if !ok {
-		uc.Fail(500, "全局配置获取失败")
-		return
-	}
-
 	// 批量处理文件上传（参数匹配接口定义）
 	uploadResults := make([]interfaces.ImageUploadResult, 0, len(files))
 	successCount := 0
 
 	for _, file := range files {
-		fileResult, err := uploader.Upload(c, cfg, &setting, &buckets, file)
+		fileResult, err := uploader.Upload(c, &setting, &buckets, file)
 		if err != nil {
 			// 单个文件上传失败不影响其他文件
 			uc.Fail(500, "文件[%s]上传失败：%v", file.Filename, err)
@@ -511,4 +509,180 @@ func GetUploadConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result.Success("ok", config))
+}
+
+// 通过URL上传图片
+func UploadImagesByURL(c *gin.Context) {
+	uc := uploads.NewUploadContext(c)
+	db := database.GetDB()
+
+	type URLUploadRequest struct {
+		Urls     string `json:"url" binding:"required"`
+		Tag      string `json:"tag_id"`
+		BucketID string `json:"bucket_id"`
+	}
+
+	var req URLUploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		uc.Fail(400, "参数格式错误：%v", err)
+		return
+	}
+
+	if req.Urls == "" {
+		uc.Fail(400, "URL不能为空")
+		return
+	}
+	if req.Tag != "" && req.Tag != "0" {
+		var tags models.Tags
+		if err := db.DB.Where("id = ?", req.Tag).First(&tags).Error; err != nil {
+			uc.Fail(400, "标签不存在")
+			return
+		}
+	}
+
+	setting, err := settings.GetSettings()
+	if err != nil {
+		uc.Fail(500, "获取上传配置失败：%v", err)
+		return
+	}
+
+	var bucketID int
+	if req.BucketID != "" {
+		bucketID, err = strconv.Atoi(req.BucketID)
+		if err != nil {
+			uc.Fail(400, "存储ID无效")
+			return
+		}
+	} else {
+		bucketID = setting.DefaultStorage
+	}
+
+	if isTouristUsername(c.GetString("username")) {
+		if setting.DefaultStorage != bucketID {
+			uc.Fail(403, "游客不能上传到非默认存储")
+			return
+		}
+	}
+
+	var buckets models.Buckets
+	if err := db.DB.Where("id = ?", bucketID).First(&buckets).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			uc.Fail(400, "存储配置不存在")
+			return
+		}
+		uc.Fail(500, "存储配置查询失败：%v", err)
+		return
+	}
+
+	// 下载图片
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(req.Urls)
+	if err != nil {
+		uc.Fail(500, "图片下载失败：%v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		uc.Fail(400, "URL不是图片类型")
+		return
+	}
+
+	fileName := filepath.Base(req.Urls)
+	if fileName == "/" || fileName == "." || fileName == "" {
+		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
+	}
+
+	fileBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		uc.Fail(500, "读取图片失败：%v", err)
+		return
+	}
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, _ := writer.CreatePart(map[string][]string{
+		"Content-Disposition": {`form-data; name="file"; filename="` + fileName + `"`},
+		"Content-Type":        {contentType},
+	})
+	part.Write(fileBytes)
+	writer.Close()
+
+	// 伪装请求
+	c.Request.Body = io.NopCloser(body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	c.Request.ContentLength = int64(body.Len())
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		uc.Fail(500, "构造文件失败：%v", err)
+		return
+	}
+	defer file.Close()
+
+	if buckets.Id != 1 && buckets.Type != "telegram" {
+		if (buckets.Usage + uint64(header.Size)) >= buckets.Capacity {
+			uc.Fail(400, "存储空间已满")
+			return
+		}
+	}
+
+	uploader, err := uc.GetStorageUploader(&setting, &buckets)
+	if err != nil {
+		uc.Fail(400, "获取上传器失败：%s", err.Error())
+		return
+	}
+
+	fileResult, err := uploader.Upload(c, &setting, &buckets, header)
+	if err != nil {
+		uc.Fail(500, "上传失败[%s]：%v", fileName, err)
+		return
+	}
+
+	// 数据库保存
+	imageModel := models.Image{
+		Url:       fileResult.URL,
+		Thumbnail: fileResult.ThumbnailURL,
+		FileName:  fileResult.FileName,
+		FileSize:  fileResult.FileSize,
+		MimeType:  fileResult.MimeType,
+		Width:     fileResult.Width,
+		Height:    fileResult.Height,
+		Storage:   fileResult.Storage,
+		BucketId:  bucketID,
+		UserId:    c.GetInt("user_id"),
+		MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
+		UUID:      GetUUID(c),
+	}
+	db.DB.Create(&imageModel)
+
+	// 更新容量
+	if fileResult.Storage != "default" {
+		fileSizeUint := uint64(fileResult.FileSize)
+		db.DB.Model(&models.Buckets{}).
+			Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, fileSizeUint).
+			UpdateColumn("usage", gorm.Expr("usage + ?", fileSizeUint))
+	}
+
+	// 标签
+	if req.Tag != "" && req.Tag != "0" {
+		if tagID, err := strconv.Atoi(req.Tag); err == nil {
+			db.DB.Create(&models.ImageToTags{ImageId: imageModel.Id, TagId: tagID})
+		}
+	}
+
+	// TG通知
+	if setting.TGNotice {
+		placeholderData := telegram.PlaceholderData{
+			Username:    c.GetString("username"),
+			Date:        time.Now().Format("2006-01-02 15:04:05"),
+			Filename:    fileResult.FileName,
+			StorageType: buckets.Type,
+			URL:         c.Request.Host + fileResult.URL,
+		}
+		telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData)
+	}
+
+	uc.Success("URL 图片上传成功", nil)
 }

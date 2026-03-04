@@ -136,7 +136,7 @@ func ImageProxy(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("S3客户端初始化失败: %v", err)))
 			return
 		}
-		// 代理S3文件
+		// 代理S3/R2文件
 		proxyS3File(c, imageUrl, imageModel.MimeType, imageModel.FileSize, bucket, s3Client, watermarkCfg)
 
 	case "ftp":

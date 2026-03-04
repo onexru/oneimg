@@ -2,7 +2,6 @@ package interfaces
 
 import (
 	"mime/multipart"
-	"oneimg/backend/config"
 	"oneimg/backend/models"
 
 	"github.com/gin-gonic/gin"
@@ -26,5 +25,5 @@ type ImageUploadResult struct {
 
 // Upload 上传处理接口
 type StorageUploader interface {
-	Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*ImageUploadResult, error)
+	Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*ImageUploadResult, error)
 }

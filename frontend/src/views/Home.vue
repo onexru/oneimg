@@ -46,10 +46,16 @@
               <i class="ri-upload-cloud-line"></i>
             </div>
             <h3 class="text-base font-medium mb-2">选择或拖拽图片到此处上传</h3>
-            <p class="text-secondary text-sm mb-4">支持 JPG、PNG、GIF、WebP、SVG 格式，单张不超过 10MB</p>
+            <p class="text-secondary text-sm mb-4">支持 JPG、PNG、GIF、WebP、SVG 格式</p>
             <button class="bg-primary hover:bg-primary-dark text-white px-5 py-2 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 mx-auto">
               <i class="ri-file-image-line"></i>
               选择图片
+            </button>
+            <button 
+            @click.stop="uploadbyurlmodal"
+            class="py-2 px-5 hover:bg-purple-500/90 bg-purple-500 dark:bg-purple-600 mt-4 text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center mx-auto">
+              <i class="ri-links-line"></i>
+              从URL上传
             </button>
             <p class="paste-tip text-sm text-secondary flex items-center justify-center gap-2 mt-3">
               支持 Ctrl+V 粘贴剪贴板图片，或直接拖入图片
@@ -1050,6 +1056,136 @@ const previewImage = (image) => {
       previewContent.addEventListener('click', (e) => e.stopPropagation());
     }
   });
+};
+
+/**
+ * 从URL上传图片
+ */
+const uploadbyurlmodal = () => {
+  // 构建标签选项
+  const tagList = [
+    { value: "0", label: "不添加"}
+  ];
+  presetTags.value.forEach(tag => {
+    tagList.push({ value: tag.id, label: tag.name });
+  });
+  const storageList = [];
+  presetBuckets.value.forEach(storage => {
+    storageList.push({ value: storage.id, label: storage.name });
+  })
+  const modal = new PopupModal({
+    title: '从URL上传图片',
+    type: 'form',
+    formFields: [
+      {
+        name: 'url',
+        label: '图片链接',
+        type: 'text',
+        required: true,
+        placeholder: '请输入图片链接'
+      },
+      {
+        name: 'tag_id',
+        label: 'Tag标签',
+        type: 'select',
+        required: true,
+        defaultValue: "0",
+        options: tagList
+      },
+      {
+        name: 'bucket_id',
+        label: '存储',
+        type: 'select',
+        required: true,
+        defaultValue: "1",
+        options: storageList
+      }
+    ],
+    buttons: [
+      {
+        text: '取消',
+        type: 'default',
+        callback: (modal) => {
+          modal.close();
+        }
+      },
+      {
+        text: '确定',
+        type: 'primary',
+        callback: (modal) => {
+          const formData = serializeForm(modal);
+          if(formData['url'].length === 0) {
+            Message.error('请输入图片链接');
+            return
+          }
+          postuploadbyurl(formData);
+          modal.close();
+        }
+      }
+    ]
+  });
+  modal.open();
+}
+
+const postuploadbyurl = async (formData) => {
+  try {
+    const res = await fetch(`/api/images/url`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      },
+      body: JSON.stringify(formData)
+    });
+    const result = await res.json();
+    if (res.ok && result.code === 200) {
+      await loadRecentImages();
+      Message.success('上传成功');
+    } else {
+      throw new Error(result.message || '上传失败');
+    }
+  } catch (err) {
+    console.error(err);
+    Message.error(err.message || '上传失败');
+  }
+}
+
+/**
+ * 序列化表单数据
+ * @param {Object} modal - 弹窗实例
+ * @returns {Object} 表单数据对象
+ */
+const serializeForm = (modal) => {
+  const form = modal.content?.querySelector('form');
+  if (!form) {
+    console.warn('未找到表单元素');
+    return {};
+  }
+
+  return Array.from(form.elements).reduce((acc, element) => {
+    const { name, disabled, type, checked, value } = element;
+    
+    // 跳过无name、禁用的元素
+    if (!name || disabled) return acc;
+    
+    // 处理复选框/单选框
+    if ((type === 'checkbox' || type === 'radio') && !checked) return acc;
+    
+    // 处理文件输入
+    if (type === 'file') {
+      acc[name] = element.files.length > 0 ? element.files[0].name : '';
+      return acc;
+    }
+    
+    // 处理多值字段
+    if (acc[name]) {
+      acc[name] = Array.isArray(acc[name]) ? [...acc[name], value] : [acc[name], value];
+    } else {
+      acc[name] = value;
+    }
+    
+    return acc;
+  }, {});
 };
 
 /**

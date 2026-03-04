@@ -15,7 +15,6 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
 
-	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
@@ -36,9 +35,9 @@ type FTPUploader struct{}
 type TelegramUploader struct{}
 
 // R2 上传实现
-func (u *R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
@@ -120,9 +119,9 @@ func (u *R2Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.
 }
 
 // S3上传实现
-func (u *S3Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
@@ -204,9 +203,9 @@ func (u *S3Uploader) Upload(c *gin.Context, cfg *config.Config, setting *models.
 }
 
 // WebDAV上传实现
-func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *WebDAVUploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
@@ -278,9 +277,9 @@ func (u *WebDAVUploader) Upload(c *gin.Context, cfg *config.Config, setting *mod
 }
 
 // FTP上传实现
-func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *FTPUploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
@@ -359,9 +358,9 @@ func (u *FTPUploader) Upload(c *gin.Context, cfg *config.Config, setting *models
 }
 
 // 本地默认上传实现
-func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *DefaultUploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 
@@ -433,9 +432,9 @@ func (u *DefaultUploader) Upload(c *gin.Context, cfg *config.Config, setting *mo
 }
 
 // Telegram上传实现
-func (u *TelegramUploader) Upload(c *gin.Context, cfg *config.Config, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
+func (u *TelegramUploader) Upload(c *gin.Context, setting *models.Settings, bucket *models.Buckets, fileHeader *multipart.FileHeader) (*interfaces.ImageUploadResult, error) {
 	// 验证图片
-	if err := images.ValidateImageFile(fileHeader, cfg); err != nil {
+	if err := images.ValidateImageFile(fileHeader, setting); err != nil {
 		return nil, fmt.Errorf("图片验证失败: %v", err)
 	}
 

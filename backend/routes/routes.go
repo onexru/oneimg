@@ -95,6 +95,9 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.DELETE("/images/tags", controllers.DeleteImageTags) // 批量删除图片标签
 			auth.POST("/images/tags", controllers.AddImageTags)
 
+			// 通过URL上传图片
+			auth.POST("/images/url", controllers.UploadImagesByURL)
+
 			// 需要管理员权限
 			auth.Use(middlewares.AdminOnlyMiddleware())
 			{
