@@ -10,6 +10,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/buckets"
+	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
 	"os"
@@ -57,6 +58,8 @@ func GetBuckets(c *gin.Context) {
 	var bucketRes []BucketResponse
 
 	for _, bucket := range buckets {
+		maskedConfig := secureconfig.MaskBucketConfigValues(bucket.Config)
+		bucket.Config = maskedConfig
 		res := BucketResponse{Buckets: bucket}
 		// 根据存储类型计算/转换容量和使用量
 		switch bucket.Type {
@@ -233,13 +236,19 @@ func AddBuckets(c *gin.Context) {
 		return
 	}
 
+	encryptedConfig, err := secureconfig.EncryptBucketConfigValues(bucketConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "敏感配置加密失败"))
+		return
+	}
+
 	// 插入数据库
 	db := database.GetDB()
 	bucket := models.Buckets{
 		Name:     name,
 		Type:     type_,
 		Capacity: capacitybytes,
-		Config:   bucketConfig,
+		Config:   encryptedConfig,
 		Usage:    0,
 	}
 	if err := db.DB.Create(&bucket).Error; err != nil {
@@ -252,7 +261,9 @@ func AddBuckets(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, result.Success("添加成功", bucket))
+	responseBucket := bucket
+	responseBucket.Config = secureconfig.MaskBucketConfigValues(bucket.Config)
+	c.JSON(http.StatusOK, result.Success("添加成功", responseBucket))
 }
 
 // 更新存储桶
@@ -378,10 +389,22 @@ func UpdateBuckets(c *gin.Context) {
 		return
 	}
 
+	mergedConfig, err := mergeBucketConfig(bucket.Config, bucketConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "敏感配置处理失败"))
+		return
+	}
+
+	encryptedConfig, err := secureconfig.EncryptBucketConfigValues(mergedConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "敏感配置加密失败"))
+		return
+	}
+
 	newBucket := models.Buckets{
 		Name:     name,
 		Capacity: capacitybytes,
-		Config:   bucketConfig,
+		Config:   encryptedConfig,
 	}
 
 	// 更新数据库
@@ -394,6 +417,9 @@ func UpdateBuckets(c *gin.Context) {
 		return
 	}
 
+	bucket.Name = newBucket.Name
+	bucket.Capacity = newBucket.Capacity
+	bucket.Config = secureconfig.MaskBucketConfigValues(newBucket.Config)
 	c.JSON(http.StatusOK, result.Success("更新成功", bucket))
 }
 
@@ -546,9 +572,33 @@ func formatSize(bytes uint64) string {
 // 辅助函数：校验空值
 func ValidateBucketValues(bucketMap map[string]any) (err error) {
 	for key, val := range bucketMap {
+		if secureconfig.IsBucketSensitiveKey(key) {
+			continue
+		}
 		if val == "" {
 			return fmt.Errorf("%s 为必填项", key)
 		}
 	}
 	return nil
+}
+
+func mergeBucketConfig(existingConfig map[string]any, incomingConfig map[string]any) (map[string]any, error) {
+	decryptedExisting, err := secureconfig.DecryptBucketConfigValues(existingConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := make(map[string]any, len(decryptedExisting)+len(incomingConfig))
+	for key, value := range decryptedExisting {
+		merged[key] = value
+	}
+
+	for key, value := range incomingConfig {
+		if secureconfig.IsBucketSensitiveKey(key) && strings.TrimSpace(fmt.Sprintf("%v", value)) == "" {
+			continue
+		}
+		merged[key] = value
+	}
+
+	return merged, nil
 }

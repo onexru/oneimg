@@ -16,6 +16,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
 )
 
@@ -35,19 +36,19 @@ var hexColorRegex = regexp.MustCompile(`^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 func GetSettings(c *gin.Context) {
 	var req GetSettingsRequest
-	settings, err := settings.GetSettings()
+	settingModel, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
 		return
 	}
-	filtered := filterSettings(&settings, req.Keys)
+	filtered := filterSettings(secureconfig.SanitizeSettingsForResponse(settingModel), req.Keys)
 
 	c.JSON(200, result.Success("ok", filtered))
 }
 
 // 返回登录配置
 func GetLoginSettings(c *gin.Context) {
-	settings, err := settings.GetSettings()
+	settingModel, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
 		return
@@ -55,15 +56,15 @@ func GetLoginSettings(c *gin.Context) {
 
 	c.JSON(200, result.Success("ok",
 		map[string]any{
-			"pow_verify": settings.PowVerify,
-			"tourist":    settings.Tourist,
+			"pow_verify": settingModel.PowVerify,
+			"tourist":    settingModel.Tourist,
 		},
 	))
 }
 
 // 返回网站SEO信息
 func GetSEOSettings(c *gin.Context) {
-	settings, err := settings.GetSettings()
+	settingModel, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
 		return
@@ -71,12 +72,12 @@ func GetSEOSettings(c *gin.Context) {
 
 	c.JSON(200, result.Success("ok",
 		map[string]any{
-			"seo_title":       settings.SEOTitle,
-			"seo_description": settings.SEODescription,
-			"seo_keywords":    settings.SEOKeywords,
-			"seo_icp":         settings.SEOICP,
-			"public_security": settings.PublicSecurity,
-			"seo_icon":        settings.SEOicon,
+			"seo_title":       settingModel.SEOTitle,
+			"seo_description": settingModel.SEODescription,
+			"seo_keywords":    settingModel.SEOKeywords,
+			"seo_icp":         settingModel.SEOICP,
+			"public_security": settingModel.PublicSecurity,
+			"seo_icon":        settingModel.SEOicon,
 		},
 	))
 }
@@ -88,7 +89,7 @@ func UpdateSettings(c *gin.Context) {
 		return
 	}
 	// 查询是否有该设置项
-	settings, err := settings.GetSettings()
+	settingModel, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
 		return
@@ -100,7 +101,18 @@ func UpdateSettings(c *gin.Context) {
 		return
 	}
 
-	if err := updateSettingsField(&settings, req.Key, req.Value); err != nil {
+	fieldName, fieldType, err := findSettingsField(reflect.TypeOf(settingModel), req.Key)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, err.Error()))
+		return
+	}
+
+	if secureconfig.IsSettingsSensitiveKey(req.Key) {
+		if err := updateSensitiveSettingsField(&settingModel, req.Key, req.Value); err != nil {
+			c.JSON(http.StatusBadRequest, result.Error(400, err.Error()))
+			return
+		}
+	} else if err := updateSettingsField(&settingModel, req.Key, req.Value); err != nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, err.Error()))
 		return
 	}
@@ -108,7 +120,13 @@ func UpdateSettings(c *gin.Context) {
 	// 更新设置项
 	db := database.GetDB().DB
 
-	if err := db.Model(&settings).Update(req.Key, req.Value).Error; err != nil {
+	updateColumn, updateValue, err := buildSettingsUpdate(req.Key, req.Value, fieldName, fieldType)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, err.Error()))
+		return
+	}
+
+	if err := db.Model(&settingModel).Update(updateColumn, updateValue).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "更新失败"))
 		log.Println(err)
 		return
@@ -118,30 +136,78 @@ func UpdateSettings(c *gin.Context) {
 }
 
 // 辅助函数，筛选设置项
-func filterSettings(settings *models.Settings, keys []string) *models.Settings {
+
+func filterSettings(settingsMap map[string]any, keys []string) map[string]any {
 	if len(keys) == 0 {
-		return settings
+		return settingsMap
 	}
 
-	filteredSettings := &models.Settings{}
-	srcVal := reflect.ValueOf(settings).Elem()
-	dstVal := reflect.ValueOf(filteredSettings).Elem()
-	srcTyp := srcVal.Type()
-	for i := 0; i < srcTyp.NumField(); i++ {
-		srcField := srcTyp.Field(i)
-		srcFieldVal := srcVal.Field(i)
-		jsonTag := srcField.Tag.Get("json")
-		if jsonTag == "" {
-			continue
-		}
-		if slices.Contains(keys, jsonTag) {
-			dstField := dstVal.FieldByName(srcField.Name)
-			if dstField.IsValid() && dstField.CanSet() {
-				dstField.Set(srcFieldVal)
-			}
+	filteredSettings := make(map[string]any)
+	for key, value := range settingsMap {
+		if slices.Contains(keys, key) {
+			filteredSettings[key] = value
 		}
 	}
 	return filteredSettings
+}
+
+func findSettingsField(typ reflect.Type, key string) (string, reflect.Type, error) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == key || field.Name == key {
+			return field.Name, field.Type, nil
+		}
+	}
+	return "", nil, fmt.Errorf("设置项 %s 不存在", key)
+}
+
+func updateSensitiveSettingsField(settings *models.Settings, key string, value any) error {
+	stringValue := strings.TrimSpace(fmt.Sprintf("%v", value))
+	switch key {
+	case "api_token":
+		settings.APIToken = ""
+		settings.APITokenHash = stringValue
+		return nil
+	case "tg_bot_token":
+		settings.TGBotToken = stringValue
+		return nil
+	default:
+		return fmt.Errorf("设置项 %s 不支持敏感更新", key)
+	}
+}
+
+func buildSettingsUpdate(key string, value any, fieldName string, fieldType reflect.Type) (string, any, error) {
+	normalizedValue, err := secureconfig.NormalizeSettingValue(key, value)
+	if err != nil {
+		return "", nil, err
+	}
+
+	switch key {
+	case "api_token":
+		return "api_token_hash", normalizedValue, nil
+	case "tg_bot_token":
+		return "tg_bot_token", normalizedValue, nil
+	default:
+		convertedValue, convertErr := convertValueToTargetType(key, value, fieldType)
+		if convertErr != nil {
+			return "", nil, convertErr
+		}
+		return getSettingsColumnName(fieldName), convertedValue, nil
+	}
+}
+
+func getSettingsColumnName(fieldName string) string {
+	settingsType := reflect.TypeOf(models.Settings{})
+	if field, ok := settingsType.FieldByName(fieldName); ok {
+		gormTag := field.Tag.Get("gorm")
+		for _, part := range strings.Split(gormTag, ";") {
+			if strings.HasPrefix(part, "column:") {
+				return strings.TrimPrefix(part, "column:")
+			}
+		}
+	}
+	return fieldName
 }
 
 func updateSettingsField(settings *models.Settings, key string, value any) error {

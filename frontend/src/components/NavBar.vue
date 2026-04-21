@@ -1,135 +1,146 @@
 <template>
-  <!-- 顶部导航栏 -->
-  <header class="bg-light-100/80 dark:bg-dark-300/80 backdrop-blur-md border-b border-light-200 dark:border-dark-100 py-3 fixed top-0 left-0 right-0 z-40 transition-all duration-300 md:ml-[255px]">
-    <div class="container mx-auto px-4">
-      <div class="flex justify-between items-center">
-        <!-- 左侧Logo和菜单按钮 -->
-        <div class="flex items-center gap-3">
-          <button 
-            ref="sidebarToggleRef"
-            class="md:hidden w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 transition-all duration-200 flex items-center justify-center"
-          >
-            <i class="ri-align-justify"></i>
-          </button>
-          <div class="flex items-center gap-2 font-semibold text-xl">
-            <div class="w-10 h-10 rounded-md bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white font-bold">{{getFirstWord(seoTitle)}}</div>
-            <span>{{ seoTitle }}</span>
+  <header class="fixed inset-x-0 top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-sm dark:border-white/10 dark:bg-slate-950/95 lg:left-[var(--app-sidebar-width)]">
+    <div class="mx-auto flex h-[var(--app-header-height-mobile)] max-w-[1440px] items-center justify-between gap-2 px-2.5 sm:px-4 md:h-[var(--app-header-height)] md:px-5 xl:px-6 2xl:px-8">
+      <div class="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white lg:hidden"
+          @click="toggleSidebar"
+        >
+          <i class="ri-menu-3-line text-lg"></i>
+        </button>
+        <div class="flex min-w-0 items-center gap-2 sm:gap-2.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-sm dark:bg-white dark:text-slate-900 sm:h-9 sm:w-9 sm:text-base">
+              {{ getFirstWord(seoTitle) }}
+          </div>
+          <div class="min-w-0">
+            <h1 class="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-[15px] md:text-base xl:text-lg">{{ seoTitle }}</h1>
           </div>
         </div>
-        
-        <!-- 右侧操作区 -->
-        <div class="flex items-center gap-4">
-          <button 
-            ref="themeToggleRef"
-            class="w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 hover:text-primary transition-all duration-200 flex items-center justify-center"
-          >
-            <i class="ri-moon-clear-line dark:hidden"></i>
-            <i class="ri-sun-line dark:inline-block hidden"></i>
-          </button>
+      </div>
 
-          <button 
-            v-if="isLogin"
-            @click="handleLogout"
-            class="w-10 h-10 rounded-md bg-light-200 dark:bg-dark-100 text-secondary hover:bg-light-300 dark:hover:bg-dark-200 hover:text-primary transition-all duration-200 flex items-center justify-center"
-          >
-            <i class="ri-logout-circle-r-line"></i>
-          </button>
+      <div class="flex shrink-0 items-center gap-1.5 md:gap-2">
+        <div class="hidden rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-1.5 text-right dark:border-white/10 dark:bg-slate-900/80 lg:block xl:hidden">
+          <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">工作区</p>
+          <p class="mt-1 text-sm font-medium text-slate-700 dark:text-slate-200">{{ isLogin ? '图床管理已就绪' : '等待登录' }}</p>
         </div>
+        <button
+          type="button"
+          class="inline-flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white md:h-9 md:w-auto md:gap-1.5 px-3 py-1.5"
+          @click="toggleTheme"
+        >
+          <i :class="isDark ? 'ri-sun-line' : 'ri-moon-clear-line'"></i>
+          <span class="hidden md:inline">{{ isDark ? '浅色' : '深色' }}</span>
+        </button>
+
+        <button
+          v-if="isLogin"
+          type="button"
+          class="inline-flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-red-200 bg-white text-sm font-medium text-red-600 transition hover:border-red-300 hover:text-red-900 dark:border-white/10 dark:bg-red-900 dark:text-red-200 dark:hover:border-red/20 dark:hover:text-red md:h-9 md:w-auto md:gap-1.5 px-3 py-1.5"
+          @click="handleLogout"
+        >
+          <i class="ri-logout-circle-r-line"></i>
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- 侧边栏 -->
-  <div 
-    ref="sidebarRef"
-    class="fixed top-0 left-0 h-full w-64 bg-light-100 transition-all dark:bg-dark-300 border-r border-light-200 dark:border-dark-100 z-50 transition-transform duration-300 sidebar-closed md:sidebar-open"
-  >
-    <div class="p-5 border-b border-light-200 transition-all dark:border-dark-100">
-        <h3 class="font-medium text-secondary">导航菜单</h3>
-    </div>
-    <nav class="p-2">
-        <ul class="space-y-1">
+  <aside class="fixed inset-y-0 left-0 z-50 w-[min(88vw,var(--app-sidebar-width))] border-r border-slate-200/80 bg-slate-100 px-2 pb-2 pt-2 transition-transform duration-300 dark:border-white/10 dark:bg-slate-950 sm:px-3 sm:pb-3 sm:pt-3 lg:w-[var(--app-sidebar-width)]" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
+    <div class="flex h-full flex-col overflow-hidden rounded-[18px] border border-slate-200/80 bg-white px-3 py-3 sm:rounded-[22px] sm:px-3.5 sm:py-4 dark:border-white/10 dark:bg-slate-900">
+      <div class="flex items-center justify-between border-b border-slate-200/70 pb-3 dark:border-white/10 sm:pb-3.5">
+        <div>
+          <p class="text-xs font-medium uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">Navigation</p>
+          <h2 class="mt-1.5 text-base font-semibold text-slate-900 dark:text-slate-100 sm:text-lg">工作区</h2>
+        </div>
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white lg:hidden"
+          @click="closeSidebar"
+        >
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+
+      <nav class="mt-3 flex-1 overflow-y-auto pr-1 sm:mt-4">
+        <ul class="space-y-1.5">
           <li v-for="item in navItems" :key="item.path">
             <router-link
               :to="item.path"
-              :class="[
-                'flex items-center px-3 py-3 rounded-md transition-all duration-200',
-                isRouteActive(item.path) ? 'bg-primary/10 text-primary' : 'hover:bg-light-100 dark:hover:bg-dark-300 text-secondary hover:text-primary transition-all'
-              ]"
+              class="group flex items-center gap-2.5 rounded-[16px] px-3 py-2.5 text-sm font-medium transition sm:px-3.5 sm:py-2.5"
+              :class="isRouteActive(item.path) ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white'"
               @click="handleNavClick"
             >
-              <i :class="`ri-${item.icon} w-6 text-center`"></i>
-              <span class="ml-3">{{ item.name }}</span>
+              <span class="inline-flex h-8 w-8 items-center justify-center rounded-[14px] text-base sm:h-9 sm:w-9 sm:rounded-[16px]"
+                :class="isRouteActive(item.path) ? 'bg-white/15 text-white dark:bg-slate-900/10 dark:text-slate-900' : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 dark:bg-white/5 dark:text-slate-400 dark:group-hover:bg-slate-800 dark:group-hover:text-white'">
+                <i :class="`ri-${item.icon}`"></i>
+              </span>
+              <span class="flex-1">{{ item.name }}</span>
+              <i class="ri-arrow-right-s-line text-base opacity-40"></i>
             </router-link>
           </li>
         </ul>
-    </nav>
-  </div>
+      </nav>
+    </div>
+  </aside>
 
-  <!-- 侧边栏遮罩 -->
-  <div
-    ref="sidebarOverlayRef"
-    class="fixed inset-0 bg-black/50 z-40 overlay-hidden transition-opacity duration-300 pt-16"
-  ></div>
+  <transition name="fade">
+    <div v-if="sidebarOpen" class="fixed inset-0 z-40 bg-slate-950/45 lg:hidden" @click="closeSidebar"></div>
+  </transition>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import Message from '@/utils/message.js'
 
 const router = useRouter()
 const route = useRoute()
 
-// 定义 ref 引用
-const themeToggleRef = ref(null)
-const sidebarToggleRef = ref(null)
-const sidebarRef = ref(null)
-const sidebarOverlayRef = ref(null)
-const seoTitle = ref('初春图床');
-const isLogin = ref(false);
-// 导航菜单数据
-const navItems = ref([]);
+const seoTitle = ref('初春图床')
+const isLogin = ref(false)
+const isDark = ref(false)
+const sidebarOpen = ref(false)
+const navItems = ref([])
+const storageKey = 'theme-preference'
+
 const refreshNavItems = () => {
-  const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-  navItems.value.splice(0);
-  isLogin.value = !!userInfo.username;
+  const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+  navItems.value = []
+  isLogin.value = !!userInfo.username
 
   if (!isLogin.value) {
-    navItems.value.push({ path: '/login', icon: 'login-circle-line', name: '登录' });
-  } else {
-    navItems.value.push(
-      { path: '/', icon: 'home-line', name: '首页' },
-      { path: '/gallery', icon: 'nft-line', name: '画廊' },
-      { path: '/tags', icon: 'bookmark-line', name: 'Tags' },
-      { path: '/stats', icon: 'numbers-fill', name: '统计' }
-    );
-    if (userInfo?.isTourist !== true) {
-      navItems.value.push(
-        { path: '/buckets', icon: 'database-2-line', name: '存储桶'},
-        { path: '/account', icon: 'user-settings-line', name: '账户设置' },
-        { path: '/settings', icon: 'settings-line', name: '系统设置' }
-      );
-    }
+    navItems.value.push({ path: '/login', icon: 'login-circle-line', name: '登录' })
+    return
   }
-};
+
+  navItems.value.push(
+    { path: '/', icon: 'home-5-line', name: '控制台' },
+    { path: '/gallery', icon: 'gallery-view-2', name: '图库管理' },
+    { path: '/tags', icon: 'price-tag-3-line', name: '标签管理' },
+    { path: '/stats', icon: 'bar-chart-grouped-line', name: '数据统计' }
+  )
+
+  if (userInfo?.isTourist !== true) {
+    navItems.value.push(
+      { path: '/buckets', icon: 'database-2-line', name: '存储管理' },
+      { path: '/account', icon: 'shield-user-line', name: '账户设置' },
+      { path: '/settings', icon: 'settings-4-line', name: '系统设置' }
+    )
+  }
+}
 
 const isRouteActive = (targetPath) => {
-  const exactMatchPaths = ['/', '/login', '/404']
+  const exactMatchPaths = ['/', '/login']
   if (exactMatchPaths.includes(targetPath)) {
     return route.path === targetPath
   }
   return route.path.startsWith(targetPath)
 }
 
-// 导航点击事件
-const handleNavClick = () => {
-  if (window.innerWidth < 768) {
-    closeSidebar()
-  }
+const getFirstWord = (title) => {
+  if (!title) return '图'
+  return title.trim().slice(0, 1)
 }
-
-// 主题切换功能
-const storageKey = 'theme-preference'
 
 const detectUserThemePreference = () => {
   if (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey)) {
@@ -140,173 +151,98 @@ const detectUserThemePreference = () => {
 
 const applyTheme = (theme) => {
   const htmlElement = document.documentElement
-  if (theme === 'dark') {
+  isDark.value = theme === 'dark'
+  if (isDark.value) {
     htmlElement.classList.add('dark')
   } else {
     htmlElement.classList.remove('dark')
   }
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(storageKey, theme)
-  }
+  localStorage.setItem(storageKey, theme)
 }
 
-// 侧边栏控制功能
+const toggleTheme = () => {
+  applyTheme(isDark.value ? 'light' : 'dark')
+}
+
 const openSidebar = () => {
-  if (sidebarRef.value) {
-    sidebarRef.value.classList.remove('sidebar-closed')
-    sidebarRef.value.classList.add('sidebar-open')
-  }
-  if (sidebarOverlayRef.value) {
-    if (window.innerWidth < 768) {
-      sidebarOverlayRef.value.classList.remove('overlay-hidden')
-      sidebarOverlayRef.value.classList.add('overlay-visible')
-    }
-  }
-  if (window.innerWidth < 768) {
-    document.body.style.overflow = 'hidden'
-  }
+  sidebarOpen.value = true
+  document.body.style.overflow = 'hidden'
 }
 
 const closeSidebar = () => {
-  if (sidebarRef.value) {
-    sidebarRef.value.classList.remove('sidebar-open')
-    sidebarRef.value.classList.add('sidebar-closed')
-  }
-  if (sidebarOverlayRef.value) {
-    sidebarOverlayRef.value.classList.remove('overlay-visible')
-    sidebarOverlayRef.value.classList.add('overlay-hidden')
-  }
+  sidebarOpen.value = false
   document.body.style.overflow = ''
 }
 
-const handleLogout = async () => {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.removeItem('token')
-    localStorage.removeItem('userInfo')
+const toggleSidebar = () => {
+  if (sidebarOpen.value) {
+    closeSidebar()
+  } else {
+    openSidebar()
   }
-  try{
+}
+
+const handleNavClick = () => {
+  if (window.innerWidth < 768) {
+    closeSidebar()
+  }
+}
+
+const handleLogout = async () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('userInfo')
+  try {
     await fetch('/api/logout', { method: 'POST' })
     Message.success('登出成功')
-    setTimeout(() => {
-      refreshNavItems();
-      router.push('/login').catch(err => {
-        console.log('跳转登录页失败：', err)
-      })
-    }, 500)
+    refreshNavItems()
+    router.push('/login').catch(() => {})
   } catch (error) {
     Message.error('登出失败')
   }
 }
 
-// 获取标题第一个字
-const getFirstWord = (title) => {
-  if (!title) return ''
-  return title.split('')[0]
-}
-
 const handleSeoUpdate = (data) => {
   if (data?.seo_title) {
-    seoTitle.value = data.seo_title;
+    seoTitle.value = data.seo_title
   }
-};
+}
 
-// 组件挂载时初始化
+const handleResize = () => {
+  if (window.innerWidth >= 1024) {
+    sidebarOpen.value = false
+    document.body.style.overflow = ''
+  }
+}
+
 onMounted(() => {
-  // 初始化主题
-  const initialTheme = detectUserThemePreference()
-  applyTheme(initialTheme)
-
-  // 绑定 SEO 更新事件
-  window.seoBus?.onUpdate(handleSeoUpdate);
+  applyTheme(detectUserThemePreference())
+  refreshNavItems()
+  window.refreshNavItems = refreshNavItems
+  window.seoBus?.onUpdate(handleSeoUpdate)
   if (window.seoStting?.seo_title) {
-    seoTitle.value = window.seoStting.seo_title;
+    seoTitle.value = window.seoStting.seo_title
   }
-
-  // 绑定主题切换事件
-  if (themeToggleRef.value) {
-    themeToggleRef.value.addEventListener('click', () => {
-      const currentTheme = localStorage.getItem(storageKey) || 'light'
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
-      applyTheme(newTheme)
-    })
-  }
-
-  // 绑定侧边栏打开事件
-  if (sidebarToggleRef.value) {
-    sidebarToggleRef.value.addEventListener('click', openSidebar)
-  }
-
-  // 绑定侧边栏遮罩关闭事件
-  if (sidebarOverlayRef.value) {
-    sidebarOverlayRef.value.addEventListener('click', closeSidebar)
-  }
-
-  // 窗口大小变化事件
-  const handleResize = () => {
-    if (window.innerWidth <= 768) {
-      closeSidebar()
-    }
-    if (window.innerWidth >= 768) {
-      openSidebar()
-    }
-  }
-  refreshNavItems();
-  window.refreshNavItems = refreshNavItems;
   window.addEventListener('resize', handleResize)
 })
 
-// 组件卸载时清理
 onUnmounted(() => {
-  // 移除主题切换事件
-  if (themeToggleRef.value) {
-    themeToggleRef.value.removeEventListener('click', () => {})
+  if (window.seoBus?.callbacks) {
+    window.seoBus.callbacks = window.seoBus.callbacks.filter((cb) => cb !== handleSeoUpdate)
   }
-
-  // 移除侧边栏打开事件
-  if (sidebarToggleRef.value) {
-    sidebarToggleRef.value.removeEventListener('click', openSidebar)
-  }
-
-  // 移除侧边栏遮罩关闭事件
-  if (sidebarOverlayRef.value) {
-    sidebarOverlayRef.value.removeEventListener('click', closeSidebar)
-  }
-
-  // 移除SEO更新事件
-  window.seoBus.callbacks = window.seoBus.callbacks.filter(cb => cb !== handleSeoUpdate);
-
-  // 移除窗口 resize 事件
-  window.removeEventListener('resize', () => {});
-
-  // 恢复页面滚动
-  document.body.style.overflow = '';
-
-  delete window.refreshNavItems;
-})
-
-// 初始化侧边栏状态
-onMounted(() => {
-  // 加载SEO标题
-  if (window.seoStting?.seo_title) {
-    seoTitle.value = window.seoStting.seo_title;
-  }
+  window.removeEventListener('resize', handleResize)
+  document.body.style.overflow = ''
+  delete window.refreshNavItems
 })
 </script>
 
 <style scoped>
-/* 侧边栏滚动样式 */
-::v-deep(.sidebar-open) {
-  overflow-y: auto;
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
 }
 
-::v-deep(.sidebar-open)::-webkit-scrollbar {
-  width: 4px;
-}
-::v-deep(.sidebar-open)::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 2px;
-}
-::v-deep(.sidebar-open)::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

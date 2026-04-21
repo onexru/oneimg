@@ -15,6 +15,7 @@ import (
 type Config struct {
 	// 服务器配置
 	Port string
+	AppURL string
 
 	// Sqlite3数据库
 	SqlitePath string
@@ -42,6 +43,9 @@ type Config struct {
 
 	// Session配置
 	SessionSecret string
+
+	// 配置加密
+	ConfigSecret string
 }
 
 // 全局配置实例
@@ -77,6 +81,7 @@ func CreateDefaultEnv() {
 	// 直接定义.env模板内容
 	envTemplate := `# 服务器配置
 SERVER_PORT=8080
+APP_URL=http://localhost:8080
 
 # 数据库配置
 DB_TYPE=sqlite
@@ -101,10 +106,16 @@ DEFAULT_PASS=123456
 
 # Session配置
 SESSION_SECRET=
+
+# 配置加密密钥（用于敏感配置字段加密存储）
+CONFIG_SECRET=
 `
 
-	// 替换模板中的SESSION_SECRET占位符
+	configSecret := generateRandomSecret(32)
+
+	// 替换模板中的密钥占位符
 	envContent := strings.Replace(envTemplate, "SESSION_SECRET=", "SESSION_SECRET="+sessionSecret, 1)
+	envContent = strings.Replace(envContent, "CONFIG_SECRET=", "CONFIG_SECRET="+configSecret, 1)
 
 	// 写入.env文件
 	wd, err := os.Getwd()
@@ -152,6 +163,7 @@ func NewConfig() {
 	maxFileSize, _ := strconv.ParseInt(getEnv("MAX_FILE_SIZE", "10485760"), 10, 64)
 	allowedTypes := strings.Split(getEnv("ALLOWED_TYPES", "image/jpeg,image/png,image/gif,image/webp"), ",")
 	port := getEnv("SERVER_PORT", getEnv("PORT", "8080"))
+	appURL := getEnv("APP_URL", "http://localhost:"+port)
 
 	// Sqlite3配置
 	sqlitePath := getEnv("SQLITE_PATH", "./data/data.db")
@@ -179,10 +191,12 @@ func NewConfig() {
 
 	// Session配置（读取.env中的值，无则生成）
 	sessionSecret := getEnv("SESSION_SECRET", generateRandomSecret(32))
+	configSecret := getEnv("CONFIG_SECRET", generateRandomSecret(32))
 
 	// 初始化全局配置
 	App = &Config{
 		Port:             port,
+		AppURL:           appURL,
 		SqlitePath:       sqlitePath,
 		DbType:           dbType,
 		DbHost:           dbHost,
@@ -196,6 +210,7 @@ func NewConfig() {
 		DefaultPass:      defaultPass,
 		JWTSecret:        jwtSecret,
 		SessionSecret:    sessionSecret,
+		ConfigSecret:     configSecret,
 		DbCaCertPath:     dbCaCertPath,
 		DbSkipCertVerify: dbSkipCertVerify,
 	}

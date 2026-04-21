@@ -4,52 +4,53 @@ package buckets
 
 import (
 	"oneimg/backend/models"
+	"oneimg/backend/utils/secureconfig"
 )
 
 // ConvertToS3Bucket 将map转换为S3Bucket
 func ConvertToS3Bucket(config map[string]any) models.S3Bucket {
 	return models.S3Bucket{
-		S3Endpoint:  config["s3_endpoint"].(string),
-		S3AccessKey: config["s3_access_key"].(string),
-		S3SecretKey: config["s3_secret_key"].(string),
-		S3Bucket:    config["s3_bucket"].(string),
+		S3Endpoint:  secureconfig.GetString(config, "s3_endpoint"),
+		S3AccessKey: secureconfig.GetString(config, "s3_access_key"),
+		S3SecretKey: secureconfig.GetString(config, "s3_secret_key"),
+		S3Bucket:    secureconfig.GetString(config, "s3_bucket"),
 	}
 }
 
 // ConvertToR2Bucket 将map转换为R2Bucket
 func ConvertToR2Bucket(config map[string]any) models.R2Bucket {
 	return models.R2Bucket{
-		R2Endpoint:  config["r2_endpoint"].(string),
-		R2AccessKey: config["r2_access_key"].(string),
-		R2SecretKey: config["r2_secret_key"].(string),
-		R2Bucket:    config["r2_bucket"].(string),
+		R2Endpoint:  secureconfig.GetString(config, "r2_endpoint"),
+		R2AccessKey: secureconfig.GetString(config, "r2_access_key"),
+		R2SecretKey: secureconfig.GetString(config, "r2_secret_key"),
+		R2Bucket:    secureconfig.GetString(config, "r2_bucket"),
 	}
 }
 
 // ConvertToFTPBucket 将map转换为FTPBucket
 func ConvertToFTPBucket(config map[string]any) models.FTPBucket {
 	return models.FTPBucket{
-		FTPHost: config["ftp_host"].(string),
-		FTPUser: config["ftp_user"].(string),
-		FTPPass: config["ftp_pass"].(string),
-		FTPPort: int(config["ftp_port"].(float64)), // 重点：JSON数字转int
+		FTPHost: secureconfig.GetString(config, "ftp_host"),
+		FTPUser: secureconfig.GetString(config, "ftp_user"),
+		FTPPass: secureconfig.GetString(config, "ftp_pass"),
+		FTPPort: secureconfig.GetInt(config, "ftp_port"),
 	}
 }
 
 // ConvertToWebDavBucket 将map转换为WebDavBucket
 func ConvertToWebDavBucket(config map[string]any) models.WebDavBucket {
 	return models.WebDavBucket{
-		WebdavURL:  config["webdav_url"].(string),
-		WebdavUser: config["webdav_user"].(string),
-		WebdavPass: config["webdav_pass"].(string),
+		WebdavURL:  secureconfig.GetString(config, "webdav_url"),
+		WebdavUser: secureconfig.GetString(config, "webdav_user"),
+		WebdavPass: secureconfig.GetString(config, "webdav_pass"),
 	}
 }
 
 // ConvertToTelegramBucket 将map转换为TelegramBucket
 func ConvertToTelegramBucket(config map[string]any) models.TelegramBucket {
 	return models.TelegramBucket{
-		TGBotToken:  config["tg_bot_token"].(string),
-		TGReceivers: config["tg_receivers"].(string),
+		TGBotToken:  secureconfig.GetString(config, "tg_bot_token"),
+		TGReceivers: secureconfig.GetString(config, "tg_receivers"),
 	}
 }
 

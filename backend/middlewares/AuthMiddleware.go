@@ -3,6 +3,7 @@ package middlewares
 import (
 	"net/http"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
 	"strings"
 
@@ -79,10 +80,14 @@ func AuthMiddleware() gin.HandlerFunc {
 }
 
 func validateToken(setting models.Settings, token string) bool {
-	if token == "" || setting.APIToken == "" {
+	token = strings.TrimSpace(token)
+	if token == "" {
 		return false
 	}
-	return token == setting.APIToken
+	if secureconfig.CompareSecretHash(setting.APITokenHash, token) {
+		return true
+	}
+	return setting.APIToken != "" && secureconfig.ConstantTimeEqual(setting.APIToken, token)
 }
 
 func AdminOnlyMiddleware() gin.HandlerFunc {

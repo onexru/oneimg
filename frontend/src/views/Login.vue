@@ -1,5 +1,5 @@
 <template>
-    <div class="login flex items-center justify-center p-4">
+    <div class="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
         <!-- 全局加载遮罩 -->
         <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 md:ml-[255px]">
             <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px]">
@@ -15,16 +15,22 @@
         </div>
 
         <!-- 登录卡片 -->
-        <div class="card bg-white dark:bg-gray-800 rounded-xl shadow-lg w-full max-w-md transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
+        <div class="card glass-panel w-full max-w-md overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
             <div class="card-body p-6">
-                <h5 class="card-title text-2xl font-bold text-center text-gray-800 dark:text-white mb-8">登录</h5>
+                <div class="mb-8 text-center">
+                    <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary to-blue-700 text-2xl text-white shadow-lg shadow-primary/20">
+                        <i class="ri-lock-2-line"></i>
+                    </div>
+                    <h5 class="card-title text-2xl font-bold text-gray-800 dark:text-white">欢迎登录</h5>
+                    <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">简洁、安全、响应更快的管理入口</p>
+                </div>
                 <!-- 用户名输入 -->
                 <div class="form-group mb-6">
                     <label for="username" class="form-label block text-gray-700 dark:text-gray-300 mb-2">用户名</label>
                     <input 
                         type="text" 
                         v-model="username" 
-                        class="form-input w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-700 dark:text-white transition-all outline-none"
+                        class="input-modern"
                         placeholder="用户名"
                         :disabled="isLoading"
                         @keyup.enter="handleLogin"
@@ -36,7 +42,7 @@
                     <input 
                         type="password" 
                         v-model="password" 
-                        class="form-input w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-700 dark:text-white transition-all outline-none"
+                        class="input-modern"
                         placeholder="密码"
                         :disabled="isLoading"
                         @keyup.enter="handleLogin"
@@ -46,7 +52,7 @@
                 <div class="form-group">
                     <button 
                         @click="handleLogin" 
-                        class="login-btn w-full py-3 bg-primary hover:bg-primary/90 text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center"
+                        class="login-btn primary-button w-full py-3 text-base"
                         :class="{ 'opacity-70 cursor-not-allowed': isLoading }"
                         :disabled="isLoading"
                     >
@@ -57,7 +63,7 @@
                  <div v-if="loginConfig.tourist" class="form-group">
                     <button 
                         @click="handleTouristLogin" 
-                        class="tourist-login-btn w-full py-3 hover:bg-purple-500/90 bg-purple-500 dark:bg-purple-600 mt-4 text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center"
+                        class="tourist-login-btn soft-button mt-4 w-full border-purple-200 bg-purple-500 py-3 text-base text-white hover:border-purple-400 hover:bg-purple-600 dark:border-purple-500/20 dark:bg-purple-500/80 dark:text-white"
                         :class="{ 'opacity-70 cursor-not-allowed': isLoading }"
                         :disabled="isLoading"
                     > 

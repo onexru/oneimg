@@ -1,90 +1,99 @@
 <template>
-  <div id="app" class="relative min-h-screen">
-      <!-- 背景网格 -->
-    <div class="fixed inset-0 bg-grid opacity-70 dark:opacity-50"></div>
-    
-    <!-- 装饰性背景元素 -->
-    <div class="fixed top-20 -left-20 w-64 h-64 bg-primary/10 dark:bg-primary/20 rounded-full decorative-blur animate-pulse-slow"></div>
-    <div class="fixed bottom-20 -right-20 w-80 h-80 bg-primary-dark/10 dark:bg-primary-dark/20 rounded-full decorative-blur animate-pulse-slow" style="animation-delay: 1s;"></div>
-    
+  <div class="app-shell min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:pl-[var(--app-sidebar-width)]">
     <Navbar />
-    
-    <!-- 主内容区 -->
-    <main class="pt-24 pb-16 px-4 relative z-10 md:ml-[255px] transition-all">
-        <router-view class="mb-8"></router-view>
+
+    <main class="min-h-screen px-2.5 pb-3 pt-[calc(var(--app-header-height-mobile)+8px)] sm:px-4 sm:pb-4 md:px-5 md:pb-5 md:pt-[calc(var(--app-header-height)+10px)] xl:px-6 2xl:px-8">
+      <div class="mx-auto max-w-[1440px]">
+        <div class="page-surface px-2.5 py-2.5 sm:px-3.5 sm:py-4 md:px-4 md:py-4 xl:px-4.5 xl:py-4.5">
+          <router-view />
+        </div>
+      </div>
     </main>
 
-    <!-- 底部版权信息 -->
-    <footer class="absolute bottom-0 left-0 right-0 min-h-16 border-light-200 dark:border-dark-100 shadow-md dark:shadow-dark-md z-40 md:ml-[255px]">
-        <div class="px-4 py-2 text-center text-xs text-gray-500 dark:text-gray-400">
-            © {{ year }} <a href="/" class="hover:underline">{{ seoSetting.seo_title || '初春图床'}}</a>. All rights reserved.
-            <div class="md:flex items-center justify-center mt-1 gap-2">
-                <!-- 设置备案信息 -->
-                <p v-if="seoSetting.seo_icp" class="mt-1">
-                    <img class="inline-block h-6 w-6" :src="icpImg" alt="ICP"/>
-                    <a href="http://www.beian.miit.gov.cn/" target="_blank" class="hover:underline">{{seoSetting.seo_icp}}</a>
-                </p>
-                <!-- 设置公安备案信息 -->
-                <p v-if="seoSetting.public_security" class="mt-1">
-                    <img class="inline-block h-6 w-6" :src="securityImg" alt="公安部备案"/>
-                    <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" class="hover:underline">{{seoSetting.public_security}}</a>
-                </p>
-            </div>
+    <footer class="px-3 pb-4 sm:px-4 md:px-6 md:pb-5 xl:px-8">
+      <div class="mx-auto max-w-[1440px]">
+        <div class="flex flex-col gap-1.5 border-t border-slate-200/80 px-1 pt-3 text-center text-[11px] text-slate-500 dark:border-white/10 dark:text-slate-400 sm:text-xs md:flex-row md:items-center md:justify-between md:gap-2.5 md:text-sm">
+          <div>
+            © {{ year }}
+            <a href="/" class="font-medium text-slate-700 transition hover:text-primary dark:text-slate-200 dark:hover:text-primary">
+              {{ seoSetting.seo_title || '初春图床' }}
+            </a>
+          </div>
+          <div class="flex flex-wrap items-center justify-center gap-2 md:justify-end md:gap-2.5">
+            <a
+              v-if="seoSetting.seo_icp"
+              href="http://beian.miit.gov.cn/"
+              target="_blank"
+              class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 transition hover:border-slate-300 hover:text-slate-900 sm:px-3 dark:border-white/10 dark:bg-slate-900 dark:hover:border-white/20 dark:hover:text-white"
+            >
+              <img class="h-4 w-4" :src="icpImg" alt="ICP" />
+              <span>{{ seoSetting.seo_icp }}</span>
+            </a>
+            <a
+              v-if="seoSetting.public_security"
+              href="https://beian.mps.gov.cn/#/query/webSearch"
+              target="_blank"
+              class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 transition hover:border-slate-300 hover:text-slate-900 sm:px-3 dark:border-white/10 dark:bg-slate-900 dark:hover:border-white/20 dark:hover:text-white"
+            >
+              <img class="h-4 w-4" :src="securityImg" alt="公安备案" />
+              <span>{{ seoSetting.public_security }}</span>
+            </a>
+          </div>
         </div>
+      </div>
     </footer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import Navbar from "@/components/NavBar.vue";
-import icpImg from '@/assets/images/icp.svg';
-import securityImg from '@/assets/images/gongan.png';
+import { ref, onMounted, onUnmounted } from 'vue'
+import Navbar from '@/components/NavBar.vue'
+import icpImg from '@/assets/images/icp.svg'
+import securityImg from '@/assets/images/gongan.png'
 
 const seoSetting = ref({
-    seo_title: '初春图床',
-    seo_description: '',
-    seo_keywords: '',
-    seo_icp: '',
-    public_security: '',
-    seo_icon: ''
-});
-const year = new Date().getFullYear();
+  seo_title: '初春图床',
+  seo_description: '',
+  seo_keywords: '',
+  seo_icp: '',
+  public_security: '',
+  seo_icon: ''
+})
+
+const year = new Date().getFullYear()
 
 const handleSeoUpdate = (data) => {
-  if (!data || typeof data !== 'object') return;
+  if (!data || typeof data !== 'object') return
+  seoSetting.value = { ...seoSetting.value, ...data }
 
-  // 更新组件内SEO数据
-  seoSetting.value = { ...seoSetting.value, ...data };
-
-  // 封装元标签设置函数
   const setMetaTag = (name, content) => {
-    // 查找现有标签，找不到则创建
-    let tag = document.querySelector(`meta[name="${name}"]`);
+    let tag = document.querySelector(`meta[name="${name}"]`)
     if (!tag) {
-      tag = document.createElement('meta');
-      tag.setAttribute('name', name);
-      document.head.appendChild(tag);
+      tag = document.createElement('meta')
+      tag.setAttribute('name', name)
+      document.head.appendChild(tag)
     }
     if (content && content.trim()) {
-      tag.setAttribute('content', content.trim());
+      tag.setAttribute('content', content.trim())
     } else {
-      tag.removeAttribute('content');
+      tag.removeAttribute('content')
     }
-  };
+  }
 
-  setMetaTag('description', seoSetting.value.seo_description);
-  setMetaTag('keywords', seoSetting.value.seo_keywords);
-};
+  setMetaTag('description', seoSetting.value.seo_description)
+  setMetaTag('keywords', seoSetting.value.seo_keywords)
+}
 
 onMounted(() => {
-  window.seoBus?.onUpdate(handleSeoUpdate);
+  window.seoBus?.onUpdate(handleSeoUpdate)
   if (window.seoStting) {
-    seoSetting.value = window.seoStting;
+    seoSetting.value = window.seoStting
   }
-});
+})
 
 onUnmounted(() => {
-  window.seoBus.callbacks = window.seoBus.callbacks.filter(cb => cb !== handleSeoUpdate);
-});
+  if (window.seoBus?.callbacks) {
+    window.seoBus.callbacks = window.seoBus.callbacks.filter((cb) => cb !== handleSeoUpdate)
+  }
+})
 </script>

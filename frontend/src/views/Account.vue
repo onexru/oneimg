@@ -1,18 +1,16 @@
 <template>
-    <div class="text-gray-800 dark:text-gray-200">
-        <!-- 页面头部 -->
-        <div class="settings-header container mx-auto px-4 py-4">
-            <h1 class="page-title flex items-center text-2xl md:text-3xl font-bold">
-                账户设置
-            </h1>
-            <p class="page-description text-gray-600 dark:text-gray-400 mt-2">管理您的系统账户</p>
-        </div>
+    <div class="page-shell text-gray-800 dark:text-gray-200">
+        <section class="page-header">
+            <div>
+                <h1 class="page-title">账户设置</h1>
+            </div>
+        </section>
 
         <!-- 主要内容 -->
-        <div class="container mx-auto pb-16">
+        <div class="pb-16">
             <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
 
-                <div class="mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden w-full m-4">
+                <div class="section-card mx-auto overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8">
                         <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
                             <span class="panel-icon mr-2 text-2xl">
@@ -110,44 +108,59 @@
                     </div>
                 </div>
                 <!-- Github版本卡片 -->
-                <div class="mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden w-full m-4">
-                    <div class="panel-content p-6 md:p-8 text-center">
-                        <h2 class="panel-title flex items-center text-xl font-semibold mb-6 justify-center">
+                <div class="section-card mx-auto overflow-hidden w-full m-4">
+                    <div class="panel-content p-6 md:p-8">
+                        <div class="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-4 dark:border-white/10">
+                            <div>
+                                <h2 class="panel-title flex items-center text-xl font-semibold">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-github-fill"></i>
                             </span>
                             版本信息
-                        </h2>
+                                </h2>
+                            </div>
+                            <span class="inline-flex shrink-0 items-center rounded-full border border-slate-200/80 bg-slate-50 px-3 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400">GitHub Release</span>
+                        </div>
                         <!-- 加载中状态 -->
-                        <div v-if="isLoadingVersion" class="py-8">
+                        <div v-if="isLoadingVersion" class="py-10 text-center">
                             <span class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block"></span>
                             <p class="mt-3 text-gray-600 dark:text-gray-400">正在检查最新版本...</p>
                         </div>
                         <!-- 版本加载成功 -->
-                        <div v-else-if="latestVersion" class="space-y-5 py-4">
-                            <div class="text-4xl font-bold text-primary">
-                                {{ latestVersion.tag_name }}
+                        <div v-else-if="latestVersion" class="space-y-4 pt-5">
+                            <div class="grid gap-3 sm:grid-cols-3">
+                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
+                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">版本号</p>
+                                    <p class="mt-2 text-2xl font-semibold text-primary">{{ latestVersion.tag_name }}</p>
+                                </div>
+                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
+                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">发布名称</p>
+                                    <p class="mt-2 truncate text-sm font-medium text-slate-700 dark:text-slate-200">{{ latestVersion.name || '最新稳定版本' }}</p>
+                                </div>
+                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
+                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">发布时间</p>
+                                    <p class="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">{{ formatReleaseDate(latestVersion.published_at) }}</p>
+                                </div>
                             </div>
-                            <p class="text-gray-600 dark:text-gray-400 leading-relaxed">
-                                {{ latestVersion.name || '最新稳定版本' }}
-                            </p>
-                            <p class="text-gray-600 dark:text-gray-400 leading-relaxed p-6 border-2 border-dashed border-blue-600 rounded-md">
-                                {{ latestVersion.body || '暂无更新日志' }}
-                            </p>
-                            <div class="text-sm text-gray-500 dark:text-gray-500 mt-2">
-                                更新时间：{{ formatReleaseDate(latestVersion.published_at) }}
+                            <div class="rounded-[20px] border border-dashed border-slate-300/90 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-slate-950/70">
+                                <div class="flex items-center justify-between gap-3">
+                                    <p class="text-sm font-medium text-slate-800 dark:text-slate-100">更新日志</p>
+                                    <a 
+                                        :href="latestVersion.html_url" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        class="inline-flex items-center rounded-full border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+                                    >
+                                        前往更新
+                                    </a>
+                                </div>
+                                <div class="mt-3 max-h-[320px] overflow-auto rounded-[16px] bg-white px-4 py-3 text-sm leading-6 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                                    <pre class="whitespace-pre-wrap break-words font-sans">{{ latestVersion.body || '暂无更新日志' }}</pre>
+                                </div>
                             </div>
-                            <a 
-                                :href="latestVersion.html_url" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                class="inline-block mt-4 py-2.5 px-6 border border-primary text-primary hover:bg-primary hover:text-white rounded-lg transition-colors"
-                            >
-                                前往更新
-                            </a>
                         </div>
                         <!-- 加载失败状态 -->
-                        <div v-else class="py-8 text-gray-600 dark:text-gray-400">
+                        <div v-else class="py-10 text-center text-gray-600 dark:text-gray-400">
                             <i class="ri-error-warning-line text-2xl mb-2"></i>
                             <p>版本信息加载失败，请稍后重试</p>
                         </div>

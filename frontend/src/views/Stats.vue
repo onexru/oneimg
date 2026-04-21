@@ -1,11 +1,22 @@
 <template>
-    <div class="text-gray-800 dark:text-gray-200">
-        <!-- 主要内容 -->
-        <div class="stats-content container mx-auto px-4 py-8">
-            <div class="stats-header mb-8 text-center">
-                <h1 class="stats-title text-3xl font-bold mb-2">系统统计</h1>
-                <p class="stats-subtitle text-gray-600 dark:text-gray-400">查看图床系统的使用情况和统计数据</p>
+    <div class="page-shell text-gray-800 dark:text-gray-200">
+        <section class="page-header">
+            <div>
+                <h1 class="page-title">系统统计</h1>
             </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="stat-tile min-w-[160px] p-4">
+                    <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">总图片</p>
+                    <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ formatNumber(stats.total_images) }}</p>
+                </div>
+                <div class="stat-tile min-w-[160px] p-4">
+                    <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">本月上传</p>
+                    <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ formatNumber(stats.month_uploads) }}</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-card">
             
             <!-- 加载状态 -->
             <div v-if="loading" class="loading-container flex flex-col items-center justify-center py-20">
@@ -16,7 +27,7 @@
             <!-- 统计卡片 -->
             <div v-else class="stats-grid grid grid-cols-1 lg:grid-cols-3 gap-4 mb-10">
                 <!-- 总图片数 -->
-                <div class="stat-card bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow duration-300 flex flex-col items-center text-center">
+                <div class="stat-card rounded-[28px] border border-white/40 bg-white/85 p-6 shadow-md backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-white/10 dark:bg-white/5 flex flex-col items-center text-center">
                     <div class="stat-icon text-4xl mb-4">
                         <i class="ri-image-circle-line"></i>
                     </div>
@@ -27,7 +38,7 @@
                 </div>
                 
                 <!-- 总存储空间 -->
-                <div class="stat-card bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow duration-300 flex flex-col items-center text-center">
+                <div class="stat-card rounded-[28px] border border-white/40 bg-white/85 p-6 shadow-md backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-white/10 dark:bg-white/5 flex flex-col items-center text-center">
                     <div class="stat-icon text-4xl mb-4">
                         <i class="ri-folder-3-line"></i>
                     </div>
@@ -38,7 +49,7 @@
                 </div>
                 
                 <!-- 本月上传 -->
-                <div class="stat-card bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow duration-300 flex flex-col items-center text-center">
+                <div class="stat-card rounded-[28px] border border-white/40 bg-white/85 p-6 shadow-md backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-white/10 dark:bg-white/5 flex flex-col items-center text-center">
                     <div class="stat-icon text-4xl mb-4">
                         <i class="ri-calendar-line"></i>
                     </div>

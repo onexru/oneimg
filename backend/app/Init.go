@@ -88,7 +88,7 @@ func InitDefaultUser(cfg *config.Config, db *database.Database) {
 		log.Fatal("创建默认用户失败:", result.Error)
 	}
 
-	log.Printf("默认用户创建成功 - 用户名: %s, 默认密码: %s", defaultUser.Username, defaultPassword)
+	log.Printf("默认用户创建成功 - 用户名: %s", defaultUser.Username)
 }
 
 // InitDefaultStorage 初始化默认存储配置

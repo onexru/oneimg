@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"oneimg/backend/config"
 	"strings"
 	"time"
 
@@ -202,7 +203,7 @@ func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 	session.Options(sessions.Options{
 		MaxAge:   24 * 60 * 60,            // 24小时，单位秒
 		HttpOnly: true,                    // 防止XSS攻击
-		Secure:   false,                   // 生产环境应设为true（需要HTTPS）
+		Secure:   strings.HasPrefix(strings.ToLower(config.App.AppURL), "https://"),
 		SameSite: http.SameSiteStrictMode, // 防止CSRF攻击
 		Path:     "/",                     // cookie路径
 	})

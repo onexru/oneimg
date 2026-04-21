@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"oneimg/backend/config"
@@ -30,9 +31,18 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 
 	// 跨域配置
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOriginFunc: func(origin string) bool {
+			if strings.TrimSpace(origin) == "" {
+				return true
+			}
+			appURL := strings.TrimSpace(cfg.AppURL)
+			if appURL != "" && strings.EqualFold(origin, appURL) {
+				return true
+			}
+			return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"*"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,

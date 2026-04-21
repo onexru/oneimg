@@ -1,7 +1,20 @@
 <template>
-  <div class="pt-6 md:px-4 xl:container xl:mx-auto">
+  <div class="page-shell">
+    <section class="page-header border-b border-slate-200/70 pb-6 dark:border-white/10">
+      <div>
+        <h1 class="page-title">存储管理</h1>
+      </div>
+      <button
+        @click="AddBucketModal"
+        class="primary-button"
+      >
+        <i class="ri-add-line"></i>
+        添加存储
+      </button>
+    </section>
+
     <!-- 顶部标题 + 添加存储按钮 -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="hidden items-center justify-between mb-6">
       <h2 class="section-title text-xl font-semibold flex items-center gap-2">
         <i class="ri-database-2-line text-primary"></i>
         存储管理
@@ -20,7 +33,7 @@
       <div
         v-for="storage in buckets"
         :key="storage.key"
-        class="bg-white dark:bg-dark-200 rounded-xl shadow-md dark:shadow-dark-md p-5 transition-all duration-300 hover:shadow-lg dark:hover:shadow-dark-lg relative"
+        class="section-card relative"
       >
         <h3 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
           {{ storage.name }}
@@ -30,15 +43,15 @@
         </h3>
 
         <div class="grid grid-cols-3 gap-3 mb-5">
-          <div class="bg-gray-50 dark:bg-dark-100 rounded-lg p-3 border border-gray-100 dark:border-dark-300">
+          <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">总容量</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.total_readable || '--' }}</h4>
           </div>
-          <div class="bg-gray-50 dark:bg-dark-100 rounded-lg p-3 border border-gray-100 dark:border-dark-300">
+          <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">已使用</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.usage_readable }}</h4>
           </div>
-          <div class="bg-gray-50 dark:bg-dark-100 rounded-lg p-3 border border-gray-100 dark:border-dark-300">
+          <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">剩余容量</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.usage_free || '--' }}</h4>
           </div>
@@ -62,13 +75,13 @@
         <div v-if="storage.type !== 'default'" class="flex items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-dark-300">
           <button
           @click="UpdateBucketModal(storage)"
-          class="px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors flex items-center gap-1 text-sm">
+          class="soft-button text-sm">
             <i class="ri-edit-fill"></i>
             编辑
           </button>
           <button
             @click="DeleteBucketModal(storage.id)"
-            class="px-3 py-1.5 bg-danger text-white dark:bg-danger-300 text-danger-700 dark:text-danger-200 rounded-lg hover:bg-danger/80 text-sm">
+            class="danger-button text-sm">
             <i class="ri-delete-bin-7-fill"></i>
             删除存储
           </button>
@@ -86,36 +99,38 @@ const buckets = ref([]);
 const typeSpecificFields = {
   s3: [
     { name: 's3_endpoint', label: 'Endpoint', type: 'text', placeholder: '请输入 Endpoint', required: true},
-    { name: 's3_access_key', label: 'AccessKey', type: 'text', placeholder: '请输入 AccessKey', required: true},
-    { name: 's3_secret_key', label: 'SecretKey', type: 'text', placeholder: '请输入 SecretKey', required: true},
+    { name: 's3_access_key', label: 'AccessKey', type: 'password', placeholder: '请输入 AccessKey', required: true},
+    { name: 's3_secret_key', label: 'SecretKey', type: 'password', placeholder: '请输入 SecretKey', required: true},
     { name: 's3_bucket', label: 'Bucket', type: 'text', placeholder: '请输入 Bucket', required: true},
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   r2: [
     { name: 'r2_endpoint', label: 'Endpoint', type: 'text', placeholder: '请输入 Endpoint', required: true},
-    { name: 'r2_access_key', label: 'AccessKey', type: 'text', placeholder: '请输入 AccessKey', required: true},
-    { name: 'r2_secret_key', label: 'SecretKey', type: 'text', placeholder: '请输入 SecretKey', required: true},
+    { name: 'r2_access_key', label: 'AccessKey', type: 'password', placeholder: '请输入 AccessKey', required: true},
+    { name: 'r2_secret_key', label: 'SecretKey', type: 'password', placeholder: '请输入 SecretKey', required: true},
     { name: 'r2_bucket', label: 'Bucket', type: 'text', placeholder: '请输入 Bucket', required: true},
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   ftp: [
     { name: 'ftp_host', label: 'Host', type: 'text', placeholder: '请输入 Host', required: true, tip: '无需填写 ftp:// 或者 sftp://'},
     { name: 'ftp_port', label: 'Port', type: 'number', placeholder: 'FTP 默认端口号 21', required: true, defaultValue: 21 },
-    { name: 'ftp_user', label: 'Username', type: 'text', placeholder: '请输入 Username', required: true},
+    { name: 'ftp_user', label: 'Username', type: 'password', placeholder: '请输入 Username', required: true},
     { name: 'ftp_pass', label: 'Password', type: 'password', placeholder: '请输入 Password', required: true},
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   webdav: [
     { name: 'webdav_url', label: 'URL', type: 'text', placeholder: '请填写 WebDav 地址', required: true},
-    { name: 'webdav_user', label: 'Username', type: 'text', placeholder: '请输入 Username', required: true},
+    { name: 'webdav_user', label: 'Username', type: 'password', placeholder: '请输入 Username', required: true},
     { name: 'webdav_pass', label: 'Password', type: 'password', placeholder: '请输入 Password', required: true},
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   telegram: [
-    { name: 'tg_bot_token', label: 'Bot Token', type: 'text', placeholder: '请输入 Token', required: true},
+    { name: 'tg_bot_token', label: 'Bot Token', type: 'password', placeholder: '请输入 Token', required: true},
     { name: 'tg_receivers', label: 'Chat ID', type: 'text', placeholder: '请输入 Chat ID', required: true}
   ]
 };
+
+const sensitiveFields = ['s3_access_key', 's3_secret_key', 'r2_access_key', 'r2_secret_key', 'ftp_user', 'ftp_pass', 'webdav_user', 'webdav_pass', 'tg_bot_token'];
 
 // 添加存储弹窗
 const AddBucketModal = () => {
@@ -205,7 +220,10 @@ const AddBucketModal = () => {
 const UpdateBucketModal = (bucket) => {
   const setValue = typeSpecificFields[bucket.type].map(field => ({
     ...field,
-    defaultValue: field.name == 'capacity' ? formatCapacity(bucket[field.name]) : bucket.config[field.name]
+    defaultValue: field.name == 'capacity' ? formatCapacity(bucket[field.name]) : (bucket.config[field.name] ?? ''),
+    placeholder: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '已加密存储，留空表示不修改' : field.placeholder,
+    tip: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '当前已配置，后端不会返回明文；留空表示继续使用原值' : field.tip,
+    required: sensitiveFields.includes(field.name) ? !bucket.config?.[`${field.name}_configured`] : field.required,
   }));
   const modal = new PopupModal({
     title: '编辑存储',

@@ -1,7 +1,16 @@
 <template>
-    <div class="pt-6 md:px-4 xl:container xl:mx-auto">
-        <!-- 标签管理卡片 -->
-        <div class="bg-white dark:bg-dark-200 rounded-xl shadow-md dark:shadow-dark-md p-5 transition-all duration-300 hover:shadow-lg dark:hover:shadow-dark-lg">
+    <div class="page-shell">
+        <section class="page-header">
+            <div>
+                <h1 class="page-title">标签管理</h1>
+            </div>
+            <div class="stat-tile min-w-[170px] p-4">
+                <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">标签总数</p>
+                <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ tagList.length + 1 }}</p>
+            </div>
+        </section>
+
+        <div class="section-card">
             <h2 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
                 <i class="ri-bookmark-line text-primary"></i>
                 标签管理
@@ -12,10 +21,10 @@
                 <input type="text" 
                     v-model="tagInput"
                     @keyup.enter="handleAddTag"
-                    class="flex-1 px-6 py-4 border min-w-[100px] border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                    class="input-modern min-w-[100px] flex-1 px-6 py-4"
                     placeholder="请输入标签(最多10个字符)..." 
                     maxlength="10"/>
-                <button class="px-6 py-4 ml-3 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/80 transition-all" 
+                <button class="primary-button ml-3 px-6 py-4" 
                         @click="handleAddTag"
                         :disabled="isAdding">
                     <span v-if="!isAdding" class="truncate text-overflow">添加</span>

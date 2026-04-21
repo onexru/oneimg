@@ -1,37 +1,27 @@
 <template>
-  <!-- 主要内容区域 -->
-  <div class="pt-6 md:px-4 xl:container xl:mx-auto">
-    <!-- 上传区域 -->
-    <section class="upload-section mb-6">
-      <div class="bg-white dark:bg-dark-200 rounded-xl shadow-md dark:shadow-dark-md p-5 transition-all duration-300 hover:shadow-lg dark:hover:shadow-dark-lg">
-        <h2 class="section-title text-lg font-semibold mb-4 flex justify-between items-center gap-2">
-          <span>
-            <i class="ri-upload-line text-primary"></i>
-            图片上传
-          </span>
-          <!-- 存储选择 -->
-          <div class="w-[40%] max-w-[210px]">
-              <select 
-                class="w-full px-3 py-2 border border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
-                v-model="selectedBucket"
-                :disabled="isGuest()"
-                @change="handleBucketChange"
-              >
-                <option 
-                  v-for="bucket in presetBuckets" 
-                  :key="bucket.id"
-                  :value="bucket.id"
-                >{{ bucket.name }}  ({{ bucket.type }})</option>
-              </select>
+  <div class="page-shell">
+    <div class="space-y-3 lg:space-y-3.5">
+      <section class="space-y-3">
+        <div class="content-panel home-panel-compact">
+          <div class="mb-3 flex flex-col gap-2 border-b border-slate-200/70 pb-3 dark:border-white/10 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p class="panel-label">主上传区</p>
+              <h2 class="section-title mt-1 flex items-center gap-2 text-base font-semibold sm:text-lg">
+                <i class="ri-upload-cloud-2-line text-primary"></i>
+                图片上传
+              </h2>
             </div>
-        </h2>
+            <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">{{ presetBuckets.find(bucket => bucket.id == selectedBucket)?.name || '未选择存储' }}</span>
+              <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">{{ selectedTags.length }} 个标签</span>
+            </div>
+          </div>
 
-        <!-- 拖拽上传区域 -->
-        <div 
-          class="upload-area relative rounded-xl border-2 border-dashed transition-all duration-300 cursor-pointer overflow-hidden"
+          <div 
+          class="imageflow-dropzone upload-area relative cursor-pointer overflow-hidden transition-all duration-300"
           :class="{ 
             'border-primary/30 bg-primary/5 dark:bg-primary/5': isDragOver,
-            'border-light-300 dark:border-dark-100 bg-light-50 dark:bg-dark-200/50': !isDragOver && !isUploading,
+            'border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-slate-900/40': !isDragOver && !isUploading,
             'border-primary/50 bg-primary/10 dark:bg-primary/10': isUploading
           }"
           @drop="handleDrop"
@@ -40,30 +30,31 @@
           @dragleave="handleDragLeave"
           @click="triggerFileInput"
         >
-          <!-- 未上传状态 -->
-          <div v-if="!isUploading" class="upload-content py-16 px-4 text-center">
-            <div class="upload-icon text-5xl text-primary mb-3">
+          <div v-if="!isUploading" class="upload-content py-6 text-center sm:py-7">
+            <div class="upload-icon mb-2.5 text-4xl text-slate-900 dark:text-white sm:text-[42px]">
               <i class="ri-upload-cloud-line"></i>
             </div>
-            <h3 class="text-base font-medium mb-2">选择或拖拽图片到此处上传</h3>
-            <p class="text-secondary text-sm mb-4">支持 JPG、PNG、GIF、WebP、SVG 格式</p>
-            <button class="bg-primary hover:bg-primary-dark text-white px-5 py-2 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 mx-auto">
+            <h3 class="mb-1.5 text-base font-semibold text-slate-900 dark:text-white">拖拽图片到此处，或点击立即上传</h3>
+            <p class="mx-auto mb-3 max-w-md text-sm leading-5 text-slate-500 dark:text-slate-400">支持常见图片格式、剪贴板和 URL 上传。</p>
+            <div class="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <button class="primary-button w-full px-4 py-2 sm:w-auto">
               <i class="ri-file-image-line"></i>
               选择图片
             </button>
             <button 
             @click.stop="uploadbyurlmodal"
-            class="py-2 px-5 hover:bg-purple-500/90 bg-purple-500 dark:bg-purple-600 mt-4 text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center mx-auto">
+            class="soft-button w-full border-slate-200 px-4 py-2 sm:w-auto">
               <i class="ri-links-line"></i>
               从URL上传
             </button>
-            <p class="paste-tip text-sm text-secondary flex items-center justify-center gap-2 mt-3">
-              支持 Ctrl+V 粘贴剪贴板图片，或直接拖入图片
+            </div>
+            <p class="paste-tip mt-2.5 text-center text-xs text-slate-500 dark:text-slate-400">
+              支持 Ctrl+V 粘贴和直接拖入
             </p>
           </div>
 
           <!-- 上传进度状态 -->
-          <div v-else class="upload-progress py-16 px-4 text-center">
+          <div v-else class="upload-progress px-3 py-8 text-center sm:px-4 sm:py-10">
             <div class="spinner w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-3"></div>
             <p class="text-secondary text-sm mb-3">正在上传 {{ uploadingCount }} 个文件（{{ Math.round(uploadProgress) }}%）</p>
             <div class="progress-bar w-full max-w-md mx-auto h-2 bg-light-200 dark:bg-dark-100 rounded-full overflow-hidden">
@@ -75,7 +66,6 @@
           </div>
         </div>
 
-        <!-- 隐藏的文件输入 -->
         <input 
           ref="fileInput"
           type="file"
@@ -83,22 +73,43 @@
           accept="image/*"
           @change="handleFileSelect"
           class="hidden"
-        />
+        </div>
 
-        <!-- 自定义标签 -->
-        <div class="mt-5">
-          <!-- 标签标题 -->
-          <div class="flex items-center mb-3">
-            <i class="ri-bookmark-line text-primary"></i>
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">标签管理</span>
+        <div class="content-panel home-panel-compact space-y-2.5">
+          <div class="flex flex-col gap-2 border-b border-slate-200/70 pb-2.5 dark:border-white/10 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p class="panel-label">上传设置</p>
+              <h2 class="section-title mt-1 text-base font-semibold text-slate-900 dark:text-white sm:text-lg">上传设置</h2>
+            </div>
           </div>
-          
-          <!-- 标签选择与添加 -->
-          <div class="flex flex-wrap items-center gap-3 mb-4">
-            <!-- 预设标签选择 -->
-            <div class="w-[40%]">
+
+          <div class="grid gap-2.5 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+            <div class="control-group control-group-compact">
+            <p class="panel-label">上传目标</p>
+            <p class="control-group-title">选择存储桶</p>
+            <p class="control-group-hint">上传前先确定目标存储。</p>
+            <select 
+              class="input-modern mt-3"
+              v-model="selectedBucket"
+              :disabled="isGuest()"
+              @change="handleBucketChange"
+            >
+              <option 
+                v-for="bucket in presetBuckets" 
+                :key="bucket.id"
+                :value="bucket.id"
+              >{{ bucket.name }}  ({{ bucket.type }})</option>
+            </select>
+          </div>
+
+            <div class="control-group control-group-compact">
+            <p class="panel-label">标签区</p>
+            <p class="control-group-title">给本次上传补充标签</p>
+            <p class="control-group-hint">标签会跟随本次上传一起保存。</p>
+
+            <div class="mt-2.5 space-y-2">
               <select 
-                class="w-full px-3 py-2 border border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                class="input-modern"
                 v-model="selectedPresetTag"
                 @change="addPresetTag"
                 :disabled="isUploading"
@@ -110,165 +121,161 @@
                   :value="presetTag.name"
                 >{{ presetTag.name }}</option>
               </select>
+
+              <div class="relative flex w-full">
+                <input 
+                  type="text" 
+                  placeholder="输入自定义标签"
+                  class="input-modern flex-1 pr-14"
+                  v-model="customTagInput"
+                  @keyup.enter="addCustomTag"
+                  maxlength="10"
+                  :disabled="isUploading"
+                >
+                <button 
+                  class="absolute right-1 top-1 inline-flex h-[calc(100%-8px)] items-center justify-center rounded-[16px] bg-slate-900 px-3.5 text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                  @click="addCustomTag"
+                  :disabled="isUploading || !customTagInput.trim()"
+                >
+                  <i class="ri-add-line"></i>
+                </button>
+              </div>
+
+              <div class="tag-list flex flex-wrap gap-1">
+                <div 
+                  v-for="(tag, index) in selectedTags" 
+                  :key="index"
+                  class="flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-sm text-white dark:bg-white dark:text-slate-900"
+                >
+                  <span>{{ tag }}</span>
+                  <button 
+                    class="ml-2 text-white/70 transition-colors hover:text-white dark:text-slate-500 dark:hover:text-slate-900"
+                    @click="removeTag(index)"
+                    :disabled="isUploading"
+                  >
+                    <i class="ri-close-line text-xs"></i>
+                  </button>
+                </div>
+                <div v-if="selectedTags.length === 0" class="text-sm text-secondary italic">
+                  暂无已选标签
+                </div>
+              </div>
+
+              <div v-if="tagError" class="text-xs text-red-500 dark:text-red-400">
+                {{ tagError }}
+              </div>
             </div>
-            
-            <!-- 自定义标签输入 -->
-            <div class="flex flex-1 relative">
-              <input 
-                type="text" 
-                placeholder="输入自定义标签"
-                class="w-[30%] flex-1 px-3 py-2 border border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
-                v-model="customTagInput"
-                @keyup.enter="addCustomTag"
-                maxlength="10"
-                :disabled="isUploading"
-              >
-              <button 
-                class="bg-primary absolute right-0 p-0 hover:bg-primary-dark text-white px-3 py-[7px] rounded-r-lg transition-colors duration-200 flex items-center justify-center"
-                @click="addCustomTag"
-                :disabled="isUploading || !customTagInput.trim()"
-              >
-                <i class="ri-add-line"></i>
-              </button>
             </div>
-          </div>
-          
-          <!-- 已选择标签展示 -->
-          <div class="tag-list flex flex-wrap gap-2">
-            <div 
-              v-for="(tag, index) in selectedTags" 
-              :key="index"
-              class="flex items-center px-3 py-1.5 bg-primary/10 dark:bg-primary/20 text-primary rounded-full text-sm"
-            >
-              <span>{{ tag }}</span>
-              <button 
-                class="ml-2 text-primary/70 hover:text-primary-dark transition-colors"
-                @click="removeTag(index)"
-                :disabled="isUploading"
-              >
-                <i class="ri-close-line text-xs"></i>
-              </button>
-            </div>
-            <div v-if="selectedTags.length === 0" class="text-sm text-secondary italic">
-              暂无已选标签
-            </div>
-          </div>
-          
-          <!-- 错误提示 -->
-          <div v-if="tagError" class="mt-2 text-xs text-red-500 dark:text-red-400">
-            {{ tagError }}
           </div>
         </div>
-      </div>
-    </section>
 
-    <!-- 最近上传的图片 -->
-    <section class="recent-section">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="section-title text-lg font-semibold flex items-center gap-2">
-          <i class="ri-history-line text-primary"></i>
-          最近上传
-        </h2>
-        <span class="text-sm text-secondary">{{ recentImages.length }} 张图片</span>
-      </div>
+        <div class="content-panel home-panel-compact">
+          <div class="mb-3 flex flex-col gap-2 border-b border-slate-200/70 pb-3 dark:border-white/10 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p class="panel-label">结果流</p>
+              <h2 class="section-title mt-1 flex items-center gap-2 text-base font-semibold sm:text-lg">
+                <i class="ri-gallery-line text-primary"></i>
+                最近上传
+              </h2>
+              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">结果区保持紧凑，优先看图和复制链接。</p>
+            </div>
+            <span class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300">{{ recentImages.length }} 张</span>
+          </div>
 
-      <div v-if="recentImages.length > 0" class="recent-images-container space-y-4">
+      <div v-if="recentImages.length > 0" class="result-stream">
         <div
           v-for="image in recentImages" 
           :key="image.id"
-          class="flex items-center mt-2 bg-white dark:bg-dark-100 rounded-lg p-3 shadow-sm hover:shadow-md transition-all duration-300"
+          class="result-card result-card-compact result-card-mobile-safe"
         >
-          <!-- 图片预览区域 -->
-          <div class="aspect-square overflow-hidden cursor-pointer rounded w-[160px] min-w-[160px] relative group border-2 border-[#f6f6f6]
-          hover:ring-2 ring-primary ring-offset-2 ease-in-out duration-300 dark:border-dark-300">
-            <!-- 加载动画 -->
-            <div class="loading absolute inset-0 flex items-center justify-center z-0 text-slate-300 bg-gray-100 dark:bg-gray-800">
+          <div class="result-card-layout">
+            <div class="result-card-media result-card-media-large">
+            <div class="loading absolute inset-0 z-0 flex items-center justify-center bg-gray-100 text-slate-300 dark:bg-gray-800">
               <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </div>
-            <!-- 图片 -->
             <img 
               :src="getFullUrl(image.thumbnail || image.url)"
               :alt="image.filename || '图片预览'" 
-              class="recent-image w-full h-full object-cover transition-all duration-500 group-hover:scale-105 opacity-0"
+              class="recent-image h-full w-full object-cover opacity-0"
               loading="lazy"
               @load="handleImageLoad"
               @error="(e) => handleImageError(e, image)"
               @click.stop="previewImage(image)"
             />
-            <!-- 悬停操作栏 -->
-            <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-2 pointer-events-none">
-              <div class="flex justify-between items-center pointer-events-auto">
-                <p class="recent-filename text-white text-xs truncate max-w-[60%]">{{ image.filename }}</p>
-                <div class="flex gap-1">
-                  <!-- 下载按钮 -->
+            </div>
+
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="flex flex-col gap-2 sm:gap-2.5 lg:flex-row lg:items-start lg:justify-between">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-slate-900 dark:text-white">{{ image.filename }}</p>
+                  <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                    <span class="result-meta-pill">{{ formatFileSize(image.file_size) }}</span>
+                    <span class="result-meta-pill">{{ image.width }}×{{ image.height }}</span>
+                  </div>
+                </div>
+                <div class="flex items-center justify-end gap-1.5 sm:self-end lg:justify-end">
                   <button 
                     @click.stop="downloadImage(image)"
-                    class="w-6 h-6 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors duration-200"
+                    class="result-card-action"
                     title="下载图片"
                   >
-                    <i class="ri-download-fill text-xs"></i>
+                    <i class="ri-download-line text-sm"></i>
                   </button>
-                  <!-- 删除按钮 -->
                   <button 
                     @click.stop="deleteImage(image.id)"
-                    class="w-6 h-6 rounded-full bg-danger/30 hover:bg-danger/50 text-white flex items-center justify-center transition-colors duration-200"
+                    class="result-card-action border-red-200 bg-red-50 text-red-500 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
                     title="删除图片"
                   >
-                    <i class="ri-delete-bin-fill text-xs"></i>
+                    <i class="ri-delete-bin-line text-sm"></i>
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- 链接区域 -->
-          <div class="flex flex-col justify-between gap-2 w-full text-secondary max-w-full overflow-hidden p-2">
-            <!-- URL 链接 -->
-            <div class="recent-filename text-sm truncate bg-white border-2 dark:bg-dark-200 dark:border-dark-300 rounded-[5px] pl-8 pr-2 py-3 relative
-              hover:ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900 transition ease-in-out duration-300 cursor-pointer"
+              <div class="result-links-grid result-links-grid-mobile">
+            <div class="link-field cursor-pointer"
               @click.stop="copyImageLink(image, 'url')"
               title="点击复制URL"
             >
-              <i class="ri-link text-xs w-4 text-center text-secondary absolute left-3 top-1/2 -translate-y-1/2"></i>
-              <span class="select-none pr-2 text-[#2463eb] font-medium">URL</span>
-              <span class="truncate text-overflow">{{ getFullUrl(image.url) }}</span>
+              <i class="ri-link text-sm text-slate-400"></i>
+              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">URL</span>
+              <span class="truncate">{{ getFullUrl(image.url) }}</span>
             </div>
 
-            <!-- HTML 代码 -->
-            <div class="recent-filename text-sm truncate bg-white border-2 dark:bg-dark-200 dark:border-dark-300 rounded-[5px] pl-8 pr-2 py-3 relative
-              hover:ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900 transition ease-in-out duration-300 cursor-pointer"
+            <div class="link-field cursor-pointer"
               @click.stop="copyImageLink(image, 'html')"
               title="点击复制HTML"
             >
-              <i class="ri-code-fill text-xs w-4 text-center text-secondary absolute left-3 top-1/2 -translate-y-1/2"></i>
-              <span class="select-none pr-2 text-[#ff8c00] font-medium">HTML</span>
-              <span class="truncate text-overflow">{{ getHtmlCode(image) }}</span>
+              <i class="ri-code-line text-sm text-slate-400"></i>
+              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">HTML</span>
+              <span class="truncate">{{ getHtmlCode(image) }}</span>
             </div>
 
-            <!-- Markdown 代码 -->
-            <div class="recent-filename text-sm truncate bg-white border-2 dark:bg-dark-200 dark:border-dark-300 rounded-[5px] pl-8 pr-2 py-3 relative
-              hover:ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900 transition ease-in-out duration-300 cursor-pointer"
+            <div class="link-field cursor-pointer"
               @click.stop="copyImageLink(image, 'markdown')"
               title="点击复制Markdown"
             >
-              <i class="ri-markdown-fill text-xs w-4 text-center text-secondary absolute left-3 top-1/2 -translate-y-1/2"></i>
-              <span class="select-none pr-2 text-[#6e5494] font-medium">MD</span>
+              <i class="ri-markdown-line text-sm text-slate-400"></i>
+              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">MD</span>
               <span class="truncate">{{ getMarkdownCode(image) }}</span>
+            </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 无图片状态 -->
-      <div v-else class="no-images bg-white dark:bg-dark-200 rounded-xl shadow-md dark:shadow-dark-md p-8 text-center">
-        <div class="text-5xl text-light-300 dark:text-dark-100 mb-3">
+      <div v-else class="py-8 text-center">
+        <div class="mb-2.5 text-5xl text-light-300 dark:text-dark-100">
           <i class="ri-image-line"></i>
         </div>
-        <p class="text-secondary text-base mb-4">暂无上传的图片</p>
+        <p class="mb-3 text-base text-secondary">暂无上传的图片</p>
       </div>
-    </section>
+      </div>
+      </section>
+    </div>
   </div>
 </template>
 

@@ -1,36 +1,44 @@
 <template>
-    <div class="text-gray-800 dark:text-gray-200">
-        <!-- 页面头部 -->
-        <div class="settings-header container mx-auto px-4 py-4">
-            <h1 class="page-title flex items-center text-2xl md:text-3xl font-bold">
-                系统设置
-            </h1>
-            <p class="page-description text-gray-600 dark:text-gray-400 mt-2">管理您的系统设置</p>
-        </div>
+    <div class="page-shell text-gray-800 dark:text-gray-200">
+        <section class="page-header border-b border-slate-200/70 pb-4 dark:border-white/10">
+            <div>
+                <h1 class="page-title">系统设置</h1>
+            </div>
+            <div class="grid w-full gap-2.5 sm:w-auto sm:grid-cols-2">
+                <div class="stat-tile min-w-0">
+                    <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">默认存储</p>
+                    <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ presetBuckets.find(bucket => bucket.id == systemSettings.default_storage)?.name || '未选择' }}</p>
+                </div>
+                <div class="stat-tile min-w-0">
+                    <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">API 状态</p>
+                    <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ systemSettings.start_api ? '已启用' : '未启用' }}</p>
+                </div>
+            </div>
+        </section>
 
         <!-- 主要内容 -->
-        <div class="container mx-auto px-4 pb-16">
-            <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-8">
+        <div class="pb-8 md:pb-10">
+            <div class="grid gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
                 <!-- 系统配置卡片 -->
                 <div class="order-1 md:order-2 w-full p-0 mx-auto">
-                    <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
-                        <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
+                    <div class="section-card p-3.5 sm:p-4 md:p-6">
+                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-list-settings-line"></i>
                             </span>
                             系统配置
                         </h2>
                         
-                        <div class="account-form space-y-6">
+                        <div class="account-form space-y-4 md:space-y-5">
                             <!-- 默认存储 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="default_storage">
+                                <label class="field-label" for="default_storage">
                                     系统默认存储
                                 </label>
                                 <select 
                                     id="default_storage"
                                     v-model="systemSettings.default_storage"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     @change="handleSelectChange('default_storage', systemSettings.default_storage)"
                                 >
                                     <option 
@@ -39,75 +47,75 @@
                                         :value="bucket.id"
                                         >{{ bucket.name }} ({{ bucket.type }})</option>
                                 </select>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     选择后系统将使用该存储作为默认存储，游客仅能使用该存储
                                 </div>
                             </div>
                             
                             <!-- TG Bot Token：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="tg_bot_token">
+                                <label class="field-label" for="tg_bot_token">
                                     TG Bot Token
                                 </label>
                                 <input 
                                     id="tg_bot_token"
                                     v-model="systemSettings.tg_bot_token"
-                                    type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    placeholder="请输入TG Bot Token"
+                                    type="password" 
+                                    class="input-modern"
+                                    placeholder="已加密存储，留空表示不修改"
                                     @blur="handleFieldBlur('tg_bot_token', systemSettings.tg_bot_token)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    发送Telegram通知时必填
+                                <div class="field-hint">
+                                    {{ systemSettings.tg_bot_token_configured ? '已配置，留空表示不修改' : '发送Telegram通知时必填' }}
                                 </div>
                             </div>
                             
                             <!-- TG 通知接收者：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="tg_receivers">
+                                <label class="field-label" for="tg_receivers">
                                     TG 通知接收者
                                 </label>
                                 <input 
                                     id="tg_receivers"
                                     v-model="systemSettings.tg_receivers"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="接收通知的TG用户ID"
                                     @blur="handleFieldBlur('tg_receivers', systemSettings.tg_receivers)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     发送Telegram通知时必填
                                 </div>
                             </div>
                             
                             <!-- TG 通知文本：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="tg_notice_text">
+                                <label class="field-label" for="tg_notice_text">
                                     TG 通知文本
                                 </label>
                                 <input 
                                     id="tg_notice_text"
                                     v-model="systemSettings.tg_notice_text"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="自定义TG通知文本"
                                     @blur="handleFieldBlur('tg_notice_text', systemSettings.tg_notice_text)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     默认模板：{username} {date} 上传了图片 {filename}，存储容器[{StorageType}]
                                 </div>
                             </div>
                             
                             <!-- 水印文本：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="watermark_text">
+                                <label class="field-label" for="watermark_text">
                                     图片水印文本
                                 </label>
                                 <input 
                                     id="watermark_text"
                                     v-model="systemSettings.watermark_text"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="图片水印文本"
                                     @blur="handleFieldBlur('watermark_text', systemSettings.watermark_text)"
                                 />
@@ -115,14 +123,14 @@
 
                             <!-- 图片水印大小：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="watermark_size">
+                                <label class="field-label" for="watermark_size">
                                     图片水印大小
                                 </label>
                                 <input 
                                     id="watermark_size"
                                     v-model="systemSettings.watermark_size"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="图片水印大小"
                                     @blur="handleFieldBlur('watermark_size', systemSettings.watermark_size)"
                                 />
@@ -130,49 +138,49 @@
 
                             <!-- 图片水印字体颜色 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="watermark_color">
+                                <label class="field-label" for="watermark_color">
                                     图片水印字体颜色
                                 </label>
                                 <input 
                                     id="watermark_color"
                                     v-model="systemSettings.watermark_color"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="图片水印字体颜色"
                                     @blur="handleFieldBlur('watermark_color', systemSettings.watermark_color)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     默认值为 #000000 黑色
                                 </div>
                             </div>
 
                             <!-- 图片水印透明度：失去焦点保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="watermark_opac">
+                                <label class="field-label" for="watermark_opac">
                                     图片水印透明度
                                 </label>
                                 <input 
                                     id="watermark_opac"
                                     v-model="systemSettings.watermark_opac"
                                     type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="图片水印透明度"
                                     @blur="handleFieldBlur('watermark_opac', systemSettings.watermark_opac)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     默认值：0.5
                                 </div>
                             </div>
 
                             <!-- 图片水印位置：下拉框变更保存 -->
                             <div class="setting-group">
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="storage_type">
+                                <label class="field-label" for="storage_type">
                                     图片水印位置
                                 </label>
                                 <select 
                                     id="watermark_pos"
                                     v-model="systemSettings.watermark_pos"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     @change="handleSelectChange('watermark_pos', systemSettings.watermark_pos)"
                                 >
                                     <option value="" disabled>请选择图片水印位置</option>
@@ -182,25 +190,25 @@
                                     <option value="bottom-right">右下角</option>
                                     <option value="center">居中</option>
                                 </select>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     系统默认右下角
                                 </div>
                             </div>
                             <div class="setting-group"> 
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="referer_white_list">
+                                <label class="field-label" for="referer_white_list">
                                     Referer来源白名单
                                 </label>
                                 <textarea 
                                     id="referer_white_list"
                                     v-model="systemSettings.referer_white_list"
                                     type="password"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern min-h-[112px] leading-6"
                                     placeholder="Referer来源白名单，多个以英文逗号分隔"
                                     @blur="handleFieldBlur('referer_white_list', systemSettings.referer_white_list)"
                                     rows="4"
                                 >
                                 </textarea>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     1. 仅需填写域名（支持主域名），多个以英文逗号分隔；<br>
                                     2. 无需填写协议（http://），无需填写端口（:80）；<br>
                                     3. 如果开启了来源白名单，那么仅能从这些来源访问图片资源（直接打开不受限制）
@@ -208,55 +216,55 @@
                             </div>
 
                             <div class="setting-group"> 
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="api_token">
+                                <label class="field-label" for="api_token">
                                     API Token
                                 </label>
-                                <div class="relative w-full">
+                                <div class="flex flex-col gap-2 sm:relative sm:block sm:w-full">
                                     <input 
                                         id="api_token"
                                         v-model="systemSettings.api_token"
-                                        type="text" 
-                                        class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                        placeholder="API Token"
+                                        type="password" 
+                                        class="input-modern sm:pr-20"
+                                        placeholder="已哈希存储，留空表示不修改"
                                         @blur="handleFieldBlur('api_token', systemSettings.api_token)"
                                     />
                                     <button
                                         type="button"
-                                        class="bg-primary absolute right-0 top-0 h-full hover:bg-primary-dark text-white px-3 py-[7px] rounded-r-lg transition-colors duration-200 flex items-center justify-center"
+                                        class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-3.5 text-sm font-medium text-white transition hover:bg-slate-700 sm:absolute sm:right-1 sm:top-1 sm:h-[calc(100%-8px)] dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
                                         @click="generateApiToken"
                                     >
                                         生成
                                     </button>
                                 </div>
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
-                                    1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}
+                                <div class="field-hint">
+                                    1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}；{{ systemSettings.api_token_configured ? '当前已配置，后端不再回显明文' : '当前未配置' }}
                                 </div>
                             </div>
                             <div class="setting-group"> 
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="max_file_size">
+                                <label class="field-label" for="max_file_size">
                                     允许最大上传大小
                                 </label>
                                 <input 
                                     id="max_file_size"
                                     v-model="systemSettings.max_file_size"
                                     type="number"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="允许最大上传大小"
                                     @blur="handleFieldBlur('max_file_size', systemSettings.max_file_size)"
                                 />
-                                <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                                <div class="field-hint">
                                     大小单位：字节，默认10mb
                                 </div>
                             </div>
                             <div class="setting-group"> 
-                                <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="allowed_types">
+                                <label class="field-label" for="allowed_types">
                                     允许上传的图片类型
                                 </label>
                                 <input 
                                     id="allowed_types"
                                     v-model="systemSettings.allowed_types"
                                     type="text"
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                    class="input-modern"
                                     placeholder="允许上传的图片类型"
                                     @blur="handleFieldBlur('allowed_types', systemSettings.allowed_types)"
                                 />
@@ -268,271 +276,271 @@
                 <!-- 系统设置卡片（开关部分不变） -->
                 <div class="order-2 md:order-1 w-full p-0 mx-auto">
                     <!-- SEO设置卡片 -->
-                    <div class="panel-content p-6 mb-4 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md space-y-6">
-                        <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
+                    <div class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
+                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-seo-line"></i>
                             </span>
                             SEO 设置
                         </h2>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_title">
+                            <label class="field-label" for="seo_title">
                                 网站标题
                             </label>
                             <input 
                                 id="seo_title"
                                 v-model="systemSettings.seo_title"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern"
                                 placeholder="请输入网站标题"
                                 @blur="handleFieldBlur('seo_title', systemSettings.seo_title)"
                             />
                         </div>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_description">
+                            <label class="field-label" for="seo_description">
                                 网站标题
                             </label>
                             <textarea
                                 id="seo_description"
                                 v-model="systemSettings.seo_description"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern min-h-[96px]"
                                 rows="3"
                                 placeholder="请输入网站描述"
                                 @blur="handleFieldBlur('seo_description', systemSettings.seo_description)"
                             ></textarea>
                         </div>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_keywords">
+                            <label class="field-label" for="seo_keywords">
                                 网站关键词
                             </label>
                             <textarea
                                 id="seo_keywords"
                                 v-model="systemSettings.seo_keywords"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern min-h-[96px]"
                                 rows="3"
                                 placeholder="请输入网站关键词"
                                 @blur="handleFieldBlur('seo_keywords', systemSettings.seo_keywords)"
                             ></textarea>
                         </div>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_icp">
+                            <label class="field-label" for="seo_icp">
                                 网站备案号
                             </label>
                             <input 
                                 id="seo_icp"
                                 v-model="systemSettings.seo_icp"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern"
                                 placeholder="请输入网站备案号"
                                 @blur="handleFieldBlur('seo_icp', systemSettings.seo_icp)"
                             />
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                            <div class="field-hint">
                                 输入网站备案号会在页面底部显示备案信息
                             </div>
                         </div>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="public_security">
+                            <label class="field-label" for="public_security">
                                 网站公安备案号
                             </label>
                             <input 
                                 id="public_security"
                                 v-model="systemSettings.public_security"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern"
                                 placeholder="请输入网站公安备案号"
                                 @blur="handleFieldBlur('public_security', systemSettings.public_security)"
                             />
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                            <div class="field-hint">
                                 输入网站公安备案号会在页面底部显示公安备案信息
                             </div>
                         </div>
                         <div class="setting-group"> 
-                            <label class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="seo_icon">
+                            <label class="field-label" for="seo_icon">
                                 网站小图标
                             </label>
                             <input 
                                 id="seo_icon"
                                 v-model="systemSettings.seo_icon"
                                 type="text"
-                                class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
+                                class="input-modern"
                                 placeholder="请输入网站小图标"
                                 @blur="handleFieldBlur('seo_icon', systemSettings.seo_icon)"
                             />
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">
+                            <div class="field-hint">
                                 输入网站小图标URL会替换默认的小图标
                             </div>
                         </div>
                     </div>
 
-                    <div class="panel-content p-6 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-md">
-                        <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
+                    <div class="section-card p-3.5 sm:p-4 md:p-6">
+                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-settings-2-line"></i>
                             </span>
                             系统设置
                         </h2>
                         
-                        <div class="account-form space-y-6">
+                        <div class="account-form space-y-4 md:space-y-5">
                             <!-- 是否保存原图 -->
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    保存原图
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">保存原图</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.original_image"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('original_image', systemSettings.original_image)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
                             
                             <!-- 其他开关省略（和之前一致） -->
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    保存WEBP格式
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">保存 WEBP 格式</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.save_webp"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('save_webp', systemSettings.save_webp)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    生成缩略图
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">生成缩略图</p>
+                                    <p class="setting-row-hint">生成缩略图，可提升后台预览速度，上传速度稍慢。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.thumbnail"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('thumbnail', systemSettings.thumbnail)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">生成缩略图，可提升后台预览速度，上传速度稍慢</div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    允许游客上传
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">允许游客上传</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.tourist"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('tourist', systemSettings.tourist)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    启用TG通知
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">启用 TG 通知</p>
+                                    <p class="setting-row-hint">国内服务器不要开启 TG 通知。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.tg_notice"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('tg_notice', systemSettings.tg_notice)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 dark:peer-checked:bg-blue-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">国内服务器不要开启TG通知</div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    启用POW验证
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">启用 POW 验证</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.pow_verify"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('pow_verify', systemSettings.pow_verify)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-purple-500 dark:peer-checked:bg-purple-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    开启图片水印
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">开启图片水印</p>
+                                    <p class="setting-row-hint">新上传的图片自动添加水印，历史图片不会补加。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.watermark_enable"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('watermark_enable', systemSettings.watermark_enable)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">新上传的图片自动添加水印，已上传的图片不会添加水印，可以通过图片外链传入GET参数添加水印。</div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    开启来源白名单
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">开启来源白名单</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.referer_white_enable"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('referer_white_enable', systemSettings.referer_white_enable)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    启用API
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">启用 API</p>
+                                    <p class="setting-row-hint">启用 API 前必须先设置 API Token。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.start_api"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('start_api', systemSettings.start_api)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">启用API必须设置API Token。</div>
-                            <div class="setting-group flex items-center justify-between py-2">
-                                <label class="setting-label text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    保存源文件名
-                                </label>
-                                <label class="relative inline-flex items-center cursor-pointer">
+                            <div class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">保存源文件名</p>
+                                    <p class="setting-row-hint">启用保存原图功能时将不自动重命名。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center">
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.save_original_name"
                                         class="sr-only peer"
                                         @change="handleSwitchChange('save_original_name', systemSettings.save_original_name)"
                                     >
-                                    <div class="w-12 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-green-500 dark:peer-checked:bg-green-600 switch-transition switch-antialias"></div>
-                                    <div class="absolute left-1 top-1 bg-white dark:bg-gray-200 w-4 h-4 rounded-full switch-transition switch-antialias peer-checked:translate-x-6"></div>
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="mt-1 text-gray-500 dark:text-gray-400 text-xs">启用保存原图功能将不自带重命名。</div>
                         </div>
                     </div>
                 </div>
@@ -559,6 +567,7 @@ const systemSettings = reactive({
     tg_notice: false,
     pow_verify: false,
     tg_bot_token: '',
+    tg_bot_token_configured: false,
     tg_receivers: '',
     tg_notice_text: '',
     watermark_enable: '',
@@ -576,6 +585,7 @@ const systemSettings = reactive({
     public_security: '',
     seo_icon: '',
     api_token: '',
+    api_token_configured: false,
     start_api: false,
     save_original_name: false,
     default_storage: 1,
@@ -598,7 +608,7 @@ const getRequestHeaders = () => {
 }
 
 const saveSetting = async (key, value) => {
-    if (updateSetting?.[key] === value) {
+    if (updateSetting?.[key] === value && !['tg_bot_token', 'api_token'].includes(key)) {
         return
     }
     clearTimeout(debounceTimer)
@@ -620,10 +630,22 @@ const saveSetting = async (key, value) => {
             
             if (response.ok && result.code === 200) {
                 message.success(`更新成功`)
-                updateSetting[key] = value
+                if (key === 'tg_bot_token') {
+                    systemSettings.tg_bot_token = ''
+                    systemSettings.tg_bot_token_configured = value !== '' || systemSettings.tg_bot_token_configured
+                    updateSetting.tg_bot_token = ''
+                    updateSetting.tg_bot_token_configured = systemSettings.tg_bot_token_configured
+                } else if (key === 'api_token') {
+                    systemSettings.api_token = ''
+                    systemSettings.api_token_configured = value !== '' || systemSettings.api_token_configured
+                    updateSetting.api_token = ''
+                    updateSetting.api_token_configured = systemSettings.api_token_configured
+                } else {
+                    updateSetting[key] = value
+                }
             } else {
                 // 更新失败自动回滚
-                if (updateSetting[key]) {
+                if (Object.prototype.hasOwnProperty.call(updateSetting, key)) {
                     systemSettings[key] = updateSetting[key]
                 }
                 message.error(`更新失败：${result.message || '未知错误'}`)
@@ -678,7 +700,7 @@ const generate32BitTokenMixCase = () => {
 // 开关状态变更统一处理方法
 const handleSwitchChange = (key, value) => {
     if (key == "start_api") {
-        if (systemSettings.api_token == '') {
+        if (systemSettings.api_token == '' && !systemSettings.api_token_configured) {
             message.warning('请先填写API Token')
             systemSettings.start_api = false
             return
@@ -717,7 +739,7 @@ const handleFieldBlur = (key, value) => {
         }
     }
     if (key == 'api_token' && value == '') {
-        if (systemSettings.start_api) {
+        if (systemSettings.start_api && !systemSettings.api_token_configured) {
             setTimeout(() => {
                 saveSetting("start_api", false)
                 systemSettings.start_api = false

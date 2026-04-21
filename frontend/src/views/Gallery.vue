@@ -1,155 +1,155 @@
 <template>
-  <div class="text-gray-800 dark:text-gray-200">
-    <!-- 主要内容 -->
-    <div class="gallery-content container mx-auto px-4 py-8">
-      <!-- 顶部筛选栏 -->
-      <div v-if="!loading" class="filter-bar mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div class="role-filter flex items-center gap-3">
-          <div class="role-buttons flex rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden">
+  <div class="page-shell text-gray-800 dark:text-gray-200">
+    <section class="page-header border-b border-slate-200/70 pb-3 dark:border-white/10">
+      <div>
+        <p class="panel-label">Gallery Manager</p>
+        <h1 class="page-title">图库管理台</h1>
+      </div>
+    </section>
+
+    <div class="space-y-2.5 lg:space-y-3">
+      <div class="content-panel gallery-panel-compact gallery-topbar-compact space-y-2">
+        <div class="gallery-topbar-minimal">
+          <div class="gallery-topbar-filters">
+            <div class="gallery-inline-control">
+              <span class="gallery-inline-label">角色</span>
+              <div class="role-buttons grid w-full grid-cols-2 overflow-hidden rounded-[16px] border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 sm:inline-flex sm:w-auto">
             <button
               @click="changeRole('admin')"
-              class="px-4 py-2 text-sm transition-all"
+              class="px-3 py-1.5 text-sm transition-all"
               :class="[
                 roleImage === 'admin' 
-                  ? 'bg-primary text-white' 
-                  : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
+                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
               ]"
             >
               管理员
             </button>
             <button
               @click="changeRole('guest')"
-              class="px-4 py-2 text-sm transition-all"
+              class="px-3 py-1.5 text-sm transition-all"
               :class="[
                 roleImage === 'guest' 
-                  ? 'bg-primary text-white' 
-                  : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
+                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
               ]"
             >
               游客
             </button>
           </div>
-        </div>
-        
-        <!-- 批量操作 -->
-        <div class="flex items-center gap-4">
-          
-          <div v-if="selectedImages.length > 0" class="batch-actions flex items-center gap-2">
-            <button
-            @click="handleBatchSetTag"
-            class="px-4 py-2 text-sm bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all flex items-center gap-2">
-                <i class="ri-bookmark-2-fill"></i>
-                批量设置Tag
-            </button>
-            <!-- 批量删除按钮 - 游客和管理员都可见 -->
-            <button
-              @click="handleBatchDelete"
-              class="px-4 py-2 text-sm bg-danger/10 hover:bg-danger/20 text-danger rounded-lg transition-all flex items-center gap-2"
-            >
-              <i class="ri-delete-bin-fill"></i>
-              删除 ({{ selectedImages.length }})
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 全选复选框 - 游客和管理员都可见 -->
-      <div v-if="!loading && images.length > 0" class="mb-4 flex items-center gap-2">
-        <input
-          type="checkbox"
-          id="selectAll"
-          class="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-          v-model="selectAll"
-          @change="handleSelectAll"
-        >
-        <label for="selectAll" class="text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-          全选
-        </label>
-      </div>
-
-      <!-- 存储分类选择 -->
-       <div class="max-w-[360px] mb-4 flex items-center gap-2">
-        <div class="text-gray-600 dark:text-gray-400 text-sm">
-            <span class="text-nowrap">存储分类：</span>
-        </div>
-        <select 
-          class="w-full px-3 py-2 border border-light-300 dark:border-dark-100 rounded-lg bg-white dark:bg-dark-200 text-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
-          v-model="selectedBucket"
-          @change="loadImages"
-        >
-          <option value="null">全部</option>
-          <option 
-            v-for="bucket in presetBuckets" 
-            :key="bucket.id"
-            :value="bucket.id"
-          >{{ bucket.name }}</option>
-        </select>
-      </div>
-
-      <!-- 标签分类选择 -->
-       <div class="tags-container flex flex-wrap items-center gap-2 mb-4">
-            <div class="text-gray-600 dark:text-gray-400 text-sm">
-                <span class="text-nowrap">Tag分类：</span>
             </div>
-            <div class="px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm cursor-pointer
-            hover:ring-2 ring-primary ease-in-out duration-300 dark:ring-offset-gray-900"
-            :class="{ 'ring-2 ring-primary dark:ring-offset-gray-900': isTagSelected(0) }"
+
+            <div class="gallery-inline-control gallery-inline-control-select">
+              <span class="gallery-inline-label">存储</span>
+          <select 
+            class="input-modern gallery-inline-select"
+            v-model="selectedBucket"
+            @change="loadImages"
+          >
+            <option value="null">全部</option>
+            <option 
+              v-for="bucket in presetBuckets" 
+              :key="bucket.id"
+              :value="bucket.id"
+            >{{ bucket.name }}</option>
+          </select>
+            </div>
+
+            <div class="gallery-inline-control gallery-inline-control-tags">
+              <span class="gallery-inline-label">标签</span>
+          <div class="flex flex-wrap gap-1.5">
+            <div class="filter-chip"
+            :class="isTagSelected(0) ? 'filter-chip-active' : ''"
             @click="handleTagSelection(0)">
                 <span>默认</span>
             </div>
             <div
             v-if="presetTags.length > 0"
             v-for="tag in presetTags"
-            class="px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm cursor-pointer
-            hover:ring-2 ring-primary ease-in-out duration-300 dark:ring-offset-gray-900"
-            :class="{ 'ring-2 ring-primary dark:ring-offset-gray-900': isTagSelected(tag.id) }"
+            class="filter-chip"
+            :class="isTagSelected(tag.id) ? 'filter-chip-active' : ''"
             @click="handleTagSelection(tag.id)">
                 <span>{{tag.name}}</span>
             </div>
-       </div>
-      
-      <!-- 加载状态 -->
-      <div v-if="loading" class="loading-container flex flex-col items-center justify-center py-20">
+          </div>
+            </div>
+          </div>
+
+          <div class="gallery-topbar-actions">
+            <div class="gallery-topbar-stats">
+              <label v-if="images.length > 0" for="selectAll" class="gallery-topbar-stat gallery-topbar-stat-action">
+                <input
+                  type="checkbox"
+                  id="selectAll"
+                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  v-model="selectAll"
+                  @change="handleSelectAll"
+                >
+                <span>全选</span>
+              </label>
+              <span class="gallery-topbar-stat">{{ ROLE_MAP[roleImage] }}</span>
+              <span class="gallery-topbar-stat">{{ images.length }} 张</span>
+              <span class="gallery-topbar-stat">已选 {{ selectedImages.length }}</span>
+            </div>
+          <div v-if="selectedImages.length > 0" class="batch-actions flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
+            <button
+            @click="handleBatchSetTag"
+            class="soft-button">
+                <i class="ri-bookmark-2-fill"></i>
+                批量设置Tag
+            </button>
+            <!-- 批量删除按钮 - 游客和管理员都可见 -->
+            <button
+              @click="handleBatchDelete"
+              class="danger-button"
+            >
+              <i class="ri-delete-bin-fill"></i>
+              删除 ({{ selectedImages.length }})
+            </button>
+          </div>
+          </div>
+          </div>
+      </div>
+
+      <section class="space-y-3">
+      <div v-if="loading" class="content-panel loading-container flex flex-col items-center justify-center py-12 sm:py-14">
         <div class="spinner w-10 h-10 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mb-4"></div>
         <p class="text-gray-600 dark:text-gray-400">加载中...</p>
       </div>
       
-      <!-- 图片网格/列表 -->
-      <div v-else-if="images.length > 0" class="images-container">
-        <!-- 网格视图 -->
-        <div v-if="viewMode === 'grid'" class="images-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div v-else-if="images.length > 0" class="content-panel gallery-panel-compact images-container">
+        <div v-if="viewMode === 'grid'" class="images-grid grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           <div 
             v-for="image in images" 
             :key="image.id"
-            class="image-card bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer relative
-            hover:ring-2 ring-primary ring-offset-2 ease-in-out duration-300 dark:ring-offset-gray-900"
-            :class="{ 'ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900': isImageSelected(image.id) }"
+            class="gallery-image-card gallery-image-card-compact"
+            :class="isImageSelected(image.id) ? 'border-slate-900 dark:border-white' : 'hover:border-slate-300 dark:hover:border-white/20'"
           >
-            <!-- 复选框 - 右上角位置 -->
-            <div class="absolute top-3 right-3 z-10 p-0.5 rounded-full">
-              <input
-                type="checkbox"
-                :id="`image-${image.id}`"
-                class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary bg-white dark:bg-gray-800 cursor-pointer"
-                :checked="isImageSelected(image.id)"
-                @change="(e) => handleImageSelection(image.id, e.target.checked)"
-                @click.stop
-              >
+            <div class="gallery-image-card-head">
+              <div class="gallery-card-badges">
+                <span 
+                  class="image-role gallery-card-badge"
+                  :class="getRoleTagClass(image.user_id)"
+                >
+                  {{ image.user_id == '1' ? '管理员' : '游客' }}
+                </span>
+                <span class="gallery-card-badge gallery-card-badge-dark">
+                  {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
+                </span>
+              </div>
+              <label class="gallery-card-checkbox" :for="`image-${image.id}`" @click.stop>
+                <input
+                  type="checkbox"
+                  :id="`image-${image.id}`"
+                  class="h-4 w-4 rounded border-gray-300 bg-white text-primary focus:ring-primary dark:bg-gray-800"
+                  :checked="isImageSelected(image.id)"
+                  @change="(e) => handleImageSelection(image.id, e.target.checked)"
+                  @click.stop
+                >
+              </label>
             </div>
-            
-            <div class="image-wrapper relative aspect-video overflow-hidden bg-gray-100 dark:bg-gray-900" @click="openPreview(image)">
-              <!-- 显示图片所属角色 -->
-              <span 
-                class="image-role text-xs mt-1 px-2 py-0.5 rounded inline-block absolute left-[15px] top-[5px] z-[999]"
-                :class="getRoleTagClass(image.user_id)"
-              >
-                {{ image.user_id == '1' ? '管理员' : '游客' }}
-              </span>
-              <span 
-                class="image-role text-xs text-white mt-1 px-2 py-0.5 rounded-2xl inline-block absolute left-[75px] top-[5px] z-[999] bg-success"
-              >
-                {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
-              </span>
+
+            <div class="image-wrapper relative aspect-square overflow-hidden bg-gray-100 dark:bg-gray-950" @click="openPreview(image)">
               <div class="loading absolute inset-0 flex items-center justify-center z-0 text-slate-300">
                 <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -158,43 +158,42 @@
               <img 
                 :src="image.thumbnail || image.url" 
                 :alt="image.filename"
-                class="image-thumbnail w-full h-full object-cover transition-transform duration-500 hover:scale-105 opacity-0"
+                class="image-thumbnail h-full w-full object-cover opacity-0"
                 loading="lazy"
                 @load="handleImageLoad"
                 @error="handleImageError"
               />
             </div>
-            <div class="image-info p-3">
-              <p class="image-filename font-medium text-sm truncate whitespace-nowrap overflow-hidden">{{ image.filename }}</p>
-              <p class="image-meta text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <div class="image-info gallery-image-info-compact p-3">
+              <p class="image-filename overflow-hidden truncate whitespace-nowrap text-sm font-medium">{{ image.filename }}</p>
+              <p class="gallery-image-card-meta gallery-image-card-meta-inline">
                 {{ formatFileSize(image.file_size) }} • 
                 {{ image.width }}×{{ image.height }}
               </p>
-              <p class="image-date text-xs text-gray-500 dark:text-gray-400 mt-1">{{ formatDate(image.created_at) }}</p>
+              <p class="gallery-image-card-meta">{{ formatDate(image.created_at) }}</p>
             </div>
           </div>
         </div>
         
-        <!-- 分页 -->
-        <div v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-8">
+        <div v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-4 sm:py-5">
           <button 
             @click="changePage(currentPage - 1)"
             :disabled="currentPage <= 1"
-            class="page-btn px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-sm"
+            class="soft-button"
             :class="{ 'opacity-50 cursor-not-allowed': currentPage <= 1 }"
           >
             上一页
           </button>
           
-          <div class="page-numbers flex gap-1">
+          <div class="page-numbers flex flex-wrap justify-center gap-1">
             <button 
               v-for="page in visiblePages"
               :key="page"
               @click="changePage(page)"
-              class="w-9 h-9 flex items-center justify-center rounded-lg border transition-all text-sm"
+              class="flex h-9 w-9 items-center justify-center rounded-[16px] border text-sm transition-all"
               :class="[
                 page === currentPage 
-                  ? 'bg-primary text-white border-primary' 
+                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white' 
                   : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
               ]"
             >
@@ -205,7 +204,7 @@
           <button 
             @click="changePage(currentPage + 1)"
             :disabled="currentPage >= totalPages"
-            class="page-btn px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-sm"
+            class="soft-button"
             :class="{ 'opacity-50 cursor-not-allowed': currentPage >= totalPages }"
           >
             下一页
@@ -213,17 +212,17 @@
         </div>
       </div>
       
-      <!-- 空状态 -->
-      <div v-else class="empty-state flex flex-col items-center justify-center py-20 text-center">
-        <div class="empty-icon text-6xl mb-4 text-gray-400 dark:text-gray-600">
+      <div v-else class="content-panel empty-state flex flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300/80 bg-white/70 py-14 text-center dark:border-white/10 dark:bg-white/5">
+        <div class="empty-icon mb-3 text-5xl text-gray-400 dark:text-gray-600">
           <i class="ri-image-ai-line"></i>
         </div>
-        <h3 class="text-xl font-bold mb-2">暂无{{ roleImage === 'admin' ? '管理员' : '游客' }}图片</h3>
-        <p class="text-gray-600 dark:text-gray-400 mb-6">
+        <h3 class="mb-2 text-lg font-bold">暂无{{ roleImage === 'admin' ? '管理员' : '游客' }}图片</h3>
+        <p class="mb-4 text-gray-600 dark:text-gray-400">
           还没有上传任何{{ roleImage === 'admin' ? '管理员' : '游客' }}图片，
           <router-link to="/" class="text-primary hover:underline">去上传一些吧</router-link>
         </p>
       </div>
+      </section>
     </div>
   </div>
 </template>

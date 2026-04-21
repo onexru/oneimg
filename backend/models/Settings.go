@@ -18,7 +18,8 @@ type Settings struct {
 	TGReceivers      string `gorm:"column:tg_receivers;default:''" json:"tg_receivers"`                // TG接收者（多个用逗号分隔）
 	TGNoticeText     string `gorm:"column:tg_notice_text;default:''" json:"tg_notice_text"`            // TG通知文本
 	StartAPI         bool   `gorm:"column:start_api;default:false" json:"start_api"`                   // 是否启用API（默认关闭）
-	APIToken         string `gorm:"column:api_token;default:''" json:"api_token"`                      // API Token
+	APIToken         string `gorm:"column:api_token;default:''" json:"api_token"`                      // 兼容旧字段
+	APITokenHash     string `gorm:"column:api_token_hash;default:''" json:"-"`                         // API Token哈希
 	SaveOriginalName bool   `gorm:"column:save_original_name;default:false" json:"save_original_name"` // 是否保存原文件名（默认不保存）
 
 	// 默认存储
