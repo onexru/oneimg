@@ -6,7 +6,7 @@
 
 - [onexru](https://github.com/onexru)
 - [雾创岛](https://www.tr0.cn)
-- [打赏赞助](https://www.cv0.cn/Index/Reward.php)
+- [打赏赞助](https://www.cv0.cn/donate)
 
 ## API文档
 - [API文档](https://www.tr0.cn/oneimgapi/)
