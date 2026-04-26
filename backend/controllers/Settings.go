@@ -126,6 +126,11 @@ func UpdateSettings(c *gin.Context) {
 		return
 	}
 
+	if updateValue == nil && secureconfig.IsSettingsSensitiveKey(req.Key) {
+		c.JSON(200, result.Success("无需更新", nil))
+		return
+	}
+
 	if err := db.Model(&settingModel).Update(updateColumn, updateValue).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "更新失败"))
 		log.Println(err)
