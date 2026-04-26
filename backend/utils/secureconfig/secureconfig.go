@@ -61,7 +61,19 @@ func IsSettingsSensitiveKey(key string) bool {
 	return ok
 }
 
+const ConfiguredStatus = ""
+
 func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
+	tgBotTokenStatus := ""
+	if strings.TrimSpace(setting.TGBotToken) != "" {
+		tgBotTokenStatus = ConfiguredStatus
+	}
+
+	apiTokenStatus := ""
+	if strings.TrimSpace(setting.APITokenHash) != "" {
+		apiTokenStatus = ConfiguredStatus
+	}
+
 	return map[string]any{
 		"id":                      setting.ID,
 		"original_image":          setting.OriginalImage,
@@ -70,12 +82,12 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 		"tourist":                 setting.Tourist,
 		"tg_notice":               setting.TGNotice,
 		"pow_verify":              setting.PowVerify,
-		"tg_bot_token":            "",
+		"tg_bot_token":            tgBotTokenStatus,
 		"tg_bot_token_configured": strings.TrimSpace(setting.TGBotToken) != "",
 		"tg_receivers":            setting.TGReceivers,
 		"tg_notice_text":          setting.TGNoticeText,
 		"start_api":               setting.StartAPI,
-		"api_token":               "",
+		"api_token":               apiTokenStatus,
 		"api_token_configured":    strings.TrimSpace(setting.APITokenHash) != "",
 		"save_original_name":      setting.SaveOriginalName,
 		"default_storage":         setting.DefaultStorage,
@@ -104,19 +116,16 @@ func NormalizeSettingValue(key string, value any) (any, error) {
 	}
 
 	strValue := strings.TrimSpace(toString(value))
+	if strValue == "" || strValue == ConfiguredStatus {
+		return nil, nil
+	}
+
 	if key == "api_token" {
-		if strValue == "" {
-			return "", nil
-		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(strValue), bcrypt.DefaultCost)
 		if err != nil {
 			return nil, err
 		}
 		return string(hash), nil
-	}
-
-	if strValue == "" {
-		return "", nil
 	}
 
 	return encryptString(strValue)
@@ -248,8 +257,14 @@ func maskMapValues(configMap map[string]any, sensitiveKeys map[string]struct{}) 
 	for key, value := range configMap {
 		result[key] = value
 		if _, ok := sensitiveKeys[key]; ok {
-			result[key] = ""
-			result[key+"_configured"] = strings.TrimSpace(toString(value)) != ""
+			strVal := strings.TrimSpace(toString(value))
+			if strVal != "" {
+				result[key] = ConfiguredStatus
+				result[key+"_configured"] = true
+			} else {
+				result[key] = ""
+				result[key+"_configured"] = false
+			}
 		}
 	}
 	return result
