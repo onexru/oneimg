@@ -20,10 +20,6 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-1.5 md:gap-2">
-        <div class="hidden rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-1.5 text-right dark:border-white/10 dark:bg-slate-900/80 lg:block xl:hidden">
-          <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">工作区</p>
-          <p class="mt-1 text-sm font-medium text-slate-700 dark:text-slate-200">{{ isLogin ? '图床管理已就绪' : '等待登录' }}</p>
-        </div>
         <button
           type="button"
           class="inline-flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white md:h-9 md:w-auto md:gap-1.5 px-3 py-1.5"
