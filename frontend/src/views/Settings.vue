@@ -62,7 +62,7 @@
                                     v-model="systemSettings.tg_bot_token"
                                     type="password" 
                                     class="input-modern"
-                                    placeholder="已加密存储，留空表示不修改"
+                                    :placeholder="systemSettings.tg_bot_token_configured ? '已配置，留空表示不修改' : '未配置，请输入 Bot Token'"
                                     @blur="handleFieldBlur('tg_bot_token', systemSettings.tg_bot_token)"
                                 />
                                 <div class="field-hint">
@@ -223,9 +223,9 @@
                                     <input 
                                         id="api_token"
                                         v-model="systemSettings.api_token"
-                                        type="password" 
+                                        type="text" 
                                         class="input-modern sm:pr-20"
-                                        placeholder="已哈希存储，留空表示不修改"
+                                        :placeholder="systemSettings.api_token_configured ? '已配置，留空表示不修改' : '未配置，请输入 API Token'"
                                         @blur="handleFieldBlur('api_token', systemSettings.api_token)"
                                     />
                                     <button
@@ -237,7 +237,9 @@
                                     </button>
                                 </div>
                                 <div class="field-hint">
-                                    1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}；{{ systemSettings.api_token_configured ? '当前已配置，后端不再回显明文' : '当前未配置' }}
+                                    1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}；<br>
+                                    2. 仅在首次设置时显示，刷新后将再不显示，请注意保存；<br>
+                                    3. {{ systemSettings.api_token_configured ? '当前已配置' : '当前未配置' }}
                                 </div>
                             </div>
                             <div class="setting-group"> 
@@ -636,9 +638,7 @@ const saveSetting = async (key, value) => {
                     updateSetting.tg_bot_token = ''
                     updateSetting.tg_bot_token_configured = systemSettings.tg_bot_token_configured
                 } else if (key === 'api_token') {
-                    systemSettings.api_token = ''
                     systemSettings.api_token_configured = value !== '' || systemSettings.api_token_configured
-                    updateSetting.api_token = ''
                     updateSetting.api_token_configured = systemSettings.api_token_configured
                 } else {
                     updateSetting[key] = value
@@ -700,7 +700,7 @@ const generate32BitTokenMixCase = () => {
 // 开关状态变更统一处理方法
 const handleSwitchChange = (key, value) => {
     if (key == "start_api") {
-        if (systemSettings.api_token == '' && !systemSettings.api_token_configured) {
+        if (systemSettings.api_token === '' && !systemSettings.api_token_configured) {
             message.warning('请先填写API Token')
             systemSettings.start_api = false
             return
@@ -708,9 +708,10 @@ const handleSwitchChange = (key, value) => {
     }
 
     if(key == 'tg_notice' && value === true){
-        if (systemSettings.tg_bot_token == '' || systemSettings.tg_receivers == '') {
+        const isBotTokenEmpty = systemSettings.tg_bot_token === '' || systemSettings.tg_bot_token === null;
+        if ((isBotTokenEmpty && !systemSettings.tg_bot_token_configured) || systemSettings.tg_receivers === '') {
             if(systemSettings.tg_notice === true){
-                message.warning('请先配置机器人令牌')
+                message.warning('请先配置机器人令牌和接收者')
                 setTimeout(() => {
                     systemSettings.tg_notice = false
                     saveSetting("tg_notice", 'false')
@@ -726,9 +727,10 @@ const handleSwitchChange = (key, value) => {
 // 输入框失去焦点处理
 const handleFieldBlur = (key, value) => {
     if (key == 'tg_bot_token' || key == 'tg_receivers') {
-        if (systemSettings.tg_bot_token == '' || systemSettings.tg_receivers == '') {
+        const isBotTokenEmpty = systemSettings.tg_bot_token === '' || systemSettings.tg_bot_token === null;
+        if ((isBotTokenEmpty && !systemSettings.tg_bot_token_configured) || systemSettings.tg_receivers === '') {
             if(systemSettings.tg_notice === true){
-                message.warning('请先配置机器人令牌')
+                message.warning('请先配置机器人令牌和接收者')
                 setTimeout(() => {
                     systemSettings.tg_notice = false
                     saveSetting("tg_notice", 'false')
@@ -738,7 +740,10 @@ const handleFieldBlur = (key, value) => {
             }
         }
     }
-    if (key == 'api_token' && value == '') {
+    if (value === '' || value === systemSettings[key]) {
+        return
+    }
+    if (key == 'api_token' && value === '') {
         if (systemSettings.start_api && !systemSettings.api_token_configured) {
             setTimeout(() => {
                 saveSetting("start_api", false)
