@@ -221,7 +221,7 @@ const UpdateBucketModal = (bucket) => {
   const setValue = typeSpecificFields[bucket.type].map(field => ({
     ...field,
     defaultValue: field.name == 'capacity' ? formatCapacity(bucket[field.name]) : (bucket.config[field.name] ?? ''),
-    placeholder: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '已加密存储，留空表示不修改' : field.placeholder,
+    placeholder: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '已配置，留空表示不修改' : field.placeholder,
     tip: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '当前已配置，后端不会返回明文；留空表示继续使用原值' : field.tip,
     required: sensitiveFields.includes(field.name) ? !bucket.config?.[`${field.name}_configured`] : field.required,
   }));
