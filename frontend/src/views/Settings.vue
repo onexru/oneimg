@@ -740,7 +740,7 @@ const handleFieldBlur = (key, value) => {
             }
         }
     }
-    if (value === '' || value === systemSettings[key]) {
+    if (value === '' || value === updateSetting[key]) {
         return
     }
     if (key == 'api_token' && value === '') {
