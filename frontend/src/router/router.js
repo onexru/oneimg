@@ -162,7 +162,13 @@ router.beforeEach(async (to, from, next) => {
     }
 
     // 验证本地用户信息
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    let userInfo = {};
+    try {
+      userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    } catch (error) {
+      localStorage.removeItem('userInfo');
+      userInfo = {};
+    }
     if (!userInfo.username) {
       window.refreshNavItems && window.refreshNavItems();
       return next('/login');

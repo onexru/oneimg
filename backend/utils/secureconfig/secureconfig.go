@@ -185,7 +185,19 @@ func GetString(configMap map[string]any, key string) string {
 	if configMap == nil {
 		return ""
 	}
-	return toString(configMap[key])
+	value := toString(configMap[key])
+	if value == "" {
+		return ""
+	}
+
+	if IsBucketSensitiveKey(key) && IsEncryptedValue(value) {
+		decrypted, err := decryptString(value)
+		if err == nil {
+			return decrypted
+		}
+	}
+
+	return value
 }
 
 func GetInt(configMap map[string]any, key string) int {

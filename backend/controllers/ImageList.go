@@ -109,7 +109,7 @@ func GetImageList(c *gin.Context) {
 			idQuery = idQuery.Where("images.user_id != ?", 1)
 		}
 	}
-	if c.GetInt("user_role") != 1 || role == "" {
+	if c.GetInt("user_role") != 1 && role == "" {
 		idQuery = idQuery.Where("images.uuid = ?", GetUUID(c))
 	}
 	if search != "" {

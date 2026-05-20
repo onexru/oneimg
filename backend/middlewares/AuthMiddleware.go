@@ -36,6 +36,7 @@ func AuthMiddleware() gin.HandlerFunc {
 				c.Set("user_role", 1)
 				c.Set("username", "admin")
 				c.Next()
+				return
 			}
 		}
 

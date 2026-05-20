@@ -14,7 +14,7 @@ import (
 
 type Config struct {
 	// 服务器配置
-	Port string
+	Port   string
 	AppURL string
 
 	// Sqlite3数据库
@@ -91,7 +91,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=
-DB_NAME=oneimgxru
+DB_NAME=oneimg
 # CA证书路径，如果不需要TLS加密连接则将其注释
 DB_CA_CERT_PATH=./ca/isrgrootx1.pem
 DB_SKIP_CERT_VERIFY=false
@@ -178,7 +178,7 @@ func NewConfig() {
 	dbPort, _ := strconv.Atoi(getEnv("DB_PORT", "3306"))
 	dbUser := getEnv("DB_USER", "root")
 	dbPassword := getEnv("DB_PASSWORD", "")
-	dbName := getEnv("DB_NAME", "oneimgxru")
+	dbName := getEnv("DB_NAME", "oneimg")
 	dbCaCertPath := getEnv("DB_CA_CERT_PATH", "")
 	dbSkipCertVerify := getEnv("DB_SKIP_CERT_VERIFY", "false") == "true"
 

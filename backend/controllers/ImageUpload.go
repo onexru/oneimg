@@ -152,9 +152,14 @@ func UploadImages(c *gin.Context) {
 		// 保存文件大小至存储
 		if fileResult.Storage != "default" {
 			fileSizeUint := uint64(fileResult.FileSize)
+			thumbnailSizeUint := uint64(fileResult.ThumbnailSize)
+			totalSizeUint := fileSizeUint
+			if thumbnailSizeUint > 0 {
+				totalSizeUint += thumbnailSizeUint
+			}
 			result := db.DB.Model(&models.Buckets{}).
-				Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, fileSizeUint).
-				UpdateColumn("usage", gorm.Expr("usage + ?", fileSizeUint))
+				Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSizeUint).
+				UpdateColumn("usage", gorm.Expr("usage + ?", totalSizeUint))
 			if result.Error != nil {
 				log.Printf("更新Usage失败：%v", result.Error)
 			}
@@ -179,12 +184,20 @@ func UploadImages(c *gin.Context) {
 		uploadResults = append(uploadResults, *fileResult)
 
 		if setting.TGNotice {
+			requestHost := c.Request.Host
+			if c.GetHeader("X-Forwarded-Host") != "" {
+				requestHost = c.GetHeader("X-Forwarded-Host")
+			}
+			scheme := "http://"
+			if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+				scheme = "https://"
+			}
 			placeholderData := telegram.PlaceholderData{
 				Username:    c.GetString("username"),
 				Date:        time.Now().Format("2006-01-02 15:04:05"),
 				Filename:    fileResult.FileName,
 				StorageType: buckets.Type,
-				URL:         c.Request.Host + fileResult.URL,
+				URL:         scheme + requestHost + fileResult.URL,
 			}
 
 			err := telegram.SendSimpleMsg(
@@ -622,7 +635,7 @@ func UploadImagesByURL(c *gin.Context) {
 	defer file.Close()
 
 	if buckets.Id != 1 && buckets.Type != "telegram" {
-		if (buckets.Usage + uint64(header.Size)) >= buckets.Capacity {
+		if (buckets.Usage + uint64(header.Size)) > buckets.Capacity {
 			uc.Fail(400, "存储空间已满")
 			return
 		}
@@ -660,9 +673,14 @@ func UploadImagesByURL(c *gin.Context) {
 	// 更新容量
 	if fileResult.Storage != "default" {
 		fileSizeUint := uint64(fileResult.FileSize)
+		thumbnailSizeUint := uint64(fileResult.ThumbnailSize)
+		totalSizeUint := fileSizeUint
+		if thumbnailSizeUint > 0 {
+			totalSizeUint += thumbnailSizeUint
+		}
 		db.DB.Model(&models.Buckets{}).
-			Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, fileSizeUint).
-			UpdateColumn("usage", gorm.Expr("usage + ?", fileSizeUint))
+			Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSizeUint).
+			UpdateColumn("usage", gorm.Expr("usage + ?", totalSizeUint))
 	}
 
 	// 标签
@@ -674,14 +692,24 @@ func UploadImagesByURL(c *gin.Context) {
 
 	// TG通知
 	if setting.TGNotice {
+		requestHost := c.Request.Host
+		if c.GetHeader("X-Forwarded-Host") != "" {
+			requestHost = c.GetHeader("X-Forwarded-Host")
+		}
+		scheme := "http://"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https://"
+		}
 		placeholderData := telegram.PlaceholderData{
 			Username:    c.GetString("username"),
 			Date:        time.Now().Format("2006-01-02 15:04:05"),
 			Filename:    fileResult.FileName,
 			StorageType: buckets.Type,
-			URL:         c.Request.Host + fileResult.URL,
+			URL:         scheme + requestHost + fileResult.URL,
 		}
-		telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData)
+		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData); err != nil {
+			log.Println(err)
+		}
 	}
 
 	uc.Success("URL 图片上传成功", nil)

@@ -17,6 +17,7 @@ type ImageUploadResult struct {
 	Storage      string `json:"storage,omitempty"`
 	FileName     string `json:"filename,omitempty"`
 	FileSize     int64  `json:"file_size,omitempty"`
+	ThumbnailSize int64 `json:"thumbnail_size,omitempty"`
 	MimeType     string `json:"mime_type,omitempty"`
 	Width        int    `json:"width,omitempty"`
 	Height       int    `json:"height,omitempty"`

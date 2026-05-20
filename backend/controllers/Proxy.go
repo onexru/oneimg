@@ -491,10 +491,11 @@ func proxyLocalFile(c *gin.Context, realPath string, mimeType string, watermarkC
 
 // FTP代理（添加水印支持）
 func proxyFTPFile(c *gin.Context, ftpPath string, mimeType string, bucket models.Buckets, watermarkCfg watermark.WatermarkConfig) {
-	// 如果启用水印，不强制删除Content-Length
-	if !watermarkCfg.Enable {
+	// 未启用水印时使用分块传输，避免长度不一致
+	if watermarkCfg.Enable {
+		c.Writer.Header().Del("Content-Length")
+	} else {
 		c.Header("Transfer-Encoding", "chunked")
-		// 强制删除Content-Length
 		c.Writer.Header().Del("Content-Length")
 	}
 

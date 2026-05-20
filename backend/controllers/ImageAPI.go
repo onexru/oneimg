@@ -48,7 +48,7 @@ func GetRandomImages(c *gin.Context) {
 
 		// 无图片时返回空数据
 		if total == 0 {
-			c.JSON(http.StatusOK, result.Success("ok", []RandomImageResponse{}))
+			c.JSON(http.StatusOK, result.Error(404, "暂无图片"))
 			return
 		}
 
@@ -107,9 +107,26 @@ func GetRandomImages(c *gin.Context) {
 	}
 
 	if model == "image" {
-		imageUrl := strings.ReplaceAll(images[0].Url, "/uploads/", "/")
-		c.AddParam("path", imageUrl)
-		ImageProxy(c)
+		if len(images) == 0 {
+			c.JSON(http.StatusNotFound, result.Error(404, "暂无图片"))
+			return
+		}
+
+		originalPath := c.Request.URL.Path
+		originalRawPath := c.Request.URL.RawPath
+		imageURL := images[0].Url
+		if !strings.HasPrefix(imageURL, "/") {
+			imageURL = "/" + imageURL
+		}
+
+		c.Request.URL.Path = imageURL
+		c.Request.URL.RawPath = imageURL
+		if !ImageProxy(c) {
+			c.Request.URL.Path = originalPath
+			c.Request.URL.RawPath = originalRawPath
+			c.JSON(http.StatusNotFound, result.Error(404, "图片代理失败"))
+			return
+		}
 		return
 	}
 	for _, img := range images {

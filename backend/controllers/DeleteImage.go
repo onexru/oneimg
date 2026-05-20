@@ -136,9 +136,8 @@ func DeleteImage(c *gin.Context) {
 // 删除默认存储的图片
 func DeleteDefaultStorageImage(image models.Image) (deleteStatus bool) {
 	relativePath := image.Url
-	if len(relativePath) > 9 && relativePath[:9] == "/uploads/" {
-		relativePath = relativePath[9:] // 去掉 "/uploads/" 前缀
-	}
+	relativePath = strings.TrimPrefix(relativePath, "/")
+	relativePath = strings.TrimPrefix(relativePath, "uploads/")
 	// 构建完整文件路径
 	filePath := filepath.Join("./uploads", relativePath)
 	// 删除物理文件
@@ -148,9 +147,8 @@ func DeleteDefaultStorageImage(image models.Image) (deleteStatus bool) {
 	// 检查是否存在缩略图
 	if image.Thumbnail != "" {
 		relativePath = image.Thumbnail
-		if len(relativePath) > 9 && relativePath[:9] == "/uploads/" {
-			relativePath = relativePath[9:] // 去掉 "/uploads/" 前缀
-		}
+		relativePath = strings.TrimPrefix(relativePath, "/")
+		relativePath = strings.TrimPrefix(relativePath, "uploads/")
 		filePath = filepath.Join("./uploads", relativePath)
 		if err := os.Remove(filePath); err != nil {
 			// 文件可能已经不存在，记录日志但不阻止删除数据库记录

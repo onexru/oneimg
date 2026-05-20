@@ -27,7 +27,7 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true
       },
-      '^/.*\\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|heic|heif)$': {
+      '^(?!/api)/.*\\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|heic|heif)$': {
         target: 'http://localhost:8080',
         changeOrigin: true,
         bypass: (req) => {
