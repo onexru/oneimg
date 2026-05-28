@@ -119,7 +119,7 @@ func GetRandomImages(c *gin.Context) {
 			return
 		}
 
-		publicURL := applyPublicImageURL(setting, images[0].Storage, images[0].Url)
+		publicURL := applyPublicImageURL(setting, images[0].Storage, images[0].BucketId, images[0].Url)
 		if strings.HasPrefix(publicURL, "http://") || strings.HasPrefix(publicURL, "https://") {
 			c.Redirect(http.StatusFound, publicURL)
 			return
@@ -140,7 +140,7 @@ func GetRandomImages(c *gin.Context) {
 		return
 	}
 	for _, img := range images {
-		fullUrl := buildImageResponseURL(c, setting, img.Storage, img.Url)
+		fullUrl := buildImageResponseURL(c, setting, img.Storage, img.BucketId, img.Url)
 		respData = append(respData, RandomImageResponse{
 			Image: img.FileName,
 			Url:   fullUrl,

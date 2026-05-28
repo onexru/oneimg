@@ -58,8 +58,8 @@ func Build(setting models.Settings, imagePath string) string {
 	return strings.TrimRight(domain, "/") + path
 }
 
-func BuildForStorage(setting models.Settings, storage string, imagePath string) string {
-	if !SupportsStorage(storage) {
+func BuildForStorage(setting models.Settings, storage string, bucketID int, imagePath string) string {
+	if !SupportsStorage(storage) || bucketID != setting.DefaultStorage {
 		return imagePath
 	}
 	return Build(setting, imagePath)

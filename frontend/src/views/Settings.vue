@@ -62,8 +62,8 @@
                                     v-model="systemSettings.public_image_domain"
                                     type="text"
                                     class="input-modern"
-                                    :class="{ 'cursor-not-allowed opacity-60': publicImageDomainUnavailable }"
-                                    :disabled="publicImageDomainUnavailable"
+                                    :class="{ 'cursor-not-allowed opacity-60': publicImageDomainInputDisabled }"
+                                    :disabled="publicImageDomainInputDisabled"
                                     placeholder="例如 https://img.example.com"
                                     @blur="handleFieldBlur('public_image_domain', systemSettings.public_image_domain)"
                                 />
@@ -717,6 +717,10 @@ const publicImageDomainUnavailable = computed(() => {
     return !supportsPublicImageDomain.value
 })
 
+const publicImageDomainInputDisabled = computed(() => {
+    return publicImageDomainUnavailable.value && !hasPublicImageDomain.value
+})
+
 const publicImageDomainHint = computed(() => {
     if (!supportsPublicImageDomain.value) {
         return '当前默认存储不支持图片直链域名，仅 S3/R2 存储可用。'
@@ -893,7 +897,7 @@ const handleFieldBlur = (key, value) => {
         systemSettings.public_image_domain = normalizedValue
         value = normalizedValue
 
-        if (publicImageDomainUnavailable.value) {
+        if (publicImageDomainUnavailable.value && normalizedValue !== '') {
             message.warning('当前默认存储不支持图片直链域名')
             systemSettings.public_image_domain = updateSetting.public_image_domain || ''
             return

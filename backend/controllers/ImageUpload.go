@@ -182,8 +182,8 @@ func UploadImages(c *gin.Context) {
 		}
 
 		responseResult := *fileResult
-		responseResult.URL = applyPublicImageURL(setting, buckets.Type, fileResult.URL)
-		responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, fileResult.ThumbnailURL)
+		responseResult.URL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.URL)
+		responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.ThumbnailURL)
 		uploadResults = append(uploadResults, responseResult)
 
 		if setting.TGNotice {
@@ -192,7 +192,7 @@ func UploadImages(c *gin.Context) {
 				Date:        time.Now().Format("2006-01-02 15:04:05"),
 				Filename:    fileResult.FileName,
 				StorageType: buckets.Type,
-				URL:         buildImageResponseURL(c, setting, buckets.Type, fileResult.URL),
+				URL:         buildImageResponseURL(c, setting, buckets.Type, bucketID, fileResult.URL),
 			}
 
 			err := telegram.SendSimpleMsg(
@@ -692,7 +692,7 @@ func UploadImagesByURL(c *gin.Context) {
 			Date:        time.Now().Format("2006-01-02 15:04:05"),
 			Filename:    fileResult.FileName,
 			StorageType: buckets.Type,
-			URL:         buildImageResponseURL(c, setting, buckets.Type, fileResult.URL),
+			URL:         buildImageResponseURL(c, setting, buckets.Type, bucketID, fileResult.URL),
 		}
 		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData); err != nil {
 			log.Println(err)
@@ -700,8 +700,8 @@ func UploadImagesByURL(c *gin.Context) {
 	}
 
 	responseResult := *fileResult
-	responseResult.URL = applyPublicImageURL(setting, buckets.Type, fileResult.URL)
-	responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, fileResult.ThumbnailURL)
+	responseResult.URL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.URL)
+	responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.ThumbnailURL)
 
 	uc.Success("URL 图片上传成功", map[string]any{
 		"file": responseResult,

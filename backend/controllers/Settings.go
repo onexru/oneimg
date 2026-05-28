@@ -19,6 +19,8 @@ import (
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
+
+	"gorm.io/gorm"
 )
 
 // 定义请求参数
@@ -132,6 +134,12 @@ func UpdateSettings(c *gin.Context) {
 		return
 	}
 
+	if err := ensureSettingsColumn(db, updateColumn); err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "数据库字段兼容处理失败"))
+		log.Println(err)
+		return
+	}
+
 	if err := db.Model(&settingModel).Update(updateColumn, updateValue).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "更新失败"))
 		log.Println(err)
@@ -220,6 +228,33 @@ func getSettingsColumnName(fieldName string) string {
 		}
 	}
 	return fieldName
+}
+
+func ensureSettingsColumn(db *gorm.DB, columnName string) error {
+	fieldName, err := getSettingsFieldNameByColumn(columnName)
+	if err != nil {
+		return err
+	}
+	if db.Migrator().HasColumn(&models.Settings{}, columnName) {
+		return nil
+	}
+
+	log.Printf("[数据库兼容] settings.%s 字段不存在，尝试创建", columnName)
+	if err := db.Migrator().AddColumn(&models.Settings{}, fieldName); err != nil {
+		return fmt.Errorf("创建 settings.%s 字段失败: %w", columnName, err)
+	}
+	return nil
+}
+
+func getSettingsFieldNameByColumn(columnName string) (string, error) {
+	settingsType := reflect.TypeOf(models.Settings{})
+	for i := 0; i < settingsType.NumField(); i++ {
+		field := settingsType.Field(i)
+		if getSettingsColumnName(field.Name) == columnName || field.Name == columnName {
+			return field.Name, nil
+		}
+	}
+	return "", fmt.Errorf("设置字段 %s 不存在", columnName)
 }
 
 func updateSettingsField(settings *models.Settings, key string, value any) error {

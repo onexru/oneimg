@@ -9,21 +9,21 @@ import (
 	"oneimg/backend/utils/publicurl"
 )
 
-func buildImageResponseURL(c *gin.Context, setting models.Settings, storage string, path string) string {
-	publicPath := publicurl.BuildForStorage(setting, storage, path)
+func buildImageResponseURL(c *gin.Context, setting models.Settings, storage string, bucketID int, path string) string {
+	publicPath := publicurl.BuildForStorage(setting, storage, bucketID, path)
 	if publicPath == "" || strings.HasPrefix(publicPath, "http://") || strings.HasPrefix(publicPath, "https://") {
 		return publicPath
 	}
 	return getRequestBaseURL(c) + ensureLeadingSlash(publicPath)
 }
 
-func applyPublicImageURL(setting models.Settings, storage string, path string) string {
-	return publicurl.BuildForStorage(setting, storage, path)
+func applyPublicImageURL(setting models.Settings, storage string, bucketID int, path string) string {
+	return publicurl.BuildForStorage(setting, storage, bucketID, path)
 }
 
 func rewriteImageURLs(setting models.Settings, image *models.Image) {
-	image.Url = applyPublicImageURL(setting, image.Storage, image.Url)
-	image.Thumbnail = applyPublicImageURL(setting, image.Storage, image.Thumbnail)
+	image.Url = applyPublicImageURL(setting, image.Storage, image.BucketId, image.Url)
+	image.Thumbnail = applyPublicImageURL(setting, image.Storage, image.BucketId, image.Thumbnail)
 }
 
 func getRequestBaseURL(c *gin.Context) string {
