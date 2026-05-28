@@ -15,6 +15,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
@@ -193,6 +194,12 @@ func buildSettingsUpdate(key string, value any, fieldName string, fieldType refl
 		return "api_token_hash", normalizedValue, nil
 	case "tg_bot_token":
 		return "tg_bot_token", normalizedValue, nil
+	case "public_image_domain":
+		domain, err := publicurl.NormalizeDomain(fmt.Sprintf("%v", value))
+		if err != nil {
+			return "", nil, err
+		}
+		return "public_image_domain", domain, nil
 	default:
 		convertedValue, convertErr := convertValueToTargetType(key, value, fieldType)
 		if convertErr != nil {
@@ -337,7 +344,37 @@ func convertValueToTargetType(key string, value any, targetType reflect.Type) (a
 }
 
 func validateSettingData(key string, value any) error {
+	if settingDisabledByPublicDomain(key) {
+		setting, err := settings.GetSettings()
+		if err != nil {
+			return fmt.Errorf("获取系统配置失败")
+		}
+		if publicurl.HasDomain(setting) {
+			return fmt.Errorf("已配置图片直链域名，该设置不会生效，请先清空图片直链域名")
+		}
+	}
+
 	switch key {
+	case "public_image_domain":
+		domain, err := publicurl.NormalizeDomain(fmt.Sprintf("%v", value))
+		if err != nil {
+			return err
+		}
+		if domain == "" {
+			return nil
+		}
+		setting, err := settings.GetSettings()
+		if err != nil {
+			return fmt.Errorf("获取系统配置失败")
+		}
+		bucketType, err := getBucketTypeByID(setting.DefaultStorage)
+		if err != nil {
+			return err
+		}
+		if !publicurl.SupportsStorage(bucketType) {
+			return fmt.Errorf("当前默认存储不支持图片直链域名，请先切换到 S3 或 R2 存储")
+		}
+
 	case "watermark_text":
 		// 1. 水印文字长度校验（兼容字符串类型）
 		text, ok := value.(string)
@@ -437,28 +474,67 @@ func validateSettingData(key string, value any) error {
 		}
 	case "default_storage":
 		// 检查存储配置是否存在
-		db := database.GetDB().DB
-
-		var id int
-		switch v := value.(type) {
-		case int:
-			id = v
-		case string:
-			num64, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return fmt.Errorf("%s", "解析失败: "+err.Error())
-			}
-			id = int(num64)
+		id, err := settingValueToInt(value)
+		if err != nil {
+			return fmt.Errorf("%s", "解析失败: "+err.Error())
 		}
 
-		Buckets := models.Buckets{
-			Id: id,
+		bucketType, err := getBucketTypeByID(id)
+		if err != nil {
+			return err
 		}
-
-		if err := db.First(&Buckets).Error; err != nil {
-			return fmt.Errorf("存储桶不存在")
+		setting, err := settings.GetSettings()
+		if err != nil {
+			return fmt.Errorf("获取系统配置失败")
+		}
+		if publicurl.HasDomain(setting) && !publicurl.SupportsStorage(bucketType) {
+			return fmt.Errorf("图片直链域名仅支持 S3/R2 存储，请先清空该配置")
 		}
 	}
 
 	return nil
+}
+
+func settingDisabledByPublicDomain(key string) bool {
+	switch key {
+	case "watermark_enable",
+		"watermark_text",
+		"watermark_size",
+		"watermark_color",
+		"watermark_opac",
+		"watermark_pos",
+		"referer_white_enable",
+		"referer_white_list":
+		return true
+	default:
+		return false
+	}
+}
+
+func getBucketTypeByID(id int) (string, error) {
+	db := database.GetDB().DB
+	var bucket models.Buckets
+	if err := db.First(&bucket, id).Error; err != nil {
+		return "", fmt.Errorf("存储桶不存在")
+	}
+	return bucket.Type, nil
+}
+
+func settingValueToInt(value any) (int, error) {
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	case string:
+		num64, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return int(num64), nil
+	default:
+		return 0, fmt.Errorf("类型错误：%T", value)
+	}
 }

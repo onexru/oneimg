@@ -6,6 +6,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/settings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -82,6 +83,18 @@ func GetDashboardStats(c *gin.Context) {
 
 	// 获取最近上传的图片
 	db.Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatsResponse{
+			Code:    500,
+			Message: "获取系统配置失败",
+			Success: false,
+		})
+		return
+	}
+	for i := range stats.RecentImages {
+		rewriteImageURLs(setting, &stats.RecentImages[i])
+	}
 
 	// 获取最近7天的上传趋势
 	stats.UploadTrend = getUploadTrend(db, 7)

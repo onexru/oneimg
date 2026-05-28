@@ -181,23 +181,18 @@ func UploadImages(c *gin.Context) {
 			db.DB.Create(&imageTagRelations)
 		}
 
-		uploadResults = append(uploadResults, *fileResult)
+		responseResult := *fileResult
+		responseResult.URL = applyPublicImageURL(setting, buckets.Type, fileResult.URL)
+		responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, fileResult.ThumbnailURL)
+		uploadResults = append(uploadResults, responseResult)
 
 		if setting.TGNotice {
-			requestHost := c.Request.Host
-			if c.GetHeader("X-Forwarded-Host") != "" {
-				requestHost = c.GetHeader("X-Forwarded-Host")
-			}
-			scheme := "http://"
-			if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-				scheme = "https://"
-			}
 			placeholderData := telegram.PlaceholderData{
 				Username:    c.GetString("username"),
 				Date:        time.Now().Format("2006-01-02 15:04:05"),
 				Filename:    fileResult.FileName,
 				StorageType: buckets.Type,
-				URL:         scheme + requestHost + fileResult.URL,
+				URL:         buildImageResponseURL(c, setting, buckets.Type, fileResult.URL),
 			}
 
 			err := telegram.SendSimpleMsg(
@@ -692,25 +687,23 @@ func UploadImagesByURL(c *gin.Context) {
 
 	// TG通知
 	if setting.TGNotice {
-		requestHost := c.Request.Host
-		if c.GetHeader("X-Forwarded-Host") != "" {
-			requestHost = c.GetHeader("X-Forwarded-Host")
-		}
-		scheme := "http://"
-		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-			scheme = "https://"
-		}
 		placeholderData := telegram.PlaceholderData{
 			Username:    c.GetString("username"),
 			Date:        time.Now().Format("2006-01-02 15:04:05"),
 			Filename:    fileResult.FileName,
 			StorageType: buckets.Type,
-			URL:         scheme + requestHost + fileResult.URL,
+			URL:         buildImageResponseURL(c, setting, buckets.Type, fileResult.URL),
 		}
 		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData); err != nil {
 			log.Println(err)
 		}
 	}
 
-	uc.Success("URL 图片上传成功", nil)
+	responseResult := *fileResult
+	responseResult.URL = applyPublicImageURL(setting, buckets.Type, fileResult.URL)
+	responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, fileResult.ThumbnailURL)
+
+	uc.Success("URL 图片上传成功", map[string]any{
+		"file": responseResult,
+	})
 }
