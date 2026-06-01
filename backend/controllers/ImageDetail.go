@@ -6,6 +6,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/settings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,6 +43,16 @@ func GetImageDetail(c *gin.Context) {
 		})
 		return
 	}
+
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "获取系统配置失败",
+		})
+		return
+	}
+	rewriteImageURLs(setting, &image)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,

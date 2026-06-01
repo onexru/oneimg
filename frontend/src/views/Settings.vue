@@ -52,6 +52,29 @@
                                 </div>
                             </div>
 
+                            <!-- 图片直链域名 -->
+                            <div class="setting-group">
+                                <label class="field-label" for="public_image_domain">
+                                    图片直链域名
+                                </label>
+                                <input
+                                    id="public_image_domain"
+                                    v-model="systemSettings.public_image_domain"
+                                    type="text"
+                                    class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': publicImageDomainInputDisabled }"
+                                    :disabled="publicImageDomainInputDisabled"
+                                    placeholder="例如 https://img.example.com"
+                                    @blur="handleFieldBlur('public_image_domain', systemSettings.public_image_domain)"
+                                />
+                                <div
+                                    class="field-hint"
+                                    :class="{ 'text-amber-600 dark:text-amber-300': publicImageDomainUnavailable || hasPublicImageDomain }"
+                                >
+                                    {{ publicImageDomainHint }}
+                                </div>
+                            </div>
+
                             <!-- 默认存储路径 -->
                             <div class="setting-group">
                                 <label class="field-label" for="default_path">
@@ -154,9 +177,14 @@
                                     v-model="systemSettings.watermark_text"
                                     type="text" 
                                     class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     placeholder="图片水印文本"
                                     @blur="handleFieldBlur('watermark_text', systemSettings.watermark_text)"
                                 />
+                                <div v-if="hasPublicImageDomain" class="field-hint text-amber-600 dark:text-amber-300">
+                                    已配置图片直链域名，图片水印文本不会生效，请先清空图片直链域名再修改。
+                                </div>
                             </div>
 
                             <!-- 图片水印大小：失去焦点保存 -->
@@ -169,6 +197,8 @@
                                     v-model="systemSettings.watermark_size"
                                     type="text" 
                                     class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     placeholder="图片水印大小"
                                     @blur="handleFieldBlur('watermark_size', systemSettings.watermark_size)"
                                 />
@@ -184,6 +214,8 @@
                                     v-model="systemSettings.watermark_color"
                                     type="text" 
                                     class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     placeholder="图片水印字体颜色"
                                     @blur="handleFieldBlur('watermark_color', systemSettings.watermark_color)"
                                 />
@@ -202,6 +234,8 @@
                                     v-model="systemSettings.watermark_opac"
                                     type="text" 
                                     class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     placeholder="图片水印透明度"
                                     @blur="handleFieldBlur('watermark_opac', systemSettings.watermark_opac)"
                                 />
@@ -219,6 +253,8 @@
                                     id="watermark_pos"
                                     v-model="systemSettings.watermark_pos"
                                     class="input-modern"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     @change="handleSelectChange('watermark_pos', systemSettings.watermark_pos)"
                                 >
                                     <option value="" disabled>请选择图片水印位置</option>
@@ -241,6 +277,8 @@
                                     v-model="systemSettings.referer_white_list"
                                     type="password"
                                     class="input-modern min-h-[112px] leading-6"
+                                    :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
+                                    :disabled="hasPublicImageDomain"
                                     placeholder="Referer来源白名单，多个以英文逗号分隔"
                                     @blur="handleFieldBlur('referer_white_list', systemSettings.referer_white_list)"
                                     rows="4"
@@ -250,6 +288,9 @@
                                     1. 仅需填写域名（支持主域名），多个以英文逗号分隔；<br>
                                     2. 无需填写协议（http://），无需填写端口（:80）；<br>
                                     3. 如果开启了来源白名单，那么仅能从这些来源访问图片资源（直接打开不受限制）
+                                </div>
+                                <div v-if="hasPublicImageDomain" class="field-hint text-amber-600 dark:text-amber-300">
+                                    已配置图片直链域名，直接访问不会经过系统代理，来源白名单不会生效。
                                 </div>
                             </div>
 
@@ -521,13 +562,19 @@
                             <div class="setting-row">
                                 <div>
                                     <p class="setting-row-title">开启图片水印</p>
-                                    <p class="setting-row-hint">新上传的图片自动添加水印，历史图片不会补加。</p>
+                                    <p class="setting-row-hint">
+                                        {{ hasPublicImageDomain ? '已配置图片直链域名，图片水印不会生效。' : '新上传的图片自动添加水印，历史图片不会补加。' }}
+                                    </p>
                                 </div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                <label
+                                    class="relative inline-flex items-center self-end md:self-center"
+                                    :class="hasPublicImageDomain ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+                                >
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.watermark_enable"
                                         class="sr-only peer"
+                                        :disabled="hasPublicImageDomain"
                                         @change="handleSwitchChange('watermark_enable', systemSettings.watermark_enable)"
                                     >
                                     <div class="switch-track"></div>
@@ -537,12 +584,17 @@
                             <div class="setting-row">
                                 <div>
                                     <p class="setting-row-title">开启来源白名单</p>
+                                    <p v-if="hasPublicImageDomain" class="setting-row-hint">已配置图片直链域名，直接访问不会经过系统代理。</p>
                                 </div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                <label
+                                    class="relative inline-flex items-center self-end md:self-center"
+                                    :class="hasPublicImageDomain ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+                                >
                                     <input 
                                         type="checkbox" 
                                         v-model="systemSettings.referer_white_enable"
                                         class="sr-only peer"
+                                        :disabled="hasPublicImageDomain"
                                         @change="handleSwitchChange('referer_white_enable', systemSettings.referer_white_enable)"
                                     >
                                     <div class="switch-track"></div>
@@ -591,7 +643,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import message from '@/utils/message.js'
 // 存储相关
 const presetBuckets = ref([
@@ -632,10 +684,72 @@ const systemSettings = reactive({
     max_file_size: 10485760,
     allowed_types: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml',
     default_path: '/uploads/{year}/{moon}',
-    file_name: '{random}'
+    file_name: '{random}',
+    public_image_domain: ''
 })
 
 const updateSetting = reactive({})
+const publicDomainStorageTypes = ['s3', 'r2']
+const publicDomainAffectedSettings = [
+    'watermark_enable',
+    'watermark_text',
+    'watermark_size',
+    'watermark_color',
+    'watermark_opac',
+    'watermark_pos',
+    'referer_white_enable',
+    'referer_white_list'
+]
+
+const currentDefaultBucket = computed(() => {
+    return presetBuckets.value.find(bucket => String(bucket.id) === String(systemSettings.default_storage))
+})
+
+const supportsPublicImageDomain = computed(() => {
+    return publicDomainStorageTypes.includes(currentDefaultBucket.value?.type)
+})
+
+const hasPublicImageDomain = computed(() => {
+    return String(systemSettings.public_image_domain || '').trim() !== ''
+})
+
+const publicImageDomainUnavailable = computed(() => {
+    return !supportsPublicImageDomain.value
+})
+
+const publicImageDomainInputDisabled = computed(() => {
+    return publicImageDomainUnavailable.value && !hasPublicImageDomain.value
+})
+
+const publicImageDomainHint = computed(() => {
+    if (!supportsPublicImageDomain.value) {
+        return '当前默认存储不支持图片直链域名，仅 S3/R2 存储可用。'
+    }
+    if (hasPublicImageDomain.value) {
+        return '启用后图片链接将直接使用该域名，图片水印文本、来源白名单等依赖系统代理的功能不会生效。'
+    }
+    return '填写 S3/R2 绑定的直链域名后，返回给用户的图片链接会直接使用该域名。'
+})
+
+const bucketSupportsPublicImageDomain = (bucketId) => {
+    const bucket = presetBuckets.value.find(item => String(item.id) === String(bucketId))
+    return publicDomainStorageTypes.includes(bucket?.type)
+}
+
+const disabledByPublicImageDomain = (key) => {
+    return hasPublicImageDomain.value && publicDomainAffectedSettings.includes(key)
+}
+
+const normalizePublicImageDomain = (value) => {
+    let domain = String(value || '').trim()
+    if (domain === '') {
+        return ''
+    }
+    if (!domain.includes('://')) {
+        domain = `https://${domain}`
+    }
+    return domain.replace(/\/+$/, '')
+}
 
 // 加载状态
 const isUpdating = ref(false)
@@ -717,7 +831,7 @@ const getBucketsList = async () => {
     }
   } catch (error) {
     console.error('获取存储列表失败:', error);
-    Message.error(error.message || '获取存储列表失败');
+    message.error(error.message || '获取存储列表失败');
   }
 };
 
@@ -739,6 +853,12 @@ const generate32BitTokenMixCase = () => {
 
 // 开关状态变更统一处理方法
 const handleSwitchChange = (key, value) => {
+    if (disabledByPublicImageDomain(key)) {
+        message.warning('已配置图片直链域名，该设置不会生效')
+        systemSettings[key] = updateSetting[key]
+        return
+    }
+
     if (key == "start_api") {
         if (systemSettings.api_token === '' && !systemSettings.api_token_configured) {
             message.warning('请先填写API Token')
@@ -766,6 +886,24 @@ const handleSwitchChange = (key, value) => {
 
 // 输入框失去焦点处理
 const handleFieldBlur = (key, value) => {
+    if (disabledByPublicImageDomain(key)) {
+        message.warning('已配置图片直链域名，该设置不会生效')
+        systemSettings[key] = updateSetting[key]
+        return
+    }
+
+    if (key === 'public_image_domain') {
+        const normalizedValue = normalizePublicImageDomain(value)
+        systemSettings.public_image_domain = normalizedValue
+        value = normalizedValue
+
+        if (publicImageDomainUnavailable.value && normalizedValue !== '') {
+            message.warning('当前默认存储不支持图片直链域名')
+            systemSettings.public_image_domain = updateSetting.public_image_domain || ''
+            return
+        }
+    }
+
     if (key == 'tg_bot_token' || key == 'tg_receivers') {
         const isBotTokenEmpty = systemSettings.tg_bot_token === '' || systemSettings.tg_bot_token === null;
         if ((isBotTokenEmpty && !systemSettings.tg_bot_token_configured) || systemSettings.tg_receivers === '') {
@@ -780,7 +918,7 @@ const handleFieldBlur = (key, value) => {
             }
         }
     }
-    if (value === '' || value === updateSetting[key]) {
+    if ((value === '' && key !== 'public_image_domain') || value === updateSetting[key]) {
         return
     }
     if (key == 'api_token' && value === '') {
@@ -796,6 +934,18 @@ const handleFieldBlur = (key, value) => {
 
 // 下拉框变更处理
 const handleSelectChange = (key, value) => {
+    if (key === 'default_storage' && hasPublicImageDomain.value && !bucketSupportsPublicImageDomain(value)) {
+        message.warning('图片直链域名仅支持 S3/R2 存储，请先清空该配置')
+        systemSettings.default_storage = updateSetting.default_storage
+        return
+    }
+
+    if (disabledByPublicImageDomain(key)) {
+        message.warning('已配置图片直链域名，该设置不会生效')
+        systemSettings[key] = updateSetting[key]
+        return
+    }
+
     saveSetting(key, value)
 }
 

@@ -31,6 +31,9 @@ type Settings struct {
 	DefaultPath  string `gorm:"column:default_path;default:'/uploads/{year}/{moon}'" json:"default_path"` // 默认上传路径，魔法变量 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {random} 随机 {uuid} UUID {role} 角色（1 为管理员, 2 为游客）
 	FileName     string `gorm:"column:file_name;default:'{random}'" json:"file_name"`                     // 上传文件名称，魔法变量 {random} 随机数 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {second} 秒
 
+	// 图片直链设置
+	PublicImageDomain string `gorm:"column:public_image_domain;default:''" json:"public_image_domain"` // 图片直链域名（用于非本地存储直接访问）
+
 	// 水印设置
 	WatermarkEnable bool    `gorm:"column:watermark_enable;default:false" json:"watermark_enable"`    // 是否启用水印（默认不启用）
 	WatermarkText   string  `gorm:"column:watermark_text;default:'初春图床'" json:"watermark_text"`       // 水印文字（默认为初春图床）

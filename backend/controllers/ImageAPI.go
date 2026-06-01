@@ -6,6 +6,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/settings"
 	"strconv"
 	"strings"
 	"time"
@@ -106,18 +107,27 @@ func GetRandomImages(c *gin.Context) {
 		}
 	}
 
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取系统配置失败"))
+		return
+	}
+
 	if model == "image" {
 		if len(images) == 0 {
 			c.JSON(http.StatusNotFound, result.Error(404, "暂无图片"))
 			return
 		}
 
+		publicURL := applyPublicImageURL(setting, images[0].Storage, images[0].BucketId, images[0].Url)
+		if strings.HasPrefix(publicURL, "http://") || strings.HasPrefix(publicURL, "https://") {
+			c.Redirect(http.StatusFound, publicURL)
+			return
+		}
+
 		originalPath := c.Request.URL.Path
 		originalRawPath := c.Request.URL.RawPath
-		imageURL := images[0].Url
-		if !strings.HasPrefix(imageURL, "/") {
-			imageURL = "/" + imageURL
-		}
+		imageURL := ensureLeadingSlash(images[0].Url)
 
 		c.Request.URL.Path = imageURL
 		c.Request.URL.RawPath = imageURL
@@ -130,7 +140,7 @@ func GetRandomImages(c *gin.Context) {
 		return
 	}
 	for _, img := range images {
-		fullUrl := getFullImageUrl(c, img.Url)
+		fullUrl := buildImageResponseURL(c, setting, img.Storage, img.BucketId, img.Url)
 		respData = append(respData, RandomImageResponse{
 			Image: img.FileName,
 			Url:   fullUrl,
@@ -138,28 +148,4 @@ func GetRandomImages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result.Success("ok", respData))
-}
-
-func getFullImageUrl(c *gin.Context, path string) string {
-	var scheme string
-	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	} else if c.Request.TLS != nil {
-		scheme = "https"
-	} else {
-		scheme = "http"
-	}
-	var host string
-	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
-		host = forwardedHost
-	} else {
-		host = c.Request.Host
-	}
-	baseUrl := scheme + "://" + host
-	baseUrl = strings.TrimSuffix(baseUrl, "/")
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	fullUrl := baseUrl + path
-	return fullUrl
 }

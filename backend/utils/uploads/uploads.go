@@ -21,6 +21,7 @@ import (
 	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/images"
+	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/s3"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
@@ -52,7 +53,7 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	userRole := c.GetInt("user_role")
 
 	// 处理图片
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -110,18 +111,18 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	url := "/" + PathJoin(subDir, uniqueFileName)
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "上传成功",
-		FileName:     uniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "上传成功",
+		FileName:      uniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     contentType,
-		URL:          url,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type,
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
+		MimeType:      contentType,
+		URL:           url,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type,
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
 	}, nil
 }
 
@@ -143,7 +144,7 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	userRole := c.GetInt("user_role")
 
 	// 处理图片
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -201,18 +202,18 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	url := "/" + PathJoin(subDir, uniqueFileName)
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "上传成功",
-		FileName:     uniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "上传成功",
+		FileName:      uniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     contentType,
-		URL:          url,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type,
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
+		MimeType:      contentType,
+		URL:           url,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type,
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
 	}, nil
 }
 
@@ -234,7 +235,7 @@ func (u *WebDAVUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 	userRole := c.GetInt("user_role")
 
 	// 处理图片
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -285,18 +286,18 @@ func (u *WebDAVUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 	url := PathJoin(subDir, uniqueFileName)
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "上传成功",
-		FileName:     uniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "上传成功",
+		FileName:      uniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     processedImage.MimeType,
-		URL:          url,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type,
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		MimeType:      processedImage.MimeType,
+		URL:           url,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type,
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
 	}, nil
 }
 
@@ -318,7 +319,7 @@ func (u *FTPUploader) Upload(c *gin.Context, setting *models.Settings, bucket *m
 	userRole := c.GetInt("user_role")
 
 	// 处理图片（压缩、生成缩略图等）
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -371,18 +372,18 @@ func (u *FTPUploader) Upload(c *gin.Context, setting *models.Settings, bucket *m
 	url := "/" + PathJoin(subDir, uniqueFileName)
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "上传成功",
-		FileName:     uniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "上传成功",
+		FileName:      uniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     processedImage.MimeType,
-		URL:          url,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type,
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		MimeType:      processedImage.MimeType,
+		URL:           url,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type,
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
 	}, nil
 }
 
@@ -404,7 +405,7 @@ func (u *DefaultUploader) Upload(c *gin.Context, setting *models.Settings, bucke
 	userRole := c.GetInt("user_role")
 
 	// 处理图片
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -452,18 +453,18 @@ func (u *DefaultUploader) Upload(c *gin.Context, setting *models.Settings, bucke
 	fileURL := "/" + PathJoin(subDir, uniqueFileName)
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "上传成功",
-		URL:          fileURL,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type,
-		FileName:     uniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "上传成功",
+		URL:           fileURL,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type,
+		FileName:      uniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     processedImage.MimeType,
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		MimeType:      processedImage.MimeType,
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
 	}, nil
 }
 
@@ -485,7 +486,7 @@ func (u *TelegramUploader) Upload(c *gin.Context, setting *models.Settings, buck
 	userRole := c.GetInt("user_role")
 
 	// 处理图片
-	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, *setting, userRole)
+	processedImage, err := images.ImageSvc.ProcessImage(file, fileHeader, getProcessingSettings(setting, bucket), userRole)
 	if err != nil {
 		return nil, fmt.Errorf("图片处理失败: %v", err)
 	}
@@ -564,18 +565,18 @@ func (u *TelegramUploader) Upload(c *gin.Context, setting *models.Settings, buck
 	}
 
 	return &interfaces.ImageUploadResult{
-		Success:      true,
-		Message:      "Telegram上传成功",
-		FileName:     processedImage.UniqueFileName,
-		FileSize:     int64(len(processedImage.CompressedBytes)),
+		Success:       true,
+		Message:       "Telegram上传成功",
+		FileName:      processedImage.UniqueFileName,
+		FileSize:      int64(len(processedImage.CompressedBytes)),
 		ThumbnailSize: int64(len(processedImage.ThumbnailBytes)),
-		MimeType:     processedImage.MimeType,
-		URL:          url,
-		ThumbnailURL: thumbnailURL,
-		Storage:      bucket.Type, // 存储类型标识
-		CreatedAt:    time.Now().Format("2006-01-02 15:04:05"),
-		Width:        processedImage.Width,
-		Height:       processedImage.Height,
+		MimeType:      processedImage.MimeType,
+		URL:           url,
+		ThumbnailURL:  thumbnailURL,
+		Storage:       bucket.Type, // 存储类型标识
+		CreatedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		Width:         processedImage.Width,
+		Height:        processedImage.Height,
 	}, nil
 }
 
@@ -597,6 +598,14 @@ func saveFile(filePath string, data []byte) error {
 
 	_, err = file.Write(data)
 	return err
+}
+
+func getProcessingSettings(setting *models.Settings, bucket *models.Buckets) models.Settings {
+	processingSettings := *setting
+	if publicurl.HasDomain(*setting) && publicurl.SupportsStorage(bucket.Type) {
+		processingSettings.WatermarkEnable = false
+	}
+	return processingSettings
 }
 
 // 辅助函数

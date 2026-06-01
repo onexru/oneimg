@@ -9,6 +9,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/settings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -226,6 +227,16 @@ func GetImageList(c *gin.Context) {
 			}
 			images[i].Tags = tagList
 		}
+	}
+
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取系统配置失败："+err.Error()))
+		return
+	}
+	for i := range images {
+		images[i].Url = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Url)
+		images[i].Thumbnail = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Thumbnail)
 	}
 
 	// 返回结果
