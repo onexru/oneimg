@@ -432,7 +432,7 @@ const getUploadConfig = async () => {
  */
 const loadRecentImages = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/images?limit=12`, {
+    const response = await fetch(`${API_BASE_URL}/api/images?limit=12&role=${isGuest() ? 'guest' : 'admin'}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
       }

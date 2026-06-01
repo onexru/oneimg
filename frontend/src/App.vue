@@ -2,7 +2,7 @@
   <div class="app-shell min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:pl-[var(--app-sidebar-width)]">
     <Navbar />
 
-    <main class="min-h-screen px-2.5 pb-3 pt-[calc(var(--app-header-height-mobile)+8px)] sm:px-4 sm:pb-4 md:px-5 md:pb-5 md:pt-[calc(var(--app-header-height)+10px)] xl:px-6 2xl:px-8">
+    <main class="min-h-[calc(100vh-53px)] px-2.5 pb-3 pt-[calc(var(--app-header-height-mobile)+8px)] sm:px-4 sm:pb-4 md:px-5 md:pb-5 md:pt-[calc(var(--app-header-height)+10px)] xl:px-6 2xl:px-8">
       <div class="mx-auto">
         <router-view />
       </div>

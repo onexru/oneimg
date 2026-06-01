@@ -11,7 +11,7 @@
       <div class="content-panel gallery-panel-compact gallery-topbar-compact space-y-2">
         <div class="gallery-topbar-minimal">
           <div class="gallery-topbar-filters">
-            <div class="gallery-inline-control">
+            <div v-if="isAdmin" class="gallery-inline-control">
               <span class="gallery-inline-label">角色</span>
               <div class="role-buttons grid w-full grid-cols-2 overflow-hidden rounded-[16px] border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 sm:inline-flex sm:w-auto">
             <button
