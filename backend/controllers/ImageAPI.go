@@ -54,16 +54,16 @@ func GetRandomImages(c *gin.Context) {
 		}
 
 		// 计算随机偏移量
-		var offset int
-		if total > int64(limit) {
-			offset = randomGenerator.Intn(int(total) - limit + 1)
-		} else {
-			offset = 0
-		}
+		// var offset int
+		// if total > int64(limit) {
+		// 	offset = randomGenerator.Intn(int(total) - limit + 1)
+		// } else {
+		// 	offset = 0
+		// }
 
 		// 查询随机图片
 		if err := db.Model(&models.Image{}).
-			Offset(offset).
+			Order("RANDOM()").
 			Limit(limit).
 			Find(&images).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "获取图片失败"))
@@ -87,19 +87,19 @@ func GetRandomImages(c *gin.Context) {
 		}
 
 		// 计算随机偏移量
-		var offset int
-		if total > int64(limit) {
-			offset = randomGenerator.Intn(int(total) - limit + 1)
-		} else {
-			offset = 0
-		}
+		// var offset int
+		// if total > int64(limit) {
+		// 	offset = randomGenerator.Intn(int(total) - limit + 1)
+		// } else {
+		// 	offset = 0
+		// }
 
 		// 查询该标签下的随机图片
 		if err := db.Model(&models.Image{}).
 			Joins("JOIN image_to_tags ON images.id = image_to_tags.image_id").
 			Joins("JOIN tags ON image_to_tags.tag_id = tags.id").
 			Where("tags.name = ?", tag).
-			Offset(offset).
+			Order("RANDOM()").
 			Limit(limit).
 			Find(&images).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "获取标签图片失败"))

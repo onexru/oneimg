@@ -59,6 +59,22 @@ func Migrate(db *database.Database) {
 	handleBucketMigrate(db, "telegram", 6, "Telegram存储", telegramBucket)
 
 	log.Printf("[数据迁移] 所有存储类型迁移流程执行完毕")
+
+	// 检查默认用户是否设置了角色
+	var user models.User
+	if err := db.DB.Where("id = ?", 1).First(&user).Error; err != nil {
+		log.Printf("[数据迁移] 查询默认用户失败: %s", err.Error())
+		return
+	}
+	if user.Role == 0 {
+		log.Printf("[数据迁移] 默认用户未设置角色，将设置为 admin")
+		user.Role = 1
+		if err := db.DB.Save(&user).Error; err != nil {
+			log.Printf("[数据迁移] 更新默认用户角色失败: %s", err.Error())
+			return
+		}
+	}
+	log.Printf("[数据迁移] 默认用户角色设置为 admin")
 }
 
 func handleBucketMigrate(db *database.Database, storageType string, bucketId int, bucketName string, imageMap map[int]models.Image) {
