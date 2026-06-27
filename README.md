@@ -15,6 +15,13 @@
 ## Demo
 [初春图床v3.0](https://www.ip6s.com)
 
+## 预览
+![18bce5ad46f261fb288.webp](https://eta.im/uploads/2026/06/18bce5ad46f261fb288.webp)
+![18bce5d81ad53298181.webp](https://eta.im/uploads/2026/06/18bce5d81ad53298181.webp)
+![18bce5e035f58315808.webp](https://eta.im/uploads/2026/06/18bce5e035f58315808.webp)
+![18bce6194f707b25401.webp](https://eta.im/uploads/2026/06/18bce6194f707b25401.webp)
+![18bce624c55e939e703.webp](https://eta.im/uploads/2026/06/18bce624c55e939e703.webp)
+
 **默认账号密码**
 ``` 默认账号
 admin
