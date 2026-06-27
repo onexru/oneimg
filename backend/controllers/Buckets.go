@@ -10,8 +10,8 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/buckets"
-	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
 	"os"
 	"slices"
@@ -206,7 +206,12 @@ func AddBuckets(c *gin.Context) {
 		bucketConfig = buckets.R2BucketToMap(r2Bucket)
 	case "ftp":
 		var ftpBucket models.FTPBucket
-		if err := json.Unmarshal(bodyBytes, &ftpBucket); err != nil {
+		newBodyBytes, err := ftpBodyBytesPortToInt(bodyBytes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, result.Error(400, "FTP端口解析失败："+err.Error()))
+			return
+		}
+		if err := json.Unmarshal(newBodyBytes, &ftpBucket); err != nil {
 			c.JSON(http.StatusBadRequest, result.Error(400, "FTP参数解析失败："+err.Error()))
 			return
 		}
@@ -359,7 +364,12 @@ func UpdateBuckets(c *gin.Context) {
 		bucketConfig = buckets.R2BucketToMap(r2Bucket)
 	case "ftp":
 		var ftpBucket models.FTPBucket
-		if err := json.Unmarshal(bodyBytes, &ftpBucket); err != nil {
+		newBodyBytes, err := ftpBodyBytesPortToInt(bodyBytes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, result.Error(400, "FTP端口解析失败："+err.Error()))
+			return
+		}
+		if err := json.Unmarshal(newBodyBytes, &ftpBucket); err != nil {
 			c.JSON(http.StatusBadRequest, result.Error(400, "FTP参数解析失败："+err.Error()))
 			return
 		}
@@ -601,4 +611,27 @@ func mergeBucketConfig(existingConfig map[string]any, incomingConfig map[string]
 	}
 
 	return merged, nil
+}
+
+// 工具函数，将FTP端口为Int类型
+func ftpBodyBytesPortToInt(bodyBytes []byte) ([]byte, error) {
+	var tempMap map[string]any
+	if err := json.Unmarshal(bodyBytes, &tempMap); err != nil {
+		return nil, err
+	}
+
+	if portStr, ok := tempMap["ftp_port"].(string); ok {
+		portNum, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, errors.New("ftp_port必须为数字")
+		}
+		tempMap["ftp_port"] = portNum
+	}
+
+	newBody, err := json.Marshal(tempMap)
+	if err != nil {
+		return nil, err
+	}
+
+	return newBody, nil
 }

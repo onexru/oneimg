@@ -113,7 +113,7 @@ const typeSpecificFields = {
   ],
   ftp: [
     { name: 'ftp_host', label: 'Host', type: 'text', placeholder: '请输入 Host', required: true, tip: '无需填写 ftp:// 或者 sftp://'},
-    { name: 'ftp_port', label: 'Port', type: 'number', placeholder: 'FTP 默认端口号 21', required: true, defaultValue: 21 },
+    { name: 'ftp_port', label: 'Port', type: 'number', placeholder: 'FTP 默认端口号 21', required: false, defaultValue: 21 },
     { name: 'ftp_user', label: 'Username', type: 'password', placeholder: '请输入 Username', required: true},
     { name: 'ftp_pass', label: 'Password', type: 'password', placeholder: '请输入 Password', required: true},
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
