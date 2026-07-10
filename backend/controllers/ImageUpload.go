@@ -3,7 +3,6 @@ package controllers
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +11,7 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
 	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
@@ -28,10 +28,7 @@ import (
 
 // UploadImages 图片上传主入口
 func UploadImages(c *gin.Context) {
-	// 初始化上传上下文
 	uc := uploads.NewUploadContext(c)
-
-	// 获取数据库连接
 	db := database.GetDB()
 
 	var tags []string
@@ -57,37 +54,14 @@ func UploadImages(c *gin.Context) {
 		uc.Fail(500, "获取上传配置失败：%v", err)
 		return
 	}
-
-	// 获取存储ID
-	var bucketID int
-	bucketIDStr := c.PostForm("bucket_id")
-	if bucketIDStr != "" {
-		// 转换为int
-		bucketID, err = strconv.Atoi(bucketIDStr)
-		if err != nil {
-			uc.Fail(400, "存储ID无效")
-			return
-		}
-	} else {
-		bucketID = setting.DefaultStorage
+	if !setting.MultiStorageSync {
+		uploadImagesLegacy(c, setting, existingTags)
+		return
 	}
 
-	// 检查游客上传
-	if isTouristUsername(c.GetString("username")) {
-		if setting.DefaultStorage != bucketID {
-			uc.Fail(403, "游客不能上传到非默认存储")
-			return
-		}
-	}
-
-	// 查询存储配置
-	var buckets models.Buckets
-	if err := db.DB.Where("id = ?", bucketID).First(&buckets).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			uc.Fail(400, "存储配置不存在")
-			return
-		}
-		uc.Fail(500, "存储配置查询失败：%v", err)
+	localBucket, syncBuckets, err := resolveUploadBuckets(c, setting)
+	if err != nil {
+		uc.Fail(500, "获取用户同步存储源失败：%v", err)
 		return
 	}
 
@@ -98,22 +72,10 @@ func UploadImages(c *gin.Context) {
 		return
 	}
 
-	// 获取文件大小
-	var filesize uint64
-	if buckets.Id != 1 && buckets.Type != "telegram" {
-		for _, file := range files {
-			filesize += uint64(file.Size)
-		}
-		if (buckets.Usage + filesize) >= buckets.Capacity {
-			uc.Fail(400, "存储空间已满, 请切换存储")
-			return
-		}
-	}
-
-	// 获取存储上传器
-	uploader, err := uc.GetStorageUploader(&setting, &buckets)
+	// 请求内只处理一次并持久化到本机；远端副本由持久化后台任务上传。
+	uploader, err := uc.GetStorageUploader(&setting, &localBucket)
 	if err != nil {
-		uc.Fail(400, "%s", err.Error())
+		uc.Fail(500, "初始化本机存储失败：%s", err.Error())
 		return
 	}
 
@@ -122,10 +84,9 @@ func UploadImages(c *gin.Context) {
 	successCount := 0
 
 	for _, file := range files {
-		fileResult, err := uploader.Upload(c, &setting, &buckets, file)
+		fileResult, err := uploader.Upload(c, &setting, &localBucket, file)
 		if err != nil {
-			// 单个文件上传失败不影响其他文件
-			uc.Fail(500, "文件[%s]上传失败：%v", file.Filename, err)
+			uc.Fail(500, "文件[%s]保存到本机失败：%v", file.Filename, err)
 			return
 		}
 
@@ -139,51 +100,71 @@ func UploadImages(c *gin.Context) {
 			Width:     fileResult.Width,
 			Height:    fileResult.Height,
 			Storage:   fileResult.Storage,
-			BucketId:  bucketID,
+			BucketId:  localBucket.Id,
 			UserId:    c.GetInt("user_id"),
 			MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
 			UUID:      GetUUID(c),
 		}
 
-		if db != nil {
-			db.DB.Create(&imageModel)
-		}
-
-		// 保存文件大小至存储
-		if fileResult.Storage != "default" {
-			fileSizeUint := uint64(fileResult.FileSize)
-			thumbnailSizeUint := uint64(fileResult.ThumbnailSize)
-			totalSizeUint := fileSizeUint
-			if thumbnailSizeUint > 0 {
-				totalSizeUint += thumbnailSizeUint
-			}
-			result := db.DB.Model(&models.Buckets{}).
-				Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSizeUint).
-				UpdateColumn("usage", gorm.Expr("usage + ?", totalSizeUint))
-			if result.Error != nil {
-				log.Printf("更新Usage失败：%v", result.Error)
-			}
-			if result.RowsAffected == 0 {
-				log.Printf("更新Usage无生效，原因：1.桶ID不存在 2.usage+文件大小>容量 3.数据无变更")
-			}
-		}
-
-		// 上传时关联图片标签
-		if len(existingTags) > 0 {
-			var imageTagRelations []models.ImageToTags
-			for _, tag := range existingTags {
-				imageTagRelations = append(imageTagRelations, models.ImageToTags{
-					ImageId: imageModel.Id,
-					TagId:   tag.Id,
-				})
+		now := time.Now()
+		err = db.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&imageModel).Error; err != nil {
+				return err
 			}
 
-			db.DB.Create(&imageTagRelations)
+			localStatus := models.ImageStorage{
+				ImageID:       imageModel.Id,
+				BucketID:      localBucket.Id,
+				Storage:       localBucket.Type,
+				Status:        models.ImageStorageStatusSuccess,
+				URL:           fileResult.URL,
+				Thumbnail:     fileResult.ThumbnailURL,
+				FileSize:      fileResult.FileSize,
+				ThumbnailSize: fileResult.ThumbnailSize,
+				SyncedAt:      &now,
+			}
+			if err := tx.Create(&localStatus).Error; err != nil {
+				return err
+			}
+
+			for _, bucket := range syncBuckets {
+				storageStatus := models.ImageStorage{
+					ImageID:       imageModel.Id,
+					BucketID:      bucket.Id,
+					Storage:       bucket.Type,
+					Status:        models.ImageStorageStatusPending,
+					URL:           fileResult.URL,
+					Thumbnail:     fileResult.ThumbnailURL,
+					FileSize:      fileResult.FileSize,
+					ThumbnailSize: fileResult.ThumbnailSize,
+				}
+				if err := tx.Create(&storageStatus).Error; err != nil {
+					return err
+				}
+			}
+
+			if len(existingTags) > 0 {
+				imageTagRelations := make([]models.ImageToTags, 0, len(existingTags))
+				for _, tag := range existingTags {
+					imageTagRelations = append(imageTagRelations, models.ImageToTags{
+						ImageId: imageModel.Id,
+						TagId:   tag.Id,
+					})
+				}
+				if err := tx.Create(&imageTagRelations).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			cleanupLocalUpload(imageModel)
+			uc.Fail(500, "保存文件记录失败：%v", err)
+			return
 		}
 
 		responseResult := *fileResult
-		responseResult.URL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.URL)
-		responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.ThumbnailURL)
+		responseResult.ID = imageModel.Id
 		uploadResults = append(uploadResults, responseResult)
 
 		if setting.TGNotice {
@@ -191,8 +172,8 @@ func UploadImages(c *gin.Context) {
 				Username:    c.GetString("username"),
 				Date:        time.Now().Format("2006-01-02 15:04:05"),
 				Filename:    fileResult.FileName,
-				StorageType: buckets.Type,
-				URL:         buildImageResponseURL(c, setting, buckets.Type, bucketID, fileResult.URL),
+				StorageType: localBucket.Type,
+				URL:         buildImageResponseURL(c, setting, localBucket.Type, localBucket.Id, fileResult.URL),
 			}
 
 			err := telegram.SendSimpleMsg(
@@ -214,11 +195,13 @@ func UploadImages(c *gin.Context) {
 		uc.Fail(500, "所有文件上传失败")
 		return
 	}
+	services.WakeStorageSyncWorker()
 
 	// 返回上传结果
-	uc.Success("上传成功", map[string]any{
-		"files": uploadResults,
-		"count": successCount,
+	uc.Success("文件已保存到本机，正在后台同步", map[string]any{
+		"files":        uploadResults,
+		"count":        successCount,
+		"sync_targets": len(syncBuckets),
 	})
 }
 
@@ -478,60 +461,62 @@ func AddImageTags(c *gin.Context) {
 // 获取上传配置
 func GetUploadConfig(c *gin.Context) {
 	var tags []models.Tags
-	var buckets []models.Buckets
 
 	db := database.GetDB().DB
-	query := db.Model(&models.Tags{})
-	// 获取标签列表
-	if err := query.Find(&tags).Error; err != nil {
+	if err := db.Model(&models.Tags{}).Find(&tags).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "获取标签列表失败"))
 		return
 	}
 
-	if err := db.Model(&models.Buckets{}).Find(&buckets).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "获取存储桶列表失败"))
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取上传设置失败"))
 		return
 	}
 
-	// 获取当前用户角色
-	role := c.GetInt("user_role")
-	var user models.User
-	if err := db.Where("id = ?", c.GetInt("user_id")).First(&user).Error; err != nil {
-		user = models.User{}
-		user.Permission.Buckets = []int{}
-	}
-
-	setting, _ := settings.GetSettings()
-
-	var bucketRes []map[string]any
-	for _, bucket := range buckets {
-		if bucket.Id != setting.DefaultStorage {
-			// 过滤已满的存储桶
-			if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
-				continue
-			}
-			// 过滤用户没有权限的存储桶
-			if role != 1 && !models.IntSliceContains(user.Permission.Buckets, bucket.Id) {
-				continue
-			}
-		}
-		// 过滤游客不能上传的非默认存储桶
-		if role == 2 && bucket.Id != setting.DefaultStorage {
-			continue
-		}
-		res := map[string]any{
+	toResponse := func(bucket models.Buckets) map[string]any {
+		return map[string]any{
 			"id":   bucket.Id,
 			"name": bucket.Name,
 			"type": bucket.Type,
 		}
-		bucketRes = append(bucketRes, res)
 	}
 
-	// 构造返回参数
 	config := map[string]any{
-		"buckets":        bucketRes,
-		"tags":           tags,
-		"default_bucket": setting.DefaultStorage,
+		"tags":               tags,
+		"multi_storage_sync": setting.MultiStorageSync,
+	}
+	if !setting.MultiStorageSync {
+		buckets, err := resolveLegacyUploadBuckets(c, setting)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, result.Error(500, "获取存储桶列表失败："+err.Error()))
+			return
+		}
+		bucketRes := make([]map[string]any, 0, len(buckets))
+		for _, bucket := range buckets {
+			bucketRes = append(bucketRes, toResponse(bucket))
+		}
+		config["buckets"] = bucketRes
+		config["sync_buckets"] = []map[string]any{}
+		config["default_bucket"] = setting.DefaultStorage
+	} else {
+		localBucket, syncBuckets, err := resolveUploadBuckets(c, setting)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, result.Error(500, "获取同步存储源失败："+err.Error()))
+			return
+		}
+		bucketRes := make([]map[string]any, 0, len(syncBuckets)+1)
+		bucketRes = append(bucketRes, toResponse(localBucket))
+		syncBucketRes := make([]map[string]any, 0, len(syncBuckets))
+		for _, bucket := range syncBuckets {
+			item := toResponse(bucket)
+			bucketRes = append(bucketRes, item)
+			syncBucketRes = append(syncBucketRes, item)
+		}
+		config["buckets"] = bucketRes
+		config["local_bucket"] = toResponse(localBucket)
+		config["sync_buckets"] = syncBucketRes
+		config["default_bucket"] = localBucket.Id
 	}
 
 	c.JSON(http.StatusOK, result.Success("ok", config))
@@ -545,7 +530,7 @@ func UploadImagesByURL(c *gin.Context) {
 	type URLUploadRequest struct {
 		Urls     string `json:"url" binding:"required"`
 		Tag      string `json:"tag_id"`
-		BucketID string `json:"bucket_id"`
+		BucketID string `json:"bucket_id"` // 兼容旧客户端，目标存储源以用户配置为准。
 	}
 
 	var req URLUploadRequest
@@ -571,32 +556,14 @@ func UploadImagesByURL(c *gin.Context) {
 		uc.Fail(500, "获取上传配置失败：%v", err)
 		return
 	}
-
-	var bucketID int
-	if req.BucketID != "" {
-		bucketID, err = strconv.Atoi(req.BucketID)
-		if err != nil {
-			uc.Fail(400, "存储ID无效")
-			return
-		}
-	} else {
-		bucketID = setting.DefaultStorage
+	if !setting.MultiStorageSync {
+		uploadImageByURLLegacy(c, setting, req.Urls, req.Tag, req.BucketID)
+		return
 	}
 
-	if isTouristUsername(c.GetString("username")) {
-		if setting.DefaultStorage != bucketID {
-			uc.Fail(403, "游客不能上传到非默认存储")
-			return
-		}
-	}
-
-	var buckets models.Buckets
-	if err := db.DB.Where("id = ?", bucketID).First(&buckets).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			uc.Fail(400, "存储配置不存在")
-			return
-		}
-		uc.Fail(500, "存储配置查询失败：%v", err)
+	localBucket, syncBuckets, err := resolveUploadBuckets(c, setting)
+	if err != nil {
+		uc.Fail(500, "获取用户同步存储源失败：%v", err)
 		return
 	}
 
@@ -608,6 +575,10 @@ func UploadImagesByURL(c *gin.Context) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		uc.Fail(400, "图片下载失败，远端状态码：%d", resp.StatusCode)
+		return
+	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") {
@@ -620,9 +591,14 @@ func UploadImagesByURL(c *gin.Context) {
 		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
 	}
 
-	fileBytes, err := io.ReadAll(resp.Body)
+	maxRead := int64(setting.MaxFileSize) + 1
+	fileBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxRead))
 	if err != nil {
 		uc.Fail(500, "读取图片失败：%v", err)
+		return
+	}
+	if int64(len(fileBytes)) > int64(setting.MaxFileSize) {
+		uc.Fail(400, "URL 图片超过文件大小限制")
 		return
 	}
 	body := &bytes.Buffer{}
@@ -647,26 +623,18 @@ func UploadImagesByURL(c *gin.Context) {
 	}
 	defer file.Close()
 
-	if buckets.Id != 1 && buckets.Type != "telegram" {
-		if (buckets.Usage + uint64(header.Size)) > buckets.Capacity {
-			uc.Fail(400, "存储空间已满")
-			return
-		}
-	}
-
-	uploader, err := uc.GetStorageUploader(&setting, &buckets)
+	uploader, err := uc.GetStorageUploader(&setting, &localBucket)
 	if err != nil {
-		uc.Fail(400, "获取上传器失败：%s", err.Error())
+		uc.Fail(500, "初始化本机存储失败：%s", err.Error())
 		return
 	}
 
-	fileResult, err := uploader.Upload(c, &setting, &buckets, header)
+	fileResult, err := uploader.Upload(c, &setting, &localBucket, header)
 	if err != nil {
-		uc.Fail(500, "上传失败[%s]：%v", fileName, err)
+		uc.Fail(500, "保存到本机失败[%s]：%v", fileName, err)
 		return
 	}
 
-	// 数据库保存
 	imageModel := models.Image{
 		Url:       fileResult.URL,
 		Thumbnail: fileResult.ThumbnailURL,
@@ -676,31 +644,61 @@ func UploadImagesByURL(c *gin.Context) {
 		Width:     fileResult.Width,
 		Height:    fileResult.Height,
 		Storage:   fileResult.Storage,
-		BucketId:  bucketID,
+		BucketId:  localBucket.Id,
 		UserId:    c.GetInt("user_id"),
 		MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
 		UUID:      GetUUID(c),
 	}
-	db.DB.Create(&imageModel)
 
-	// 更新容量
-	if fileResult.Storage != "default" {
-		fileSizeUint := uint64(fileResult.FileSize)
-		thumbnailSizeUint := uint64(fileResult.ThumbnailSize)
-		totalSizeUint := fileSizeUint
-		if thumbnailSizeUint > 0 {
-			totalSizeUint += thumbnailSizeUint
+	now := time.Now()
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&imageModel).Error; err != nil {
+			return err
 		}
-		db.DB.Model(&models.Buckets{}).
-			Where("id = ? AND (usage + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSizeUint).
-			UpdateColumn("usage", gorm.Expr("usage + ?", totalSizeUint))
-	}
-
-	// 标签
-	if req.Tag != "" && req.Tag != "0" {
-		if tagID, err := strconv.Atoi(req.Tag); err == nil {
-			db.DB.Create(&models.ImageToTags{ImageId: imageModel.Id, TagId: tagID})
+		localStatus := models.ImageStorage{
+			ImageID:       imageModel.Id,
+			BucketID:      localBucket.Id,
+			Storage:       localBucket.Type,
+			Status:        models.ImageStorageStatusSuccess,
+			URL:           fileResult.URL,
+			Thumbnail:     fileResult.ThumbnailURL,
+			FileSize:      fileResult.FileSize,
+			ThumbnailSize: fileResult.ThumbnailSize,
+			SyncedAt:      &now,
 		}
+		if err := tx.Create(&localStatus).Error; err != nil {
+			return err
+		}
+		for _, bucket := range syncBuckets {
+			storageStatus := models.ImageStorage{
+				ImageID:       imageModel.Id,
+				BucketID:      bucket.Id,
+				Storage:       bucket.Type,
+				Status:        models.ImageStorageStatusPending,
+				URL:           fileResult.URL,
+				Thumbnail:     fileResult.ThumbnailURL,
+				FileSize:      fileResult.FileSize,
+				ThumbnailSize: fileResult.ThumbnailSize,
+			}
+			if err := tx.Create(&storageStatus).Error; err != nil {
+				return err
+			}
+		}
+		if req.Tag != "" && req.Tag != "0" {
+			tagID, conversionErr := strconv.Atoi(req.Tag)
+			if conversionErr != nil {
+				return conversionErr
+			}
+			if err := tx.Create(&models.ImageToTags{ImageId: imageModel.Id, TagId: tagID}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		cleanupLocalUpload(imageModel)
+		uc.Fail(500, "保存文件记录失败：%v", err)
+		return
 	}
 
 	// TG通知
@@ -709,8 +707,8 @@ func UploadImagesByURL(c *gin.Context) {
 			Username:    c.GetString("username"),
 			Date:        time.Now().Format("2006-01-02 15:04:05"),
 			Filename:    fileResult.FileName,
-			StorageType: buckets.Type,
-			URL:         buildImageResponseURL(c, setting, buckets.Type, bucketID, fileResult.URL),
+			StorageType: localBucket.Type,
+			URL:         buildImageResponseURL(c, setting, localBucket.Type, localBucket.Id, fileResult.URL),
 		}
 		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData); err != nil {
 			log.Println(err)
@@ -718,10 +716,11 @@ func UploadImagesByURL(c *gin.Context) {
 	}
 
 	responseResult := *fileResult
-	responseResult.URL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.URL)
-	responseResult.ThumbnailURL = applyPublicImageURL(setting, buckets.Type, bucketID, fileResult.ThumbnailURL)
+	responseResult.ID = imageModel.Id
+	services.WakeStorageSyncWorker()
 
-	uc.Success("URL 图片上传成功", map[string]any{
-		"file": responseResult,
+	uc.Success("URL 图片已保存到本机，正在后台同步", map[string]any{
+		"file":         responseResult,
+		"sync_targets": len(syncBuckets),
 	})
 }

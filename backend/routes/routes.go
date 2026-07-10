@@ -23,7 +23,11 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	r := gin.New()
 
 	// 基础中间件
-	r.Use(gin.Logger())
+	// OIDC code 和 CAS ticket 位于回调查询串中，不将这两个路由写入访问日志。
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{
+		"/api/auth/oidc/callback",
+		"/api/auth/cas/callback",
+	}}))
 	r.Use(gin.Recovery())
 	r.Use(middlewares.ConfigMiddleware(cfg))
 	r.Use(middlewares.SessionMiddleware(cfg))
@@ -70,6 +74,10 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 		api.GET("/settings/seo", controllers.GetSEOSettings)
 		// 随机图片
 		api.GET("/images/random", controllers.GetRandomImages)
+		api.GET("/auth/oidc/login", controllers.StartOIDCLogin)
+		api.GET("/auth/oidc/callback", controllers.OIDCCallback)
+		api.GET("/auth/cas/login", controllers.StartCASLogin)
+		api.GET("/auth/cas/callback", controllers.CASCallback)
 
 		// 需要认证的接口分组（应用AuthMiddleware）
 		auth := api.Group("")
@@ -115,6 +123,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 				// 存储管理接口
 				auth.GET("/buckets", controllers.GetBuckets)
 				auth.POST("/buckets", controllers.AddBuckets)
+				auth.POST("/buckets/test", controllers.TestBucketConnection)
 				auth.POST("/buckets/update/:id", controllers.UpdateBuckets)
 				auth.DELETE("/buckets/:id", controllers.DeleteBuckets)
 

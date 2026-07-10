@@ -144,7 +144,15 @@
                 >
                   {{ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }}
                 </span>
-                <span class="gallery-card-badge gallery-card-badge-dark">
+                <span
+                  v-if="multiStorageSync"
+                  class="gallery-card-badge inline-flex items-center gap-1 border"
+                  :class="getStorageSyncSummary(image).badgeClass"
+                >
+                  <i :class="getStorageSyncSummary(image).icon"></i>
+                  {{ getStorageSyncSummary(image).label }}
+                </span>
+                <span v-else class="gallery-card-badge gallery-card-badge-dark">
                   {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
                 </span>
               </div>
@@ -182,6 +190,25 @@
                 {{ image.width }}×{{ image.height }}
               </p>
               <p class="gallery-image-card-meta">{{ formatDate(image.created_at) }}</p>
+              <div v-if="multiStorageSync" class="mt-2 space-y-1.5">
+                <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 dark:border-white/10 dark:bg-slate-950">
+                  <span class="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200">本机</span>
+                  <span class="inline-flex shrink-0 items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
+                </div>
+                <div
+                  v-for="storage in getStorageStatuses(image)"
+                  :key="`${image.id}-${storage.bucket_id}`"
+                  class="min-w-0 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 dark:border-white/10 dark:bg-slate-950"
+                >
+                  <div class="flex min-w-0 items-center justify-between gap-2">
+                    <span class="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200" :title="getStorageDisplayName(storage)">{{ getStorageDisplayName(storage) }}</span>
+                    <span class="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]" :class="getStorageStatusMeta(storage.status).badgeClass">
+                      <i :class="getStorageStatusMeta(storage.status).icon"></i>{{ getStorageStatusMeta(storage.status).label }}
+                    </span>
+                  </div>
+                  <p v-if="storage.status === 'failed' && storage.error" class="mt-1 truncate text-[10px] text-red-600 dark:text-red-300" :title="storage.error">{{ storage.error }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -242,6 +269,14 @@
 import { ref, onMounted, computed, onUnmounted, unref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import errorImg from '@/assets/images/error.webp';
+import {
+  getStorageDisplayName,
+  getStorageStatuses,
+  getStorageStatusMeta,
+  getStorageSyncSummary,
+  hasActiveStorageSync,
+  renderStorageStatusesHtml,
+} from '@/utils/storageStatus.js'
 
 // ====================== 常量定义 ======================
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -254,7 +289,6 @@ const ROLE_MAP = {
 const STORAGE_MAP = {
   default: '本地'
 };
-
 // ====================== 工具函数（抽离复用） ======================
 /**
  * 获取完整的图片URL
@@ -363,6 +397,8 @@ const selectedImages = ref([]); // 选中的图片ID数组
 const selectedTags = ref([]); // 选中的标签ID数组
 const selectAll = ref(false); // 全选状态
 const currentPreviewImage = ref(null);
+const multiStorageSync = ref(false);
+let syncPollTimer = null;
 
 // 路由实例
 const router = useRouter();
@@ -475,6 +511,7 @@ const loadImages = async () => {
       images.value = result.data.images || [];
       totalPages.value = result.data.total_pages || 1;
       selectedImages.value = []; // 重置选择状态
+      scheduleSyncRefresh();
     } else {
       if (response.status === 401) {
         localStorage.removeItem('authToken');
@@ -490,6 +527,41 @@ const loadImages = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const getStorageMode = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/uploadConfig`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      }
+    });
+    const result = await response.json();
+    multiStorageSync.value = response.ok && result.code === 200 && result.data?.multi_storage_sync === true;
+  } catch (error) {
+    console.error('获取多存储模式失败:', error);
+    multiStorageSync.value = false;
+  }
+};
+
+const scheduleSyncRefresh = () => {
+  if (!multiStorageSync.value) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    syncPollTimer = null;
+    return;
+  }
+  const hasActiveSync = images.value.some(hasActiveStorageSync);
+  if (!hasActiveSync) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    syncPollTimer = null;
+    return;
+  }
+  if (syncPollTimer) return;
+
+  syncPollTimer = setTimeout(async () => {
+    syncPollTimer = null;
+    await loadImages();
+  }, 2500);
 };
 
 /**
@@ -965,6 +1037,7 @@ const generatePreviewContent = (image) => {
   const roleClass = image.user_id == '1' 
     ? 'background-color: #e0f2fe; color: #0369a1; dark:background-color: #075985; dark:color: #bae6fd;' 
     : 'background-color: #dcfce7; color: #166534; dark:background-color: #14532d; dark:color: #bbf7d0;';
+  const syncSummary = getStorageSyncSummary(image);
   
   // 生成标签HTML
   const tagsHtml = image.tags?.map(tag => `
@@ -977,6 +1050,37 @@ const generatePreviewContent = (image) => {
       </button>
     </div>
   `).join('') || '';
+  const headerStorageHtml = multiStorageSync.value ? `
+    <span class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${syncSummary.badgeClass}">
+      <i class="${syncSummary.icon}"></i>${syncSummary.label}
+    </span>
+  ` : `
+    <span class="rounded bg-success px-2 py-0.5 text-xs text-white">
+      ${presetBuckets.value.find(bucket => bucket.id == image.bucket_id)?.name || '未知存储'}
+    </span>
+  `;
+  const syncStatusHtml = multiStorageSync.value ? `
+    <div class="mt-3 border-t border-slate-200/70 pt-3 dark:border-white/10">
+      <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+        <i class="ri-cloud-line"></i>存储同步状态
+      </div>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="font-medium text-emerald-800 dark:text-emerald-200">本机</span>
+            <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
+          </div>
+        </div>
+        ${renderStorageStatusesHtml(image)}
+      </div>
+    </div>
+  ` : '';
+  const legacyStorageHtml = !multiStorageSync.value ? `
+    <div class="flex items-center gap-1.5">
+      <i class="ri-hard-drive-3-line"></i>
+      存储: ${STORAGE_MAP[image.storage] || image.storage || '未知'}
+    </div>
+  ` : '';
 
   return `
     <div class="image-preview-popup w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden bg-white dark:bg-dark-200">
@@ -986,9 +1090,7 @@ const generatePreviewContent = (image) => {
           <span class="text-xs px-2 py-0.5 rounded" style="${roleClass}">
             ${image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }
           </span>
-          <span class="text-xs text-white px-2 py-0.5 rounded bg-success">
-            ${presetBuckets.value.find(bucket => bucket.id == image.bucket_id)?.name}
-          </span>
+          ${headerStorageHtml}
         </div>
         <div class="flex gap-1">
           <!-- 下载按钮 -->
@@ -1064,6 +1166,8 @@ const generatePreviewContent = (image) => {
           <i class="ri-add-line"></i>
         </button>
       </div>
+
+      ${syncStatusHtml}
       
       <!-- 底部信息栏 -->
       <div class="pt-2 flex flex-wrap gap-2 text-xs text-secondary">
@@ -1075,10 +1179,7 @@ const generatePreviewContent = (image) => {
           <i class="ri-image-line w-3.5 text-center"></i>
           大小: ${formatFileSize(image.file_size || 0)}
         </div>
-        <div class="flex items-center gap-1.5">
-          <i class="ri-hard-drive-3-line"></i>
-          存储: ${STORAGE_MAP[image.storage] || image.storage || '未知'}
-        </div>
+        ${legacyStorageHtml}
         <div class="flex items-center gap-1.5">
           <i class="ri-user-line"></i>
           角色: ${ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }
@@ -1289,7 +1390,7 @@ const addImageTagModal = async (imageId) => {
 };
 
 // ====================== 生命周期 ======================
-onMounted(() => {
+onMounted(async () => {
   // 初始化用户角色
   const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
   if (userInfo?.role === 1) {
@@ -1301,11 +1402,13 @@ onMounted(() => {
   // 加载数据
   getTagsList();
   getBucketsList();
+  await getStorageMode();
   loadImages();
 });
 
 onUnmounted(() => {
   // 清理全局函数和资源
   cleanPreviewGlobalFunctions();
+  if (syncPollTimer) clearTimeout(syncPollTimer);
 });
 </script>

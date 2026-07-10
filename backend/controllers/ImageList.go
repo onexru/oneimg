@@ -16,22 +16,23 @@ import (
 )
 
 type ImageWithTags struct {
-	Id           int           `json:"id" gorm:"primaryKey;autoIncrement;column:id"`
-	Url          string        `json:"url" gorm:"column:url"`
-	Thumbnail    string        `json:"thumbnail" gorm:"column:thumbnail"`
-	Filename     string        `json:"filename" gorm:"column:file_name"`
-	FileSize     int64         `json:"file_size" gorm:"column:file_size"`
-	MimeType     string        `json:"mimeType" gorm:"column:mime_type"`
-	Width        int           `json:"width" gorm:"column:width"`
-	Height       int           `json:"height" gorm:"column:height"`
-	Storage      string        `json:"storage" gorm:"column:storage"`
-	BucketId     int           `json:"bucket_id" gorm:"column:bucket_id"`
-	UserId       int           `json:"user_id" gorm:"column:user_id"`
-	UploaderRole int           `json:"uploader_role" gorm:"-"`
-	Md5          string        `json:"md5" gorm:"column:md5"`
-	Uuid         string        `json:"uuid" gorm:"column:uuid"`
-	CreatedAt    time.Time     `json:"created_at" gorm:"column:created_at"`
-	Tags         []models.Tags `json:"tags" gorm:"-"`
+	Id              int                          `json:"id" gorm:"primaryKey;autoIncrement;column:id"`
+	Url             string                       `json:"url" gorm:"column:url"`
+	Thumbnail       string                       `json:"thumbnail" gorm:"column:thumbnail"`
+	Filename        string                       `json:"filename" gorm:"column:file_name"`
+	FileSize        int64                        `json:"file_size" gorm:"column:file_size"`
+	MimeType        string                       `json:"mimeType" gorm:"column:mime_type"`
+	Width           int                          `json:"width" gorm:"column:width"`
+	Height          int                          `json:"height" gorm:"column:height"`
+	Storage         string                       `json:"storage" gorm:"column:storage"`
+	BucketId        int                          `json:"bucket_id" gorm:"column:bucket_id"`
+	UserId          int                          `json:"user_id" gorm:"column:user_id"`
+	UploaderRole    int                          `json:"uploader_role" gorm:"-"`
+	Md5             string                       `json:"md5" gorm:"column:md5"`
+	Uuid            string                       `json:"uuid" gorm:"column:uuid"`
+	CreatedAt       time.Time                    `json:"created_at" gorm:"column:created_at"`
+	Tags            []models.Tags                `json:"tags" gorm:"-"`
+	StorageStatuses []ImageStorageStatusResponse `json:"storage_statuses" gorm:"-"`
 }
 
 // 映射到数据库表
@@ -99,7 +100,10 @@ func GetImageList(c *gin.Context) {
 	// 存储桶筛选
 	bucket := c.Query("bucket")
 	if bucket != "" && bucket != "all" && bucket != "null" {
-		idQuery = idQuery.Where("images.bucket_id = ?", bucket)
+		idQuery = idQuery.Where(
+			"EXISTS (SELECT 1 FROM image_storages WHERE image_storages.image_id = images.id AND image_storages.bucket_id = ?)",
+			bucket,
+		)
 	}
 
 	// 仅超级管理员可使用 role=admin / role=guest 全局筛选
@@ -273,9 +277,15 @@ func GetImageList(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "获取系统配置失败："+err.Error()))
 		return
 	}
+	storageStatuses, err := loadImageStorageStatuses(imgIds, setting)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "获取存储同步状态失败："+err.Error()))
+		return
+	}
 	for i := range images {
 		images[i].Url = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Url)
 		images[i].Thumbnail = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Thumbnail)
+		images[i].StorageStatuses = storageStatuses[images[i].Id]
 	}
 
 	c.JSON(http.StatusOK, result.Success("ok", gin.H{

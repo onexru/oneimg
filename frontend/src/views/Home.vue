@@ -12,7 +12,9 @@
               </h2>
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">{{ presetBuckets.find(bucket => bucket.id == selectedBucket)?.name || '未选择存储' }}</span>
+              <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">
+                {{ multiStorageSync ? `本机 + ${syncBuckets.length} 个同步目标` : (presetBuckets.find(bucket => bucket.id == selectedBucket)?.name || '未选择存储') }}
+              </span>
               <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">{{ selectedTags.length }} 个标签</span>
             </div>
           </div>
@@ -85,21 +87,41 @@
 
           <div class="grid gap-2.5 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
             <div class="control-group control-group-compact">
-            <p class="panel-label">上传目标</p>
-            <p class="control-group-title">选择存储桶</p>
-            <p class="control-group-hint">上传前先确定目标存储。</p>
-            <select 
-              class="input-modern mt-3"
-              v-model="selectedBucket"
-              :disabled="isGuest()"
-              @change="handleBucketChange"
-            >
-              <option 
-                v-for="bucket in presetBuckets" 
-                :key="bucket.id"
-                :value="bucket.id"
-              >{{ bucket.name }}  ({{ bucket.type }})</option>
-            </select>
+            <template v-if="multiStorageSync">
+              <p class="panel-label">存储流程</p>
+              <p class="control-group-title">先保存到本机，再后台同步</p>
+              <p class="control-group-hint">文件上传成功后可立即使用，远程存储由后台异步处理。</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <i class="ri-computer-line"></i>本机
+                </span>
+                <span
+                  v-for="bucket in syncBuckets"
+                  :key="bucket.id"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300"
+                >
+                  <i class="ri-cloud-line"></i>{{ bucket.name }}
+                </span>
+                <span v-if="syncBuckets.length === 0" class="text-xs text-slate-400 dark:text-slate-500">未配置远程同步源</span>
+              </div>
+            </template>
+            <template v-else>
+              <p class="panel-label">上传目标</p>
+              <p class="control-group-title">选择存储桶</p>
+              <p class="control-group-hint">上传前先确定目标存储。</p>
+              <select
+                class="input-modern mt-3"
+                v-model="selectedBucket"
+                :disabled="isGuest()"
+                @change="handleBucketChange"
+              >
+                <option
+                  v-for="bucket in presetBuckets"
+                  :key="bucket.id"
+                  :value="bucket.id"
+                >{{ bucket.name }}  ({{ bucket.type }})</option>
+              </select>
+            </template>
           </div>
 
             <div class="control-group control-group-compact">
@@ -232,6 +254,28 @@
                 </div>
               </div>
 
+              <div v-if="multiStorageSync" class="grid gap-1.5 sm:grid-cols-2">
+                <div class="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 dark:border-white/10 dark:bg-slate-900">
+                  <span class="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-200">本机</span>
+                  <span class="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-300">
+                    <i class="ri-checkbox-circle-line"></i>已保存
+                  </span>
+                </div>
+                <div
+                  v-for="storage in getStorageStatuses(image)"
+                  :key="`${image.id}-${storage.bucket_id}`"
+                  class="min-w-0 rounded-xl border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 dark:border-white/10 dark:bg-slate-900"
+                >
+                  <div class="flex min-w-0 items-center justify-between gap-2">
+                    <span class="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-200" :title="getStorageDisplayName(storage)">{{ getStorageDisplayName(storage) }}</span>
+                    <span class="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]" :class="getStorageStatusMeta(storage.status).badgeClass">
+                      <i :class="getStorageStatusMeta(storage.status).icon"></i>{{ getStorageStatusMeta(storage.status).label }}
+                    </span>
+                  </div>
+                  <p v-if="storage.status === 'failed' && storage.error" class="mt-1 truncate text-[10px] text-red-600 dark:text-red-300" :title="storage.error">{{ storage.error }}</p>
+                </div>
+              </div>
+
               <div class="result-links-grid result-links-grid-mobile">
             <div class="link-field cursor-pointer"
               @click.stop="copyImageLink(image, 'url')"
@@ -281,6 +325,13 @@
 <script setup>
 import errorImg from '@/assets/images/error.webp';
 import { ref, onMounted, nextTick, onBeforeUnmount } from 'vue'
+import {
+  getStorageDisplayName,
+  getStorageStatuses,
+  getStorageStatusMeta,
+  hasActiveStorageSync,
+  renderStorageStatusesHtml,
+} from '@/utils/storageStatus.js'
 
 // ====================== 常量定义 ======================
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -303,10 +354,13 @@ const selectedTags = ref([]);
 const tagError = ref('');
 
 // 存储相关
+const multiStorageSync = ref(false);
+const storageConfigLoaded = ref(false);
 const presetBuckets = ref([
   { id: "1", name: '默认存储', type: "default" },
 ]);
 const selectedBucket = ref("1");
+const syncBuckets = ref([]);
 
 // 预览相关
 const activeCopyMenu = ref(null);
@@ -314,6 +368,7 @@ let previewCopyMenu = false;
 let currentPreviewImage = null;
 let previewModalInstance = null;
 let progressInterval = null; // 上传进度定时器
+let syncPollTimer = null;
 
 // ====================== 工具函数 ======================
 /**
@@ -321,8 +376,7 @@ let progressInterval = null; // 上传进度定时器
  */
 function isGuest() {
   const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-  if(userInfo?.isTourist == true) return true;
-  else return false;
+  return userInfo?.isTourist === true;
 }
 
 /**
@@ -409,20 +463,24 @@ const getUploadConfig = async () => {
     const result = await response.json();
     if (response.ok && result.code === 200) {
       presetTags.value = result.data?.tags || [];
-      presetBuckets.value = result.data?.buckets || [];
-      const resultDefBucket = result.data?.default_bucket || '1';
-      const bucketId = localStorage.getItem('currentBucket');
-      if (bucketId != null){
-        const num = parseInt(bucketId);
-        // 检查本地存储是否在存储列表中
-        const bucketBucket = presetBuckets.value.find((bucket) => {
-          return bucket.id === num
-        })
-        // 如果本地存储不在存储列表中，则使用默认存储
-        selectedBucket.value = bucketBucket?.id || resultDefBucket;
-      } else {
-        selectedBucket.value = resultDefBucket;
+      presetBuckets.value = Array.isArray(result.data?.buckets) ? result.data.buckets : [];
+      multiStorageSync.value = result.data?.multi_storage_sync === true;
+      const configuredSyncBuckets = result.data?.sync_buckets ?? result.data?.buckets ?? [];
+      // 本机作为固定的第一落点，不重复列入远程同步目标。
+      syncBuckets.value = Array.isArray(configuredSyncBuckets)
+        ? configuredSyncBuckets.filter(bucket => bucket?.type !== 'default')
+        : [];
+
+      if (!multiStorageSync.value) {
+        const defaultBucket = result.data?.default_bucket || '1';
+        const storedBucketId = localStorage.getItem('currentBucket');
+        const storedBucket = storedBucketId == null
+          ? null
+          : presetBuckets.value.find(bucket => bucket.id === Number(storedBucketId));
+        selectedBucket.value = storedBucket?.id || defaultBucket;
       }
+      storageConfigLoaded.value = true;
+      scheduleSyncRefresh();
     } else {
       throw new Error(result.message || '获取上传配置失败');
     }
@@ -446,6 +504,7 @@ const loadRecentImages = async () => {
     if (response.ok) {
       const result = await response.json();
       recentImages.value = Array.isArray(result.data?.images) ? result.data.images : [];
+      scheduleSyncRefresh();
     }
   } catch (error) {
     console.error('加载图片失败:', error);
@@ -456,6 +515,26 @@ const loadRecentImages = async () => {
       showClose: true
     });
   }
+};
+
+const scheduleSyncRefresh = () => {
+  if (!multiStorageSync.value) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    syncPollTimer = null;
+    return;
+  }
+  const hasActiveSync = recentImages.value.some(hasActiveStorageSync);
+  if (!hasActiveSync) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    syncPollTimer = null;
+    return;
+  }
+  if (syncPollTimer) return;
+
+  syncPollTimer = setTimeout(async () => {
+    syncPollTimer = null;
+    await loadRecentImages();
+  }, 2500);
 };
 
 /**
@@ -651,6 +730,10 @@ const validateFiles = (files) => {
  */
 const uploadFiles = async (files) => {
   if (isUploading.value) return;
+  if (!storageConfigLoaded.value) {
+    Message.warning('存储配置正在加载，请稍后重试');
+    return;
+  }
   
   isUploading.value = true;
   uploadingCount.value = files.length;
@@ -674,9 +757,9 @@ const uploadFiles = async (files) => {
     if (selectedTags.value.length > 0) {
       formData.append('tags', JSON.stringify(selectedTags.value));
     }
-    // 携带存储桶信息
-    formData.append('bucket_id', selectedBucket.value || '1')
-    
+    if (!multiStorageSync.value) {
+      formData.append('bucket_id', selectedBucket.value || '1');
+    }
     const response = await fetch(`${API_BASE_URL}/api/upload/images`, {
       method: 'POST',
       headers: {
@@ -692,7 +775,7 @@ const uploadFiles = async (files) => {
     
     if (response.ok && result.code === 200) {
       await loadRecentImages();
-      Message.success(`上传成功`, {
+      Message.success(multiStorageSync.value ? '已保存到本机，正在后台同步' : '上传成功', {
         duration: 2000,
         position: 'top-right'
       });
@@ -847,7 +930,7 @@ const copyImageLink = async (image, type) => {
 };
 
 /**
- * 存储选择处理事件，设置后优先使用选择的存储
+ * 单存储模式下记住用户选择的存储桶。
  */
 const handleBucketChange = () => {
   const bucketId = selectedBucket.value;
@@ -932,6 +1015,29 @@ const previewImage = (image) => {
       <span>${tag.name}</span>
     </div>
   `).join('') || '';
+
+  const syncStatusHtml = multiStorageSync.value ? `
+    <div class="mt-3 border-t border-slate-200/70 pt-3 dark:border-white/10">
+      <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+        <i class="ri-cloud-line"></i>存储同步状态
+      </div>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="font-medium text-emerald-800 dark:text-emerald-200">本机</span>
+            <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
+          </div>
+        </div>
+        ${renderStorageStatusesHtml(image)}
+      </div>
+    </div>
+  ` : '';
+  const legacyStorageHtml = !multiStorageSync.value ? `
+    <div class="flex items-center gap-1.5">
+      <i class="ri-hard-drive-3-line"></i>
+      存储: ${(image.storage === 'default' ? '本地' : image.storage) || '未知'}
+    </div>
+  ` : '';
   
   // 构建预览弹窗内容
   const previewContent = `
@@ -1010,6 +1116,8 @@ const previewImage = (image) => {
         <p class="mr-1 text-xs text-secondary font-semibold">Tags：</p>
         ${tagsHtml}
       </div>
+
+      ${syncStatusHtml}
       
       <!-- 底部信息栏 -->
       <div class="pt-2 flex flex-wrap gap-2 text-xs text-secondary">
@@ -1021,10 +1129,7 @@ const previewImage = (image) => {
               <i class="ri-image-line w-3.5 text-center"></i>
               大小: ${formatFileSize(image.file_size || 0)}
           </div>
-          <div class="flex items-center gap-1.5">
-              <i class="ri-hard-drive-3-line"></i>
-              存储: ${(image.storage === 'default' ? '本地' : image.storage) || '未知'}
-          </div>
+          ${legacyStorageHtml}
       </div>
   </div>
   `;
@@ -1074,6 +1179,10 @@ const previewImage = (image) => {
  * 从URL上传图片
  */
 const uploadbyurlmodal = () => {
+  if (!storageConfigLoaded.value) {
+    Message.warning('存储配置正在加载，请稍后重试');
+    return;
+  }
   // 构建标签选项
   const tagList = [
     { value: "0", label: "不添加"}
@@ -1081,10 +1190,10 @@ const uploadbyurlmodal = () => {
   presetTags.value.forEach(tag => {
     tagList.push({ value: tag.id, label: tag.name });
   });
-  const storageList = [];
-  presetBuckets.value.forEach(storage => {
-    storageList.push({ value: storage.id, label: storage.name });
-  })
+  const storageList = presetBuckets.value.map(storage => ({
+    value: storage.id,
+    label: storage.name,
+  }));
   const modal = new PopupModal({
     title: '从URL上传图片',
     type: 'form',
@@ -1104,14 +1213,14 @@ const uploadbyurlmodal = () => {
         defaultValue: "0",
         options: tagList
       },
-      {
+      ...(!multiStorageSync.value ? [{
         name: 'bucket_id',
         label: '存储',
         type: 'select',
         required: true,
-        defaultValue: "1",
-        options: storageList
-      }
+        defaultValue: selectedBucket.value || "1",
+        options: storageList,
+      }] : [])
     ],
     buttons: [
       {
@@ -1152,7 +1261,7 @@ const postuploadbyurl = async (formData) => {
     const result = await res.json();
     if (res.ok && result.code === 200) {
       await loadRecentImages();
-      Message.success('上传成功');
+      Message.success(multiStorageSync.value ? '已保存到本机，正在后台同步' : '上传成功');
     } else {
       throw new Error(result.message || '上传失败');
     }
@@ -1250,6 +1359,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   // 清理定时器
   if (progressInterval) clearInterval(progressInterval);
+  if (syncPollTimer) clearTimeout(syncPollTimer);
   
   // 移除事件监听
   document.removeEventListener('paste', handlePaste);

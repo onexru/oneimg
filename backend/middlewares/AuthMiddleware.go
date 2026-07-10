@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"net/http"
+	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
@@ -68,12 +69,38 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		userIDValue, userIDOK := userID.(int)
+		userRoleValue, userRoleOK := userRole.(int)
+		usernameValue, usernameOK := username.(string)
+		if !userIDOK || !userRoleOK || !usernameOK {
+			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
+			c.Abort()
+			return
+		}
+
+		// 游客是虚拟账号；其他会话每次核对用户，使删除/角色变更立即生效。
+		if userRoleValue != models.RoleGuest {
+			db := database.GetDB()
+			var currentUser models.User
+			if db == nil || db.DB.Select("id", "role", "username").First(&currentUser, userIDValue).Error != nil {
+				session.Clear()
+				_ = session.Save()
+				c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户不存在或已被禁用"})
+				c.Abort()
+				return
+			}
+			userRoleValue = currentUser.Role
+			usernameValue = currentUser.Username
+			session.Set("user_role", userRoleValue)
+			session.Set("username", usernameValue)
+		}
+
 		// 将用户信息存储到上下文中，供后续处理使用
 		session.Set("logged_in", true)
 
-		c.Set("user_id", userID)
-		c.Set("user_role", userRole)
-		c.Set("username", username)
+		c.Set("user_id", userIDValue)
+		c.Set("user_role", userRoleValue)
+		c.Set("username", usernameValue)
 
 		// 继续处理请求
 		c.Next()

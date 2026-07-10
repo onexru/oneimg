@@ -6,12 +6,14 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/settings"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // 包初始化：初始化随机种子
@@ -169,8 +171,16 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// 执行删除
-	if err := db.Delete(&user).Error; err != nil {
+	// 保留已删除用户的外部身份作为禁用墓碑，防止下次 SSO 又自动建号。
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ExternalIdentity{}).Where("user_id = ?", id).Updates(map[string]any{
+			"user_id":  0,
+			"disabled": true,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&user).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "删除用户失败："+err.Error()))
 		return
 	}
@@ -277,7 +287,7 @@ func UpdateUserPermission(c *gin.Context) {
 	}
 
 	type UpdatePermissionReq struct {
-		Permission []int `json:"permission" binding:"required"`
+		Permission []int `json:"permission"`
 	}
 	var req UpdatePermissionReq
 
@@ -285,17 +295,27 @@ func UpdateUserPermission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "参数校验失败："+err.Error()))
 		return
 	}
-
-	if id == models.SuperAdminID {
-		c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改超级管理员权限"))
+	if req.Permission == nil {
+		c.JSON(http.StatusBadRequest, result.Fail(400, "permission 为必填项"))
 		return
 	}
 
-	// 禁止修改自身权限
-	loginUID, _ := c.Get("user_id")
-	if loginUID == id {
-		c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改当前登录用户权限"))
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Fail(500, "读取多存储设置失败"))
 		return
+	}
+	if !setting.MultiStorageSync {
+		if id == models.SuperAdminID {
+			c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改超级管理员权限"))
+			return
+		}
+
+		// 单存储模式下这些 ID 仍是访问权限，不允许修改自身。
+		if c.GetInt("user_id") == id {
+			c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改当前登录用户权限"))
+			return
+		}
 	}
 
 	db := database.GetDB().DB
@@ -305,15 +325,50 @@ func UpdateUserPermission(c *gin.Context) {
 		return
 	}
 
+	uniquePermissions := make([]int, 0, len(req.Permission))
+	seenBuckets := make(map[int]struct{}, len(req.Permission))
+	for _, bucketID := range req.Permission {
+		if bucketID <= 0 {
+			c.JSON(http.StatusBadRequest, result.Fail(400, "存储源ID无效"))
+			return
+		}
+		if _, exists := seenBuckets[bucketID]; exists {
+			continue
+		}
+		seenBuckets[bucketID] = struct{}{}
+		uniquePermissions = append(uniquePermissions, bucketID)
+	}
+	if len(uniquePermissions) > 0 {
+		var bucketCount int64
+		bucketQuery := db.Model(&models.Buckets{}).Where("id IN ?", uniquePermissions)
+		invalidMessage := "包含不存在的存储源"
+		if setting.MultiStorageSync {
+			bucketQuery = bucketQuery.Where("type <> ?", "default")
+			invalidMessage = "同步存储源必须存在且不能是本地默认存储"
+		}
+		if err := bucketQuery.Count(&bucketCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, result.Fail(500, "校验存储源失败"))
+			return
+		}
+		if bucketCount != int64(len(uniquePermissions)) {
+			c.JSON(http.StatusBadRequest, result.Fail(400, invalidMessage))
+			return
+		}
+	}
+
 	// 更新权限
 	if err := db.Model(&user).Update("permission", models.Permission{
-		Buckets: req.Permission,
+		Buckets: uniquePermissions,
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "更新权限失败："+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, result.Success("更新成功", nil))
+	message := "更新成功"
+	if setting.MultiStorageSync {
+		message = "同步存储源更新成功"
+	}
+	c.JSON(http.StatusOK, result.Success(message, nil))
 }
 
 // hashPassword bcrypt加密密码

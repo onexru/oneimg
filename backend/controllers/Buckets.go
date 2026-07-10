@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
 	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/secureconfig"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shirou/gopsutil/v3/disk"
+	"gorm.io/gorm"
 )
 
 type DiskUsageDetail struct {
@@ -433,103 +435,98 @@ func UpdateBuckets(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("更新成功", bucket))
 }
 
-// 删除存储桶
+// DeleteBuckets removes only the copies held by this storage source. Images
+// whose canonical/other copies remain are preserved.
 func DeleteBuckets(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.JSON(http.StatusBadRequest, result.Error(400, "id不能为空"))
-		return
-	}
-
-	if id == "1" {
-		c.JSON(http.StatusBadRequest, result.Error(400, "默认存储桶不能删除"))
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, result.Error(400, "存储桶ID无效"))
 		return
 	}
 
 	db := database.GetDB()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	deleteTagsBatch := func() error {
-		for {
-			result := db.DB.WithContext(ctx).
-				Table("image_to_tags").
-				Where("image_id IN (SELECT id FROM images WHERE bucket_id = ? LIMIT ?)", id, 1000).
-				Delete(&models.ImageToTags{})
-
-			err := result.Error
-			rowsAffected := result.RowsAffected
-
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					log.Printf("删除tags超时（bucket_id=%s），已删除%d条关联记录", id, rowsAffected)
-					break
-				}
-				log.Printf("批次删除tags失败（bucket_id=%s）：%v", id, err)
-				break
-			}
-
-			if rowsAffected == 0 {
-				log.Printf("bucket_id=%s的关联tags已全部删除完成", id)
-				break
-			}
-
-			log.Printf("bucket_id=%s：本次删除%d条image_to_tags记录", id, rowsAffected)
-		}
-		return nil
+	var bucket models.Buckets
+	if err := db.DB.First(&bucket, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, result.Error(404, "存储桶不存在"))
+		return
 	}
-
-	deleteImagesBatch := func() error {
-		for {
-			result := db.DB.WithContext(ctx).
-				Table("images").
-				Where("bucket_id = ?", id).
-				Limit(1000).
-				Delete(&models.Image{})
-
-			err := result.Error
-			rowsAffected := result.RowsAffected
-
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					log.Printf("删除图片超时（bucket_id=%s），已删除%d条图片记录", id, rowsAffected)
-					break
-				}
-				log.Printf("批次删除图片失败（bucket_id=%s）：%v", id, err)
-				return err
-			}
-
-			if rowsAffected == 0 {
-				log.Printf("bucket_id=%s的图片已全部删除完成", id)
-				break
-			}
-
-			log.Printf("bucket_id=%s：本次删除%d条图片记录", id, rowsAffected)
-		}
-		return nil
-	}
-
-	if err := deleteTagsBatch(); err != nil {
-		log.Printf("分批删除image_to_tags失败：%v（bucket_id=%s）", err, id)
-	}
-
-	if err := deleteImagesBatch(); err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "删除图片失败："+err.Error()))
+	if bucket.Type == "default" {
+		c.JSON(http.StatusBadRequest, result.Error(400, "本机存储桶不能删除"))
 		return
 	}
 
-	if err := db.DB.Delete(&models.Buckets{}, id).Error; err != nil {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+	if err := services.DeleteBucketReplicas(ctx, bucket); err != nil {
+		log.Printf("删除存储桶 %d 的文件副本失败：%v", id, err)
+		c.JSON(http.StatusBadGateway, result.Error(502, "部分文件副本删除失败，存储源已保留"))
+		return
+	}
+
+	err = db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var primaryImages []models.Image
+		if err := tx.Where("bucket_id = ?", id).Find(&primaryImages).Error; err != nil {
+			return err
+		}
+		for _, image := range primaryImages {
+			var replacement models.ImageStorage
+			replacementErr := tx.Where(
+				"image_id = ? AND bucket_id != ? AND status = ?",
+				image.Id, id, models.ImageStorageStatusSuccess,
+			).Order("bucket_id ASC").First(&replacement).Error
+			if replacementErr == nil {
+				if err := tx.Model(&image).Updates(map[string]any{
+					"bucket_id": replacement.BucketID,
+					"storage":   replacement.Storage,
+					"url":       replacement.URL,
+					"thumbnail": replacement.Thumbnail,
+				}).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if !errors.Is(replacementErr, gorm.ErrRecordNotFound) {
+				return replacementErr
+			}
+			if err := tx.Where("image_id = ?", image.Id).Delete(&models.ImageToTags{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Delete(&image).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Where("bucket_id = ?", id).Delete(&models.ImageStorage{}).Error; err != nil {
+			return err
+		}
+		var users []models.User
+		if err := tx.Find(&users).Error; err != nil {
+			return err
+		}
+		for _, user := range users {
+			filtered := make([]int, 0, len(user.Permission.Buckets))
+			for _, bucketID := range user.Permission.Buckets {
+				if bucketID != id {
+					filtered = append(filtered, bucketID)
+				}
+			}
+			if len(filtered) != len(user.Permission.Buckets) {
+				if err := tx.Model(&user).Update("permission", models.Permission{Buckets: filtered}).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Delete(&models.Buckets{}, id).Error
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "删除存储桶失败："+err.Error()))
 		return
 	}
 
-	// 检查是否为默认存储桶，如果是，则更新默认存储桶
-	setting, err := settings.GetSettings()
-	idInt, _ := strconv.ParseInt(id, 10, 32)
-	if err != nil {
-		log.Printf("获取默认存储桶失败：%v", err)
-	} else if setting.DefaultStorage == int(idInt) {
+	setting, settingErr := settings.GetSettings()
+	if settingErr != nil {
+		log.Printf("获取默认存储桶失败：%v", settingErr)
+	} else if setting.DefaultStorage == id {
 		if err := db.DB.Model(&models.Settings{}).Where("default_storage = ?", id).Update("default_storage", 1).Error; err != nil {
 			log.Printf("更新默认存储桶失败：%v", err)
 		}

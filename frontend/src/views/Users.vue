@@ -3,7 +3,7 @@
     <section class="page-header mb-6">
       <div>
         <h1 class="page-title">用户管理</h1>
-        <p class="page-subtitle">管理系统用户账号与权限</p>
+        <p class="page-subtitle">{{ multiStorageSync ? '管理系统用户账号与后台同步存储源' : '管理系统用户账号与权限' }}</p>
       </div>
       <button class="primary-button" @click="openCreateModal">
         <i class="ri-add-line"></i>
@@ -194,7 +194,7 @@
                 class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-white/10"
               >
                 <i class="ri-folder-3-line text-xs"></i>
-                {{ user.permission?.buckets?.length || 0 }} 个存储桶
+                {{ getUserBucketCount(user) }} {{ multiStorageSync ? '个同步源' : '个存储桶' }}
               </span>
             </div>
 
@@ -227,7 +227,7 @@
             @click="openProfileModal(user)"
           >
             <i class="ri-shield-keyhole-line text-base"></i>
-            设置权限
+            {{ multiStorageSync ? '设置同步源' : '设置权限' }}
           </button>
           <button
             class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left"
@@ -311,6 +311,7 @@ const PAGE_LIMIT = 12
 const users = ref([])
 const total = ref(0)
 const buckets = ref([]);
+const multiStorageSync = ref(false)
 const totalPages = ref(0)
 const page = ref(1)
 const loading = ref(true)
@@ -340,6 +341,12 @@ function formatDate(dateStr) {
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return dateStr
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+function getUserBucketCount(user) {
+  const userBucketIds = user.permission?.buckets || []
+  if (!multiStorageSync.value) return userBucketIds.length
+  return userBucketIds.filter(id => buckets.value.some(bucket => bucket.id === id && bucket.type !== 'default')).length
 }
 
 const pageNumbers = computed(() => {
@@ -582,16 +589,23 @@ function openDeleteModal(user) {
 }
 
 function openProfileModal(user) {
-    // 当前用户已拥有的桶ID数组
+    const bucketOptions = multiStorageSync.value
+        ? buckets.value.filter(item => item.type !== 'default')
+        : buckets.value
+    // 当前用户已配置的存储桶 ID 数组
     const userBucketIds = user.permission?.buckets || []
-    // 存储当前弹窗选中值，将当前用户已拥有的桶ID赋值给选中数组selectedIds
-    const selectedIds = [...userBucketIds]
+    const selectedIds = multiStorageSync.value
+        ? userBucketIds.filter(id => bucketOptions.some(item => item.id === id))
+        : [...userBucketIds]
 
-    console.log('当前用户已拥有的桶ID:', userBucketIds)
-    // 生成存储桶卡片HTML
+    // 生成存储桶卡片 HTML
     function renderBucketCards() {
+        if (bucketOptions.length === 0) {
+            const emptyText = multiStorageSync.value ? '暂无可配置的远程存储源' : '暂无可配置的存储桶'
+            return `<div class="w-full rounded-xl border border-dashed border-slate-200 px-4 py-5 text-center text-sm text-slate-400 dark:border-white/10 dark:text-slate-500">${emptyText}</div>`
+        }
         let html = ''
-        buckets.value.forEach(item => {
+        bucketOptions.forEach(item => {
             const isChecked = selectedIds.includes(item.id)
             html += `
             <div data-bucket-id="${item.id}" class="bucket-card relative border rounded-2xl px-4 py-2 cursor-pointer transition-all duration-300 shadow-sm select-none border-2 ${isChecked ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}">
@@ -614,8 +628,11 @@ function openProfileModal(user) {
     const modalContent = `
         <div class="py-1 space-y-5">
             <p class="text-sm text-slate-600 dark:text-slate-300">
-                设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 的存储桶访问权限
+                ${multiStorageSync.value
+                    ? `设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 上传后需要后台同步的存储源。`
+                    : `设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 的存储桶访问权限`}
             </p>
+            ${multiStorageSync.value ? '<p class="text-xs text-slate-400 dark:text-slate-500">文件会始终先保存在本机，此处只配置额外同步目标。</p>' : ''}
             <!-- 卡片多选流式布局 -->
             <div id="bucketCardWrap" class="flex flex-wrap gap-3">
                 ${renderBucketCards()}
@@ -624,7 +641,7 @@ function openProfileModal(user) {
     `
 
     const modal = new PopupModal({
-        title: '设置用户权限',
+        title: multiStorageSync.value ? '设置同步存储源' : '设置用户权限',
         width: '620px',
         content: modalContent,
         buttons: [
@@ -641,7 +658,8 @@ function openProfileModal(user) {
                         const res = await fetch(`/api/users/updatePermission/${user.id}`, {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/json'
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
                             },
                             body: JSON.stringify({
                                 permission: selectedIds
@@ -650,7 +668,7 @@ function openProfileModal(user) {
                         const data = await res.json()
                         if (data.code === 200) {
                             modal.close()
-                            message.success('权限更新成功')
+                            message.success(multiStorageSync.value ? '同步存储源已更新' : '权限更新成功')
                             fetchUsers()
                         } else {
                             message.error(data.message || '更新失败')
@@ -889,10 +907,26 @@ const GetBuckets = async () => {
     message.error('获取存储列表失败，请稍后重试');
   }
 };
-onMounted(() => {
-  fetchUsers()
-  GetBuckets()
+
+const getStorageMode = async () => {
+  try {
+    const response = await fetch('/api/uploadConfig', {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      }
+    })
+    const result = await response.json()
+    multiStorageSync.value = response.ok && result.code === 200 && result.data?.multi_storage_sync === true
+  } catch (error) {
+    console.error('获取多存储模式失败:', error)
+    multiStorageSync.value = false
+  }
+}
+
+onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
+  await Promise.all([getStorageMode(), GetBuckets()])
+  fetchUsers()
 })
 
 onUnmounted(() => {

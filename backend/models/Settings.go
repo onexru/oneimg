@@ -23,7 +23,26 @@ type Settings struct {
 	SaveOriginalName bool   `gorm:"column:save_original_name;default:false" json:"save_original_name"` // 是否保存原文件名（默认不保存）
 
 	// 默认存储
-	DefaultStorage int `gorm:"column:default_storage;default:1" json:"default_storage"` // 默认存储（默认为 1）
+	DefaultStorage   int  `gorm:"column:default_storage;default:1" json:"default_storage"`           // 单存储模式下的默认存储
+	MultiStorageSync bool `gorm:"column:multi_storage_sync;default:false" json:"multi_storage_sync"` // 是否启用本机落盘后的多存储后台同步
+
+	// 外部身份认证
+	OIDCEnable             bool   `gorm:"column:oidc_enable;default:false" json:"oidc_enable"`
+	OIDCIssuer             string `gorm:"column:oidc_issuer;default:''" json:"oidc_issuer"`
+	OIDCClientID           string `gorm:"column:oidc_client_id;default:''" json:"oidc_client_id"`
+	OIDCClientSecret       string `gorm:"column:oidc_client_secret;default:''" json:"oidc_client_secret"`
+	OIDCRedirectURL        string `gorm:"column:oidc_redirect_url;default:''" json:"oidc_redirect_url"`
+	OIDCScopes             string `gorm:"column:oidc_scopes;default:'openid profile email'" json:"oidc_scopes"`
+	OIDCUsernameClaim      string `gorm:"column:oidc_username_claim;default:'preferred_username'" json:"oidc_username_claim"`
+	OIDCDisplayName        string `gorm:"column:oidc_display_name;default:'OIDC 登录'" json:"oidc_display_name"`
+	OIDCAutoProvision      bool   `gorm:"column:oidc_auto_provision;default:true" json:"oidc_auto_provision"`
+	OIDCSuperAdminUsername string `gorm:"column:oidc_super_admin_username;default:''" json:"oidc_super_admin_username"`
+	CASEnable              bool   `gorm:"column:cas_enable;default:false" json:"cas_enable"`
+	CASServerURL           string `gorm:"column:cas_server_url;default:''" json:"cas_server_url"`
+	CASServiceURL          string `gorm:"column:cas_service_url;default:''" json:"cas_service_url"`
+	CASDisplayName         string `gorm:"column:cas_display_name;default:'CAS 登录'" json:"cas_display_name"`
+	CASAutoProvision       bool   `gorm:"column:cas_auto_provision;default:true" json:"cas_auto_provision"`
+	CASSuperAdminUsername  string `gorm:"column:cas_super_admin_username;default:''" json:"cas_super_admin_username"`
 
 	// 默认上传配置
 	MaxFileSize  int    `gorm:"column:max_file_size;default:10485760" json:"max_file_size"` // 文件最大上传大小

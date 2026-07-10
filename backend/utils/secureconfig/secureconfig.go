@@ -35,8 +35,9 @@ var bucketSensitiveKeys = map[string]struct{}{
 }
 
 var settingsSensitiveKeys = map[string]struct{}{
-	"api_token":    {},
-	"tg_bot_token": {},
+	"api_token":          {},
+	"tg_bot_token":       {},
+	"oidc_client_secret": {},
 }
 
 func EncryptBucketConfigValues(configMap map[string]any) (map[string]any, error) {
@@ -73,43 +74,65 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 	if strings.TrimSpace(setting.APITokenHash) != "" {
 		apiTokenStatus = ConfiguredStatus
 	}
+	oidcClientSecretStatus := ""
+	if strings.TrimSpace(setting.OIDCClientSecret) != "" {
+		oidcClientSecretStatus = ConfiguredStatus
+	}
 
 	return map[string]any{
-		"id":                      setting.ID,
-		"compress_image":          setting.CompressImage,
-		"save_webp":               setting.SaveWebp,
-		"thumbnail":               setting.Thumbnail,
-		"tourist":                 setting.Tourist,
-		"tg_notice":               setting.TGNotice,
-		"pow_verify":              setting.PowVerify,
-		"tg_bot_token":            tgBotTokenStatus,
-		"tg_bot_token_configured": strings.TrimSpace(setting.TGBotToken) != "",
-		"tg_receivers":            setting.TGReceivers,
-		"tg_notice_text":          setting.TGNoticeText,
-		"start_api":               setting.StartAPI,
-		"api_token":               apiTokenStatus,
-		"api_token_configured":    strings.TrimSpace(setting.APITokenHash) != "",
-		"save_original_name":      setting.SaveOriginalName,
-		"default_storage":         setting.DefaultStorage,
-		"max_file_size":           setting.MaxFileSize,
-		"allowed_types":           setting.AllowedTypes,
-		"public_image_domain":     setting.PublicImageDomain,
-		"watermark_enable":        setting.WatermarkEnable,
-		"watermark_text":          setting.WatermarkText,
-		"watermark_pos":           setting.WatermarkPos,
-		"watermark_size":          setting.WatermarkSize,
-		"watermark_color":         setting.WatermarkColor,
-		"watermark_opac":          setting.WatermarkOpac,
-		"referer_white_enable":    setting.RefererWhiteEnable,
-		"referer_white_list":      setting.RefererWhiteList,
-		"seo_title":               setting.SEOTitle,
-		"seo_description":         setting.SEODescription,
-		"seo_keywords":            setting.SEOKeywords,
-		"seo_icp":                 setting.SEOICP,
-		"public_security":         setting.PublicSecurity,
-		"seo_icon":                setting.SEOicon,
-		"default_path":            setting.DefaultPath,
-		"file_name":               setting.FileName,
+		"id":                            setting.ID,
+		"compress_image":                setting.CompressImage,
+		"save_webp":                     setting.SaveWebp,
+		"thumbnail":                     setting.Thumbnail,
+		"tourist":                       setting.Tourist,
+		"tg_notice":                     setting.TGNotice,
+		"pow_verify":                    setting.PowVerify,
+		"tg_bot_token":                  tgBotTokenStatus,
+		"tg_bot_token_configured":       strings.TrimSpace(setting.TGBotToken) != "",
+		"tg_receivers":                  setting.TGReceivers,
+		"tg_notice_text":                setting.TGNoticeText,
+		"start_api":                     setting.StartAPI,
+		"api_token":                     apiTokenStatus,
+		"api_token_configured":          strings.TrimSpace(setting.APITokenHash) != "",
+		"save_original_name":            setting.SaveOriginalName,
+		"default_storage":               setting.DefaultStorage,
+		"multi_storage_sync":            setting.MultiStorageSync,
+		"oidc_enable":                   setting.OIDCEnable,
+		"oidc_issuer":                   setting.OIDCIssuer,
+		"oidc_client_id":                setting.OIDCClientID,
+		"oidc_client_secret":            oidcClientSecretStatus,
+		"oidc_client_secret_configured": strings.TrimSpace(setting.OIDCClientSecret) != "",
+		"oidc_redirect_url":             setting.OIDCRedirectURL,
+		"oidc_scopes":                   setting.OIDCScopes,
+		"oidc_username_claim":           setting.OIDCUsernameClaim,
+		"oidc_display_name":             setting.OIDCDisplayName,
+		"oidc_auto_provision":           setting.OIDCAutoProvision,
+		"oidc_super_admin_username":     setting.OIDCSuperAdminUsername,
+		"cas_enable":                    setting.CASEnable,
+		"cas_server_url":                setting.CASServerURL,
+		"cas_service_url":               setting.CASServiceURL,
+		"cas_display_name":              setting.CASDisplayName,
+		"cas_auto_provision":            setting.CASAutoProvision,
+		"cas_super_admin_username":      setting.CASSuperAdminUsername,
+		"max_file_size":                 setting.MaxFileSize,
+		"allowed_types":                 setting.AllowedTypes,
+		"public_image_domain":           setting.PublicImageDomain,
+		"watermark_enable":              setting.WatermarkEnable,
+		"watermark_text":                setting.WatermarkText,
+		"watermark_pos":                 setting.WatermarkPos,
+		"watermark_size":                setting.WatermarkSize,
+		"watermark_color":               setting.WatermarkColor,
+		"watermark_opac":                setting.WatermarkOpac,
+		"referer_white_enable":          setting.RefererWhiteEnable,
+		"referer_white_list":            setting.RefererWhiteList,
+		"seo_title":                     setting.SEOTitle,
+		"seo_description":               setting.SEODescription,
+		"seo_keywords":                  setting.SEOKeywords,
+		"seo_icp":                       setting.SEOICP,
+		"public_security":               setting.PublicSecurity,
+		"seo_icon":                      setting.SEOicon,
+		"default_path":                  setting.DefaultPath,
+		"file_name":                     setting.FileName,
 	}
 }
 
@@ -151,6 +174,15 @@ func TryMigrateSettingsSecrets(setting *models.Settings) (bool, error) {
 			return false, err
 		}
 		setting.TGBotToken = encrypted
+		changed = true
+	}
+
+	if strings.TrimSpace(setting.OIDCClientSecret) != "" && !IsEncryptedValue(setting.OIDCClientSecret) {
+		encrypted, err := encryptString(setting.OIDCClientSecret)
+		if err != nil {
+			return false, err
+		}
+		setting.OIDCClientSecret = encrypted
 		changed = true
 	}
 
