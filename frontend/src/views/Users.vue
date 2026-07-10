@@ -462,7 +462,7 @@ function openCreateModal() {
         options: [
           { label: '请选择角色', value: '', disabled: true },
           { label: '管理员', value: '1' },
-          { label: '普通用户', value: '2' },
+          { label: '普通用户', value: '3' },
         ],
         required: true,
       },
