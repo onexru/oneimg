@@ -14,6 +14,7 @@ func CheckLoginStatus(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user_id")
 	username := session.Get("username")
+	role := c.GetInt("user_role")
 
 	// 使用统一返回格式
 	c.JSON(http.StatusOK, result.Success(
@@ -22,5 +23,6 @@ func CheckLoginStatus(c *gin.Context) {
 			"user_id":   userID,
 			"username":  username,
 			"logged_in": true,
+			"user_role": role,
 		}))
 }

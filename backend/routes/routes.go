@@ -122,6 +122,14 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 				auth.POST("/account/change", controllers.ChangeAccountInfo)
 				auth.POST("/sessions/clear", controllers.ClearAllSessions)
 
+				// 用户管理接口
+				auth.GET("/users", controllers.GetUsers)
+				auth.POST("/users/Add", controllers.CreateUser)
+				auth.DELETE("/users/:id", controllers.DeleteUser)
+				auth.POST("/users/updateRole", controllers.UpdateUserRole)
+				auth.POST("/users/resetPassword/:id", controllers.ResetPassword)
+				auth.POST("/users/updatePermission/:id", controllers.UpdateUserPermission)
+
 				// 系统设置接口
 				auth.Any("/settings/get", controllers.GetSettings)
 				auth.POST("/settings/update", controllers.UpdateSettings)

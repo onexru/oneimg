@@ -57,19 +57,34 @@ func GetDashboardStats(c *gin.Context) {
 
 	var stats DashboardStats
 
+	roleID := c.GetInt("user_role")
+	userID := c.GetInt("user_id")
+	userUUID := GetUUID(c)
 	// 获取总图片数量
-	db.Model(&models.Image{}).Count(&stats.TotalImages)
+	if roleID == models.RoleAdmin {
+		db.Model(&models.Image{}).Count(&stats.TotalImages)
+	} else {
+		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Count(&stats.TotalImages)
+	}
 
 	// 获取总大小
 	var totalSize struct {
 		Total int64
 	}
-	db.Model(&models.Image{}).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
+	if roleID == models.RoleAdmin {
+		db.Model(&models.Image{}).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
+	} else {
+		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
+	}
 	stats.TotalSize = totalSize.Total
 
 	// 获取今日上传数量
 	today := time.Now().Format("2006-01-02")
-	db.Model(&models.Image{}).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
+	if roleID == models.RoleAdmin {
+		db.Model(&models.Image{}).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
+	} else {
+		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
+	}
 
 	// 获取本月上传数量
 	now := time.Now()
@@ -78,11 +93,18 @@ func GetDashboardStats(c *gin.Context) {
 
 	startTime := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endTime := startTime.AddDate(0, 1, 0)
-
-	db.Model(&models.Image{}).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
+	if roleID == models.RoleAdmin {
+		db.Model(&models.Image{}).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
+	} else {
+		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
+	}
 
 	// 获取最近上传的图片
-	db.Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
+	if roleID == models.RoleAdmin {
+		db.Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
+	} else {
+		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
+	}
 	setting, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatsResponse{

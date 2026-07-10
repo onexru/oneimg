@@ -190,19 +190,19 @@ func (s *ImageService) processMainImage(
 
 	// WebP格式处理
 	if strings.ToLower(format) == "webp" {
-		if setting.OriginalImage || fileSize <= CompressSizeThreshold {
-			return fileBytes, "webp", "image/webp", nil
+		if setting.CompressImage && fileSize > CompressSizeThreshold {
+			compressed, err := s.compressWebP(img, DefaultCompressQuality)
+			if err != nil {
+				return nil, "", "", fmt.Errorf("compress webp: %w", err)
+			}
+			return compressed, "webp", "image/webp", nil
 		}
-		compressed, err := s.compressWebP(img, DefaultCompressQuality)
-		if err != nil {
-			return nil, "", "", fmt.Errorf("compress webp: %w", err)
-		}
-		return compressed, "webp", "image/webp", nil
+		return fileBytes, "webp", "image/webp", nil
 	}
 
 	// 其他格式处理
 	quality := OriginalQuality
-	if !setting.OriginalImage && fileSize > CompressSizeThreshold {
+	if setting.CompressImage && fileSize > CompressSizeThreshold {
 		quality = DefaultCompressQuality
 	}
 
@@ -216,17 +216,16 @@ func (s *ImageService) processMainImage(
 		return webpData, "webp", "image/webp", nil
 	}
 
-	// 保存原图
-	if setting.OriginalImage {
-		return fileBytes, format, mimeType, nil
+	// 压缩图片
+	if setting.CompressImage {
+		compressed, err := s.compressWebP(img, DefaultCompressQuality)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("compress webp: %w", err)
+		}
+		return compressed, format, mimeType, nil
 	}
 
-	// 默认进行压缩
-	compressed, err := s.compressWebP(img, DefaultCompressQuality)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("compress webp: %w", err)
-	}
-	return compressed, format, mimeType, nil
+	return fileBytes, format, mimeType, nil
 }
 
 // generateThumbnail 生成缩略图（新增SVG处理）

@@ -493,10 +493,30 @@ func GetUploadConfig(c *gin.Context) {
 		return
 	}
 
+	// 获取当前用户角色
+	role := c.GetInt("user_role")
+	var user models.User
+	if err := db.Where("id = ?", c.GetInt("user_id")).First(&user).Error; err != nil {
+		user = models.User{}
+		user.Permission.Buckets = []int{}
+	}
+
+	setting, _ := settings.GetSettings()
+
 	var bucketRes []map[string]any
 	for _, bucket := range buckets {
-		// 过滤已满的存储桶
-		if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
+		if bucket.Id != setting.DefaultStorage {
+			// 过滤已满的存储桶
+			if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
+				continue
+			}
+			// 过滤用户没有权限的存储桶
+			if role != 1 && !models.IntSliceContains(user.Permission.Buckets, bucket.Id) {
+				continue
+			}
+		}
+		// 过滤游客不能上传的非默认存储桶
+		if role == 2 && bucket.Id != setting.DefaultStorage {
 			continue
 		}
 		res := map[string]any{
@@ -506,8 +526,6 @@ func GetUploadConfig(c *gin.Context) {
 		}
 		bucketRes = append(bucketRes, res)
 	}
-
-	setting, _ := settings.GetSettings()
 
 	// 构造返回参数
 	config := map[string]any{

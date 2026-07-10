@@ -76,7 +76,7 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 
 	return map[string]any{
 		"id":                      setting.ID,
-		"original_image":          setting.OriginalImage,
+		"compress_image":          setting.CompressImage,
 		"save_webp":               setting.SaveWebp,
 		"thumbnail":               setting.Thumbnail,
 		"tourist":                 setting.Tourist,
