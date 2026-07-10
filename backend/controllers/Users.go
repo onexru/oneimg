@@ -82,7 +82,7 @@ func CreateUser(c *gin.Context) {
 	type CreateUserReq struct {
 		Username string `json:"username" binding:"required,min=3,max=50"`
 		Password string `json:"password" binding:"required,min=6,max=100"`
-		Role     int    `json:"role" binding:"in=1,3"`
+		Role     int    `json:"role" binding:"required,oneof=1 3"`
 	}
 	var req CreateUserReq
 	if err := c.ShouldBindJSON(&req); err != nil {
