@@ -190,6 +190,16 @@ func generateRandomUUID() string {
 
 // 设置Session
 func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
+	session, err := saveUserSession(c, user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "session保存失败："+err.Error()))
+		return nil, err
+	}
+	return session, nil
+}
+
+// saveUserSession 只保存会话，由调用方决定返回 JSON 还是重定向。
+func saveUserSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 	// 获取session
 	session := sessions.Default(c)
 
@@ -201,8 +211,8 @@ func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 
 	// 设置session选项
 	session.Options(sessions.Options{
-		MaxAge:   24 * 60 * 60,            // 24小时，单位秒
-		HttpOnly: true,                    // 防止XSS攻击
+		MaxAge:   24 * 60 * 60, // 24小时，单位秒
+		HttpOnly: true,         // 防止XSS攻击
 		Secure:   strings.HasPrefix(strings.ToLower(config.App.AppURL), "https://"),
 		SameSite: http.SameSiteStrictMode, // 防止CSRF攻击
 		Path:     "/",                     // cookie路径
@@ -210,8 +220,6 @@ func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 
 	// 保存session
 	if err := session.Save(); err != nil {
-		errMsg := "session保存失败：" + err.Error()
-		c.JSON(http.StatusInternalServerError, result.Error(500, errMsg))
 		return nil, err
 	}
 

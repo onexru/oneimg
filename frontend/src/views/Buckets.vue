@@ -72,19 +72,30 @@
           </div>
         </div>
 
-        <div v-if="storage.type !== 'default'" class="flex items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-dark-300">
+        <div class="flex flex-wrap items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-dark-300">
           <button
-          @click="UpdateBucketModal(storage)"
-          class="soft-button text-sm">
-            <i class="ri-edit-fill"></i>
-            编辑
+            type="button"
+            :disabled="testingBucketId === storage.id"
+            @click="TestSavedBucket(storage)"
+            class="soft-button text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <i :class="testingBucketId === storage.id ? 'ri-loader-4-line animate-spin' : 'ri-pulse-line'"></i>
+            {{ testingBucketId === storage.id ? '测试中' : '测试连接' }}
           </button>
-          <button
-            @click="DeleteBucketModal(storage.id)"
-            class="danger-button text-sm">
-            <i class="ri-delete-bin-7-fill"></i>
-            删除存储
-          </button>
+          <template v-if="storage.type !== 'default'">
+            <button
+              @click="UpdateBucketModal(storage)"
+              class="soft-button text-sm">
+              <i class="ri-edit-fill"></i>
+              编辑
+            </button>
+            <button
+              @click="DeleteBucketModal(storage.id)"
+              class="danger-button text-sm">
+              <i class="ri-delete-bin-7-fill"></i>
+              删除存储
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -95,6 +106,8 @@
 import { ref, onMounted } from 'vue';
 import message from '@/utils/message.js';
 const buckets = ref([]);
+const testingBucketId = ref(null);
+const testingDraft = ref(false);
 
 const typeSpecificFields = {
   s3: [
@@ -202,6 +215,11 @@ const AddBucketModal = () => {
         }
       },
       {
+        text: '测试连接',
+        type: 'default',
+        callback: (_, formData) => TestDraftBucket(formData)
+      },
+      {
         text: '确认添加',
         type: 'primary',
         callback: (modal) => {
@@ -278,6 +296,11 @@ const UpdateBucketModal = (bucket) => {
         }
       },
       {
+        text: '测试连接',
+        type: 'default',
+        callback: (_, formData) => TestDraftBucket(formData, bucket.id)
+      },
+      {
         text: '确认更新',
         type: 'primary',
         callback: (modal) => {
@@ -290,6 +313,56 @@ const UpdateBucketModal = (bucket) => {
   });
   modal.open();
 }
+
+const runBucketConnectionTest = async (payload) => {
+  const response = await fetch('/api/buckets/test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok || result.code !== 200) {
+    throw new Error(result.message || '存储连接测试失败');
+  }
+  return result.data?.detail || '存储配置可用';
+};
+
+const TestDraftBucket = async (formData, bucketId = 0) => {
+  if (testingDraft.value) return;
+  if (!formData?.type) {
+    message.warning('请先选择存储类型');
+    return;
+  }
+  testingDraft.value = true;
+  try {
+    const payload = { ...formData };
+    if (bucketId) payload.id = bucketId;
+    const detail = await runBucketConnectionTest(payload);
+    message.success(`连接测试成功：${detail}`);
+  } catch (error) {
+    console.error('存储连接测试失败:', error);
+    message.error(error.message || '存储连接测试失败');
+  } finally {
+    testingDraft.value = false;
+  }
+};
+
+const TestSavedBucket = async (storage) => {
+  if (testingBucketId.value !== null) return;
+  testingBucketId.value = storage.id;
+  try {
+    const detail = await runBucketConnectionTest({ id: storage.id });
+    message.success(`连接测试成功：${detail}`);
+  } catch (error) {
+    console.error('存储连接测试失败:', error);
+    message.error(error.message || '存储连接测试失败');
+  } finally {
+    testingBucketId.value = null;
+  }
+};
 
 // 删除存储弹窗
 const DeleteBucketModal = (id) => {

@@ -53,10 +53,25 @@ func GetImageDetail(c *gin.Context) {
 		return
 	}
 	rewriteImageURLs(setting, &image)
+	statusMap, err := loadImageStorageStatuses([]int{image.Id}, setting)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "获取存储同步状态失败",
+		})
+		return
+	}
+	responseImage := struct {
+		models.Image
+		StorageStatuses []ImageStorageStatusResponse `json:"storage_statuses"`
+	}{
+		Image:           image,
+		StorageStatuses: statusMap[image.Id],
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "获取图片详情成功",
-		"data": image,
+		"data": responseImage,
 	})
 }

@@ -16,22 +16,55 @@
             </div>
         </section>
 
+        <section class="section-card p-2 sm:p-2.5" aria-label="系统设置分类">
+            <div
+                class="flex gap-1.5 overflow-x-auto pb-1"
+                role="tablist"
+                aria-label="设置分类"
+            >
+                <button
+                    v-for="(tab, index) in settingsTabs"
+                    :id="`settings-tab-${tab.key}`"
+                    :key="tab.key"
+                    type="button"
+                    role="tab"
+                    aria-controls="settings-tab-content"
+                    :aria-selected="activeSettingsTab === tab.key"
+                    :tabindex="activeSettingsTab === tab.key ? 0 : -1"
+                    class="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+                    :class="activeSettingsTab === tab.key
+                        ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white'"
+                    @click="activeSettingsTab = tab.key"
+                    @keydown="handleSettingsTabKeydown($event, index)"
+                >
+                    <i :class="tab.icon" aria-hidden="true"></i>
+                    <span>{{ tab.label }}</span>
+                </button>
+            </div>
+        </section>
+
         <!-- 主要内容 -->
-        <div class="pb-8 md:pb-10">
+        <div
+            id="settings-tab-content"
+            class="pb-8 md:pb-10"
+            role="tabpanel"
+            :aria-labelledby="`settings-tab-${activeSettingsTab}`"
+        >
             <div class="grid gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
                 <!-- 系统配置卡片 -->
-                <div class="order-1 md:order-2 w-full p-0 mx-auto">
+                <div v-if="activeSettingsTab !== 'seo'" class="order-1 md:order-2 w-full p-0 mx-auto">
                     <div class="section-card p-3.5 sm:p-4 md:p-6">
                         <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-list-settings-line"></i>
                             </span>
-                            系统配置
+                            {{ activeSettingsTabLabel }}
                         </h2>
                         
                         <div class="account-form space-y-4 md:space-y-5">
                             <!-- 默认存储 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="default_storage">
                                     系统默认存储
                                 </label>
@@ -53,7 +86,7 @@
                             </div>
 
                             <!-- 图片直链域名 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="public_image_domain">
                                     图片直链域名
                                 </label>
@@ -76,7 +109,7 @@
                             </div>
 
                             <!-- 默认存储路径 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="default_path">
                                     默认存储路径
                                 </label>
@@ -95,7 +128,7 @@
                             </div>
 
                             <!-- 上传文件名 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="file_name">
                                     上传文件名称
                                 </label>
@@ -114,7 +147,7 @@
                             </div>
                             
                             <!-- TG Bot Token：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
                                 <label class="field-label" for="tg_bot_token">
                                     TG Bot Token
                                 </label>
@@ -132,7 +165,7 @@
                             </div>
                             
                             <!-- TG 通知接收者：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
                                 <label class="field-label" for="tg_receivers">
                                     TG 通知接收者
                                 </label>
@@ -150,7 +183,7 @@
                             </div>
                             
                             <!-- TG 通知文本：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
                                 <label class="field-label" for="tg_notice_text">
                                     TG 通知文本
                                 </label>
@@ -168,7 +201,7 @@
                             </div>
                             
                             <!-- 水印文本：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
                                 <label class="field-label" for="watermark_text">
                                     图片水印文本
                                 </label>
@@ -188,7 +221,7 @@
                             </div>
 
                             <!-- 图片水印大小：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
                                 <label class="field-label" for="watermark_size">
                                     图片水印大小
                                 </label>
@@ -205,7 +238,7 @@
                             </div>
 
                             <!-- 图片水印字体颜色 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
                                 <label class="field-label" for="watermark_color">
                                     图片水印字体颜色
                                 </label>
@@ -225,7 +258,7 @@
                             </div>
 
                             <!-- 图片水印透明度：失去焦点保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
                                 <label class="field-label" for="watermark_opac">
                                     图片水印透明度
                                 </label>
@@ -245,7 +278,7 @@
                             </div>
 
                             <!-- 图片水印位置：下拉框变更保存 -->
-                            <div class="setting-group">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
                                 <label class="field-label" for="storage_type">
                                     图片水印位置
                                 </label>
@@ -268,7 +301,7 @@
                                     系统默认右下角
                                 </div>
                             </div>
-                            <div class="setting-group"> 
+                            <div v-show="activeSettingsTab === 'security'" class="setting-group">
                                 <label class="field-label" for="referer_white_list">
                                     Referer来源白名单
                                 </label>
@@ -294,7 +327,7 @@
                                 </div>
                             </div>
 
-                            <div class="setting-group"> 
+                            <div v-show="activeSettingsTab === 'api'" class="setting-group">
                                 <label class="field-label" for="api_token">
                                     API Token
                                 </label>
@@ -321,7 +354,7 @@
                                     3. {{ systemSettings.api_token_configured ? '当前已配置' : '当前未配置' }}
                                 </div>
                             </div>
-                            <div class="setting-group"> 
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="max_file_size">
                                     允许最大上传大小
                                 </label>
@@ -337,7 +370,7 @@
                                     大小单位：字节，默认10mb
                                 </div>
                             </div>
-                            <div class="setting-group"> 
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
                                 <label class="field-label" for="allowed_types">
                                     允许上传的图片类型
                                 </label>
@@ -355,9 +388,12 @@
                 </div>
 
                 <!-- 系统设置卡片（开关部分不变） -->
-                <div class="order-2 md:order-1 w-full p-0 mx-auto">
+                <div
+                    class="order-2 md:order-1 w-full p-0 mx-auto"
+                    :class="{ 'xl:col-span-2': activeSettingsTab === 'seo' }"
+                >
                     <!-- SEO设置卡片 -->
-                    <div class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
+                    <div v-show="activeSettingsTab === 'seo'" class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
                         <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-seo-line"></i>
@@ -455,17 +491,274 @@
                         </div>
                     </div>
 
-                    <div class="section-card p-3.5 sm:p-4 md:p-6">
+                    <!-- 登录与单点登录 -->
+                    <div v-show="activeSettingsTab === 'security'" class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
+                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
+                            <span class="panel-icon mr-2 text-2xl">
+                                <i class="ri-shield-user-line"></i>
+                            </span>
+                            登录与单点登录
+                        </h2>
+
+                        <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 p-3.5 dark:border-white/10 dark:bg-slate-950 sm:p-4">
+                            <div class="mb-4 flex flex-col items-start gap-3 border-b border-slate-200/80 pb-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p class="text-sm font-semibold text-slate-900 dark:text-white">OIDC 登录</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">通过支持 OpenID Connect 的身份提供方登录。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end sm:self-center">
+                                    <input
+                                        type="checkbox"
+                                        v-model="systemSettings.oidc_enable"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('oidc_enable', systemSettings.oidc_enable)"
+                                    >
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
+                                </label>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_issuer">Issuer URL</label>
+                                    <input
+                                        id="oidc_issuer"
+                                        v-model="systemSettings.oidc_issuer"
+                                        type="url"
+                                        class="input-modern"
+                                        placeholder="https://id.example.com"
+                                        @blur="handleFieldBlur('oidc_issuer', systemSettings.oidc_issuer)"
+                                    />
+                                    <div class="field-hint">OIDC 发行方地址，系统将通过该地址发现授权端点。</div>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_client_id">Client ID</label>
+                                    <input
+                                        id="oidc_client_id"
+                                        v-model="systemSettings.oidc_client_id"
+                                        type="text"
+                                        class="input-modern"
+                                        placeholder="请输入 OIDC Client ID"
+                                        @blur="handleFieldBlur('oidc_client_id', systemSettings.oidc_client_id)"
+                                    />
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_client_secret">Client Secret</label>
+                                    <input
+                                        id="oidc_client_secret"
+                                        v-model="systemSettings.oidc_client_secret"
+                                        type="password"
+                                        class="input-modern"
+                                        :placeholder="systemSettings.oidc_client_secret_configured ? '已配置，留空表示不修改' : '未配置，请输入 Client Secret'"
+                                        autocomplete="new-password"
+                                        @blur="handleFieldBlur('oidc_client_secret', systemSettings.oidc_client_secret)"
+                                    />
+                                    <div class="field-hint">
+                                        {{ systemSettings.oidc_client_secret_configured ? '已配置，留空表示不修改' : '启用 OIDC 登录前必须配置' }}
+                                    </div>
+                                </div>
+                                <div class="setting-row">
+                                    <div>
+                                        <p class="setting-row-title">首次登录自动创建用户</p>
+                                        <p class="setting-row-hint">关闭后，尚未绑定本地账户的 OIDC 用户无法登录。</p>
+                                    </div>
+                                    <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                        <input
+                                            type="checkbox"
+                                            v-model="systemSettings.oidc_auto_provision"
+                                            class="sr-only peer"
+                                            @change="handleSwitchChange('oidc_auto_provision', systemSettings.oidc_auto_provision)"
+                                        >
+                                        <div class="switch-track"></div>
+                                        <div class="switch-thumb"></div>
+                                    </label>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_super_admin_username">映射超级管理员用户名</label>
+                                    <input
+                                        id="oidc_super_admin_username"
+                                        v-model="systemSettings.oidc_super_admin_username"
+                                        type="text"
+                                        maxlength="255"
+                                        class="input-modern"
+                                        placeholder="留空表示不映射"
+                                        @blur="handleFieldBlur('oidc_super_admin_username', systemSettings.oidc_super_admin_username)"
+                                    />
+                                    <div class="field-hint">OIDC 校验成功后，最终用户名与此值完全一致时登录本地超级管理员账户（区分大小写）。</div>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_redirect_url">回调 URL</label>
+                                    <input
+                                        id="oidc_redirect_url"
+                                        v-model="systemSettings.oidc_redirect_url"
+                                        type="url"
+                                        class="input-modern"
+                                        placeholder="https://img.example.com/api/auth/oidc/callback"
+                                        @blur="handleFieldBlur('oidc_redirect_url', systemSettings.oidc_redirect_url)"
+                                    />
+                                    <div class="field-hint">需与 OIDC 身份提供方中登记的回调地址完全一致。</div>
+                                    <div class="field-hint rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/5">
+                                        <span class="font-medium text-slate-600 dark:text-slate-300">当前有效回调地址：</span>
+                                        <code class="break-all">{{ systemSettings.oidc_redirect_url_effective || '尚未生成' }}</code>
+                                    </div>
+                                </div>
+                                <div class="grid gap-4 lg:grid-cols-2">
+                                    <div class="setting-group">
+                                        <label class="field-label" for="oidc_scopes">Scopes</label>
+                                        <input
+                                            id="oidc_scopes"
+                                            v-model="systemSettings.oidc_scopes"
+                                            type="text"
+                                            class="input-modern"
+                                            placeholder="openid profile email"
+                                            @blur="handleFieldBlur('oidc_scopes', systemSettings.oidc_scopes)"
+                                        />
+                                    </div>
+                                    <div class="setting-group">
+                                        <label class="field-label" for="oidc_username_claim">用户名 Claim</label>
+                                        <input
+                                            id="oidc_username_claim"
+                                            v-model="systemSettings.oidc_username_claim"
+                                            type="text"
+                                            class="input-modern"
+                                            placeholder="preferred_username"
+                                            @blur="handleFieldBlur('oidc_username_claim', systemSettings.oidc_username_claim)"
+                                        />
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="oidc_display_name">登录按钮名称</label>
+                                    <input
+                                        id="oidc_display_name"
+                                        v-model="systemSettings.oidc_display_name"
+                                        type="text"
+                                        class="input-modern"
+                                        placeholder="OIDC 登录"
+                                        @blur="handleFieldBlur('oidc_display_name', systemSettings.oidc_display_name)"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 p-3.5 dark:border-white/10 dark:bg-slate-950 sm:p-4">
+                            <div class="mb-4 flex flex-col items-start gap-3 border-b border-slate-200/80 pb-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p class="text-sm font-semibold text-slate-900 dark:text-white">CAS 登录</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">CAS 3.0 协议，固定使用 <code>/p3/serviceValidate</code> 校验 XML 响应。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end sm:self-center">
+                                    <input
+                                        type="checkbox"
+                                        v-model="systemSettings.cas_enable"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('cas_enable', systemSettings.cas_enable)"
+                                    >
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
+                                </label>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div class="setting-group">
+                                    <label class="field-label" for="cas_server_url">CAS Server URL</label>
+                                    <input
+                                        id="cas_server_url"
+                                        v-model="systemSettings.cas_server_url"
+                                        type="url"
+                                        class="input-modern"
+                                        placeholder="https://cas.example.com/cas"
+                                        @blur="handleFieldBlur('cas_server_url', systemSettings.cas_server_url)"
+                                    />
+                                    <div class="field-hint">填写 CAS 服务根地址，无需附加 <code>/login</code> 或 <code>/p3/serviceValidate</code>。</div>
+                                </div>
+                                <div class="setting-row">
+                                    <div>
+                                        <p class="setting-row-title">首次登录自动创建用户</p>
+                                        <p class="setting-row-hint">关闭后，尚未绑定本地账户的 CAS 用户无法登录。</p>
+                                    </div>
+                                    <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                        <input
+                                            type="checkbox"
+                                            v-model="systemSettings.cas_auto_provision"
+                                            class="sr-only peer"
+                                            @change="handleSwitchChange('cas_auto_provision', systemSettings.cas_auto_provision)"
+                                        >
+                                        <div class="switch-track"></div>
+                                        <div class="switch-thumb"></div>
+                                    </label>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="cas_super_admin_username">映射超级管理员用户名</label>
+                                    <input
+                                        id="cas_super_admin_username"
+                                        v-model="systemSettings.cas_super_admin_username"
+                                        type="text"
+                                        maxlength="255"
+                                        class="input-modern"
+                                        placeholder="留空表示不映射"
+                                        @blur="handleFieldBlur('cas_super_admin_username', systemSettings.cas_super_admin_username)"
+                                    />
+                                    <div class="field-hint">CAS3 XML 的 &lt;cas:user&gt; 与此值完全一致时登录本地超级管理员账户（区分大小写）。</div>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="cas_service_url">Service URL</label>
+                                    <input
+                                        id="cas_service_url"
+                                        v-model="systemSettings.cas_service_url"
+                                        type="url"
+                                        class="input-modern"
+                                        placeholder="https://img.example.com/api/auth/cas/callback"
+                                        @blur="handleFieldBlur('cas_service_url', systemSettings.cas_service_url)"
+                                    />
+                                    <div class="field-hint">需在 CAS 服务端允许列表中登记该地址。</div>
+                                    <div class="field-hint rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/5">
+                                        <span class="font-medium text-slate-600 dark:text-slate-300">当前有效 Service 地址：</span>
+                                        <code class="break-all">{{ systemSettings.cas_service_url_effective || '尚未生成' }}</code>
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="field-label" for="cas_display_name">登录按钮名称</label>
+                                    <input
+                                        id="cas_display_name"
+                                        v-model="systemSettings.cas_display_name"
+                                        type="text"
+                                        class="input-modern"
+                                        placeholder="CAS 登录"
+                                        @blur="handleFieldBlur('cas_display_name', systemSettings.cas_display_name)"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-show="activeSettingsTab !== 'seo'" class="section-card p-3.5 sm:p-4 md:p-6">
                         <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
                             <span class="panel-icon mr-2 text-2xl">
                                 <i class="ri-settings-2-line"></i>
                             </span>
-                            系统设置
+                            {{ activeSettingsTabLabel }}开关
                         </h2>
                         
                         <div class="account-form space-y-4 md:space-y-5">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">多存储同步</p>
+                                    <p class="setting-row-hint">开启后文件先保存到本机，再由后台同步到用户配置的多个存储源；关闭时保持原有单存储上传方式。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                    <input
+                                        type="checkbox"
+                                        v-model="systemSettings.multi_storage_sync"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('multi_storage_sync', systemSettings.multi_storage_sync)"
+                                    >
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
+                                </label>
+                            </div>
+
                             <!-- 是否压缩图片 -->
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">压缩图片</p>
                                 </div>
@@ -482,7 +775,7 @@
                             </div>
                             
                             <!-- 其他开关省略 -->
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">保存 WEBP 格式</p>
                                 </div>
@@ -497,7 +790,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">生成缩略图</p>
                                     <p class="setting-row-hint">生成缩略图，可提升后台预览速度，上传速度稍慢。</p>
@@ -513,7 +806,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">允许游客上传</p>
                                 </div>
@@ -528,7 +821,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'notifications'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">启用 TG 通知</p>
                                     <p class="setting-row-hint">国内服务器不要开启 TG 通知。</p>
@@ -544,7 +837,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">启用 POW 验证</p>
                                 </div>
@@ -559,7 +852,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">开启图片水印</p>
                                     <p class="setting-row-hint">
@@ -581,7 +874,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">开启来源白名单</p>
                                     <p v-if="hasPublicImageDomain" class="setting-row-hint">已配置图片直链域名，直接访问不会经过系统代理。</p>
@@ -601,7 +894,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'api'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">启用 API</p>
                                     <p class="setting-row-hint">启用 API 前必须先设置 API Token。</p>
@@ -617,7 +910,7 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
-                            <div class="setting-row">
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">保存源文件名</p>
                                     <p class="setting-row-hint">启用保存原图功能时将不自动重命名，”上传文件名称”设置也将失效。</p>
@@ -645,6 +938,49 @@
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
 import message from '@/utils/message.js'
+
+const settingsTabs = [
+    { key: 'storage', label: '上传与存储', icon: 'ri-upload-cloud-2-line' },
+    { key: 'image', label: '图片处理', icon: 'ri-image-edit-line' },
+    { key: 'security', label: '安全与登录', icon: 'ri-shield-keyhole-line' },
+    { key: 'notifications', label: '通知', icon: 'ri-notification-3-line' },
+    { key: 'api', label: 'API', icon: 'ri-code-s-slash-line' },
+    { key: 'seo', label: '站点 SEO', icon: 'ri-seo-line' }
+]
+const activeSettingsTab = ref(settingsTabs[0].key)
+const activeSettingsTabLabel = computed(() => {
+    return settingsTabs.find(tab => tab.key === activeSettingsTab.value)?.label || '系统设置'
+})
+
+const handleSettingsTabKeydown = (event, currentIndex) => {
+    let nextIndex = currentIndex
+    switch (event.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+            nextIndex = (currentIndex + 1) % settingsTabs.length
+            break
+        case 'ArrowLeft':
+        case 'ArrowUp':
+            nextIndex = (currentIndex - 1 + settingsTabs.length) % settingsTabs.length
+            break
+        case 'Home':
+            nextIndex = 0
+            break
+        case 'End':
+            nextIndex = settingsTabs.length - 1
+            break
+        default:
+            return
+    }
+
+    event.preventDefault()
+    activeSettingsTab.value = settingsTabs[nextIndex].key
+    const tabButtons = event.currentTarget
+        .closest('[role="tablist"]')
+        ?.querySelectorAll('[role="tab"]')
+    tabButtons?.[nextIndex]?.focus()
+}
+
 // 存储相关
 const presetBuckets = ref([
   { id: "1", name: '默认存储', type: "default" },
@@ -652,12 +988,32 @@ const presetBuckets = ref([
 // 系统设置项
 const systemSettings = reactive({
     id: 1,
+    multi_storage_sync: false,
     compress_image: false,
     save_webp: false,
     thumbnail: false,
     tourist: false,
     tg_notice: false,
     pow_verify: false,
+    oidc_enable: false,
+    oidc_issuer: '',
+    oidc_client_id: '',
+    oidc_client_secret: '',
+    oidc_client_secret_configured: false,
+    oidc_auto_provision: true,
+    oidc_super_admin_username: '',
+    oidc_redirect_url: '',
+    oidc_redirect_url_effective: '',
+    oidc_scopes: 'openid profile email',
+    oidc_username_claim: 'preferred_username',
+    oidc_display_name: 'OIDC 登录',
+    cas_enable: false,
+    cas_auto_provision: true,
+    cas_super_admin_username: '',
+    cas_server_url: '',
+    cas_service_url: '',
+    cas_service_url_effective: '',
+    cas_display_name: 'CAS 登录',
     tg_bot_token: '',
     tg_bot_token_configured: false,
     tg_receivers: '',
@@ -689,6 +1045,20 @@ const systemSettings = reactive({
 })
 
 const updateSetting = reactive({})
+const clearableTextSettings = new Set([
+    'public_image_domain',
+    'oidc_issuer',
+    'oidc_client_id',
+    'oidc_redirect_url',
+    'oidc_scopes',
+    'oidc_username_claim',
+    'oidc_display_name',
+    'oidc_super_admin_username',
+    'cas_server_url',
+    'cas_service_url',
+    'cas_display_name',
+    'cas_super_admin_username'
+])
 const publicDomainStorageTypes = ['s3', 'r2']
 const publicDomainAffectedSettings = [
     'watermark_enable',
@@ -752,8 +1122,7 @@ const normalizePublicImageDomain = (value) => {
 }
 
 // 加载状态
-const isUpdating = ref(false)
-let debounceTimer = null
+const settingSaveQueues = new Map()
 
 // 统一请求头配置（复用）
 const getRequestHeaders = () => {
@@ -763,54 +1132,65 @@ const getRequestHeaders = () => {
     }
 }
 
-const saveSetting = async (key, value) => {
-    if (updateSetting?.[key] === value && !['tg_bot_token', 'api_token'].includes(key)) {
-        return
-    }
-    clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(async () => {
-        try {
-            if (isUpdating.value) return
-            isUpdating.value = true
-
-            const response = await fetch('/api/settings/update', {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({
-                    key: key,
-                    value: value
-                })
+const persistSetting = async (key, value) => {
+    try {
+        const response = await fetch('/api/settings/update', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                key: key,
+                value: value
             })
-            
-            const result = await response.json()
-            
-            if (response.ok && result.code === 200) {
-                message.success(`更新成功`)
-                if (key === 'tg_bot_token') {
-                    systemSettings.tg_bot_token = ''
-                    systemSettings.tg_bot_token_configured = value !== '' || systemSettings.tg_bot_token_configured
-                    updateSetting.tg_bot_token = ''
-                    updateSetting.tg_bot_token_configured = systemSettings.tg_bot_token_configured
-                } else if (key === 'api_token') {
-                    systemSettings.api_token_configured = value !== '' || systemSettings.api_token_configured
-                    updateSetting.api_token_configured = systemSettings.api_token_configured
-                } else {
-                    updateSetting[key] = value
-                }
+        })
+
+		const result = await response.json()
+
+        if (response.ok && result.code === 200) {
+            message.success(`更新成功`)
+            if (key === 'tg_bot_token') {
+                systemSettings.tg_bot_token = ''
+                systemSettings.tg_bot_token_configured = value !== '' || systemSettings.tg_bot_token_configured
+                updateSetting.tg_bot_token = ''
+                updateSetting.tg_bot_token_configured = systemSettings.tg_bot_token_configured
+            } else if (key === 'oidc_client_secret') {
+                systemSettings.oidc_client_secret = ''
+                systemSettings.oidc_client_secret_configured = value !== '' || systemSettings.oidc_client_secret_configured
+                updateSetting.oidc_client_secret = ''
+                updateSetting.oidc_client_secret_configured = systemSettings.oidc_client_secret_configured
+            } else if (key === 'api_token') {
+                systemSettings.api_token_configured = value !== '' || systemSettings.api_token_configured
+                updateSetting.api_token_configured = systemSettings.api_token_configured
             } else {
-                // 更新失败自动回滚
-                if (Object.prototype.hasOwnProperty.call(updateSetting, key)) {
-                    systemSettings[key] = updateSetting[key]
-                }
-                message.error(`更新失败：${result.message || '未知错误'}`)
+                updateSetting[key] = value
             }
-        } catch (error) {
-            console.error(`保存失败:`, error)
-            message.error(`更新失败：网络异常`)
-        } finally {
-            isUpdating.value = false
+        } else {
+            // 更新失败自动回滚
+            if (Object.prototype.hasOwnProperty.call(updateSetting, key)) {
+                systemSettings[key] = updateSetting[key]
+            }
+            message.error(`更新失败：${result.message || '未知错误'}`)
         }
-    }, 300)
+    } catch (error) {
+        console.error(`保存失败:`, error)
+        message.error(`更新失败：网络异常`)
+    }
+}
+
+const saveSetting = (key, value) => {
+	if (updateSetting?.[key] === value && !['tg_bot_token', 'api_token', 'oidc_client_secret'].includes(key)) {
+		return Promise.resolve()
+	}
+
+	// 不同设置可并行保存；同一设置按操作顺序串行，避免连续 blur/开关丢失更新。
+	const previous = settingSaveQueues.get(key) || Promise.resolve()
+	const current = previous.catch(() => {}).then(() => persistSetting(key, value))
+	settingSaveQueues.set(key, current)
+	current.finally(() => {
+		if (settingSaveQueues.get(key) === current) {
+			settingSaveQueues.delete(key)
+		}
+	})
+	return current
 }
 
 /**
@@ -857,6 +1237,24 @@ const handleSwitchChange = (key, value) => {
         message.warning('已配置图片直链域名，该设置不会生效')
         systemSettings[key] = updateSetting[key]
         return
+    }
+
+    if (key === 'oidc_enable' && value === true) {
+        const issuerConfigured = String(updateSetting.oidc_issuer || '').trim() !== ''
+        const clientIDConfigured = String(updateSetting.oidc_client_id || '').trim() !== ''
+        if (!issuerConfigured || !clientIDConfigured || !systemSettings.oidc_client_secret_configured) {
+            message.warning('请先保存 OIDC Issuer、Client ID 和 Client Secret')
+            systemSettings.oidc_enable = false
+            return
+        }
+    }
+
+    if (key === 'cas_enable' && value === true) {
+        if (String(updateSetting.cas_server_url || '').trim() === '') {
+            message.warning('请先保存 CAS Server URL')
+            systemSettings.cas_enable = false
+            return
+        }
     }
 
     if (key == "start_api") {
@@ -918,7 +1316,7 @@ const handleFieldBlur = (key, value) => {
             }
         }
     }
-    if ((value === '' && key !== 'public_image_domain') || value === updateSetting[key]) {
+    if ((value === '' && !clearableTextSettings.has(key)) || value === updateSetting[key]) {
         return
     }
     if (key == 'api_token' && value === '') {

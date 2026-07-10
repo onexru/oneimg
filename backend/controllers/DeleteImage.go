@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
 	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/md5"
@@ -70,63 +70,27 @@ func DeleteImage(c *gin.Context) {
 		return
 	}
 
-	// 获取存储配置
-	var bucket models.Buckets
-	if err := db.Where("id = ?", image.BucketId).First(&bucket).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusForbidden, result.Error(400, "存储配置不存在"))
-			return
-		}
-		c.JSON(http.StatusForbidden, result.Error(400, "存储配置查询失败"))
+	deleteCtx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+	if err := services.DeleteImageReplicas(deleteCtx, image); err != nil {
+		log.Printf("删除图片 %d 的存储副本失败：%v", image.Id, err)
+		c.JSON(http.StatusBadGateway, result.Error(502, "部分存储源删除失败，文件记录已保留，可稍后重试"))
 		return
 	}
 
-	var deleteStatus bool
-	// 检查存储
-	switch image.Storage {
-	case "default":
-		deleteStatus = DeleteDefaultStorageImage(image)
-	case "s3":
-		deleteStatus = DeleteS3StorageImage(image, bucket)
-	case "r2":
-		deleteStatus = DeleteR2StorageImage(image, bucket)
-	case "webdav":
-		deleteStatus = DeleteWebDavStorageImage(image, bucket)
-	case "ftp":
-		deleteStatus = DeleteFtpStorageImage(image, bucket)
-	case "telegram":
-		deleteStatus = DeleteTelegramStorageImage(image, bucket)
-	default:
-		deleteStatus = false
-	}
-
-	// 删除数据库记录
-	if err := db.Delete(&image).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("image_id = ?", image.Id).Delete(&models.ImageStorage{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("image_id = ?", image.Id).Delete(&models.ImageToTags{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&image).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
 			"msg":  "删除图片记录失败",
 		})
-		return
-	}
-
-	// 对应存储减去存储空间
-	if image.BucketId != 1 {
-		result := db.Model(&models.Buckets{}).
-			Where("id = ? AND usage >= ?", image.BucketId, image.FileSize).
-			UpdateColumn("usage", gorm.Expr("usage - ?", image.FileSize))
-		if result.Error != nil {
-			log.Printf("更新Usage失败：%v", result.Error)
-		}
-	}
-
-	// 删除关联tag
-	db.Where("image_id = ?", image.Id).Delete(models.ImageToTags{})
-
-	if !deleteStatus {
-		c.JSON(http.StatusOK, result.Success(
-			"记录删除成功,物理删除失败",
-			nil,
-		))
 		return
 	}
 

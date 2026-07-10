@@ -21,10 +21,15 @@ require (
 	gorm.io/gorm v1.25.4
 )
 
-require github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
+require (
+	github.com/coreos/go-oidc/v3 v3.17.0
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
+	golang.org/x/oauth2 v0.35.0
+)
 
 require (
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect

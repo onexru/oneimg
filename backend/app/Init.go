@@ -6,6 +6,7 @@ import (
 	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
 	"oneimg/backend/utils/images"
 
 	"golang.org/x/crypto/bcrypt"
@@ -40,6 +41,13 @@ func Init() *System {
 
 	// 初始化默认存储配置
 	InitDefaultStorage(db)
+
+	// 为旧图片补齐单存储副本记录，然后启动持久化同步队列。
+	// Backfill 使用复合唯一索引保证幂等，因此每次启动都执行。
+	if err := services.BackfillImageStorages(); err != nil {
+		log.Printf("图片存储副本回填失败: %v", err)
+	}
+	services.StartStorageSyncWorker()
 
 	r := &System{
 		Config:   cfg,
