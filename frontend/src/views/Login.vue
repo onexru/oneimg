@@ -2,7 +2,7 @@
     <div class="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
         <!-- 全局加载遮罩 -->
         <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px] md:ml-[255px]">
+            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px] lg:ml-[255px]">
                 <!-- 加载动画 -->
                 <div class="loading-spinner w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
                 <h3 class="loading-title text-lg font-bold text-center text-gray-800 dark:text-white mb-2">{{ loadingTitle }}</h3>
@@ -76,10 +76,10 @@
         <!-- POW验证弹窗 -->
         <div 
             v-if="showModal" 
-            class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 transition-opacity duration-300  md:ml-[255px]"
+            class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 transition-opacity duration-300"
             @click="closeModal" id="powModal" style="display: none;"
         >
-            <div class="modal bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 transform transition-all duration-300 scale-100" @click.stop>
+            <div class="modal bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 transform transition-all duration-300 scale-100 lg:ml-[255px]" @click.stop>
                 <div class="modal-header p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                     <h3 class="modal-title text-lg font-bold text-gray-800 dark:text-white">安全验证</h3>
                     <button 
@@ -325,6 +325,7 @@ const putLogin = async (token, touristId = '') => {
             // 保存用户信息
             const userInfo = {
                 username: username.value,
+                role: result.data?.user?.role,
                 isTourist: !!touristId,
                 touristFingerprint: touristId || ''
             };

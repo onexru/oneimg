@@ -177,7 +177,6 @@
                 <i class="ri-gallery-line text-primary"></i>
                 最近上传
               </h2>
-              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">结果区保持紧凑，优先看图和复制链接。</p>
             </div>
             <span class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300">{{ recentImages.length }} 张</span>
           </div>
@@ -411,12 +410,18 @@ const getUploadConfig = async () => {
     if (response.ok && result.code === 200) {
       presetTags.value = result.data?.tags || [];
       presetBuckets.value = result.data?.buckets || [];
+      const resultDefBucket = result.data?.default_bucket || '1';
       const bucketId = localStorage.getItem('currentBucket');
       if (bucketId != null){
         const num = parseInt(bucketId);
-        selectedBucket.value = Number.isNaN(num) ? '1' : bucketId;
+        // 检查本地存储是否在存储列表中
+        const bucketBucket = presetBuckets.value.find((bucket) => {
+          return bucket.id === num
+        })
+        // 如果本地存储不在存储列表中，则使用默认存储
+        selectedBucket.value = bucketBucket?.id || resultDefBucket;
       } else {
-        selectedBucket.value = result.data?.default_bucket || '1';
+        selectedBucket.value = resultDefBucket;
       }
     } else {
       throw new Error(result.message || '获取上传配置失败');
@@ -432,7 +437,7 @@ const getUploadConfig = async () => {
  */
 const loadRecentImages = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/images?limit=12&role=${isGuest() ? 'guest' : 'admin'}`, {
+    const response = await fetch(`${API_BASE_URL}/api/images?limit=12`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
       }
@@ -959,7 +964,7 @@ const previewImage = (image) => {
           <a 
               class="spotlight min-w-full max-w-full min-h-[260px] block" 
               href="${getFullUrl(image.url)}" 
-              data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${image.user_id == '1' ? '管理员' : '游客'}"
+              data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }"
           >
               <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden animate-pulse flex items-center justify-center">
                   <div class="absolute inset-0 flex items-center justify-center">

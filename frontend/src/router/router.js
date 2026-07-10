@@ -68,6 +68,14 @@ const routes = [
     }
   },
   {
+    path: '/users',
+    name: 'Users',
+    component: () => import('@/views/Users.vue'),
+    meta: { 
+      title: '用户管理' 
+    }
+  },
+  {
     path: '/account',
     name: 'Account',
     component: () => import('@/views/Account.vue'),

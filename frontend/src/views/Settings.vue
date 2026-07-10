@@ -464,24 +464,24 @@
                         </h2>
                         
                         <div class="account-form space-y-4 md:space-y-5">
-                            <!-- 是否保存原图 -->
+                            <!-- 是否压缩图片 -->
                             <div class="setting-row">
                                 <div>
-                                    <p class="setting-row-title">保存原图</p>
+                                    <p class="setting-row-title">压缩图片</p>
                                 </div>
                                 <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
                                     <input 
                                         type="checkbox" 
-                                        v-model="systemSettings.original_image"
+                                        v-model="systemSettings.compress_image"
                                         class="sr-only peer"
-                                        @change="handleSwitchChange('original_image', systemSettings.original_image)"
+                                        @change="handleSwitchChange('compress_image', systemSettings.compress_image)"
                                     >
                                     <div class="switch-track"></div>
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
                             
-                            <!-- 其他开关省略（和之前一致） -->
+                            <!-- 其他开关省略 -->
                             <div class="setting-row">
                                 <div>
                                     <p class="setting-row-title">保存 WEBP 格式</p>
@@ -652,7 +652,7 @@ const presetBuckets = ref([
 // 系统设置项
 const systemSettings = reactive({
     id: 1,
-    original_image: false,
+    compress_image: false,
     save_webp: false,
     thumbnail: false,
     tourist: false,

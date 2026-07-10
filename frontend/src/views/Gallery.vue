@@ -36,6 +36,17 @@
             >
               游客
             </button>
+            <button
+              @click="changeRole('user')"
+              class="px-3 py-1.5 text-sm transition-all"
+              :class="[
+                roleImage === 'user' 
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
+                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
+              ]"
+            >
+              用户
+            </button>
           </div>
             </div>
 
@@ -129,9 +140,9 @@
               <div class="gallery-card-badges">
                 <span 
                   class="image-role gallery-card-badge"
-                  :class="getRoleTagClass(image.user_id)"
+                  :class="getRoleTagClass(image.uploader_role)"
                 >
-                  {{ image.user_id == '1' ? '管理员' : '游客' }}
+                  {{ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }}
                 </span>
                 <span class="gallery-card-badge gallery-card-badge-dark">
                   {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
@@ -216,9 +227,9 @@
         <div class="empty-icon mb-3 text-5xl text-gray-400 dark:text-gray-600">
           <i class="ri-image-ai-line"></i>
         </div>
-        <h3 class="mb-2 text-lg font-bold">暂无{{ roleImage === 'admin' ? '管理员' : '游客' }}图片</h3>
+        <h3 class="mb-2 text-lg font-bold">暂无图片</h3>
         <p class="mb-4 text-gray-600 dark:text-gray-400">
-          还没有上传任何{{ roleImage === 'admin' ? '管理员' : '游客' }}图片，
+          还没有上传任何图片，
           <router-link to="/" class="text-primary hover:underline">去上传一些吧</router-link>
         </p>
       </div>
@@ -237,7 +248,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const PAGE_SIZE = 20;
 const ROLE_MAP = {
   admin: '管理员',
-  guest: '游客'
+  guest: '游客',
+  user: '用户'
 };
 const STORAGE_MAP = {
   default: '本地'
@@ -289,11 +301,11 @@ const formatDate = (dateString) => {
 
 /**
  * 获取角色标签样式类
- * @param {string|number} userId - 用户ID
+ * @param {string|number} role - 角色标识符
  * @returns {string} 样式类字符串
  */
-const getRoleTagClass = (userId) => {
-  return userId == '1' 
+const getRoleTagClass = (role) => {
+  return role == '1' || role == '3'
     ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' 
     : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
 };
@@ -447,7 +459,7 @@ const loadImages = async () => {
       limit: PAGE_SIZE,
       sort_by: 'created_at',
       sort_order: 'desc',
-      role: roleImage.value,
+      role: isAdmin.value ? roleImage.value : '',
       tags: selectedTags.value,
       bucket: selectedBucket.value
     });
@@ -620,7 +632,7 @@ const deleteImageTagAsync = async (imageId, tagId) => {
 // ====================== 事件处理函数 ======================
 /**
  * 切换角色筛选
- * @param {string} role - 角色类型（admin/guest）
+ * @param {string} role - 角色类型（admin/guest/user）
  */
 const changeRole = (role) => {
   if (roleImage.value !== role) {
@@ -972,7 +984,7 @@ const generatePreviewContent = (image) => {
       <div class="preview-header bg-light-50 pb-2 flex justify-between items-center">
         <div class="flex items-center gap-2">
           <span class="text-xs px-2 py-0.5 rounded" style="${roleClass}">
-            ${image.user_id == '1' ? '管理员' : '游客'}
+            ${image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }
           </span>
           <span class="text-xs text-white px-2 py-0.5 rounded bg-success">
             ${presetBuckets.value.find(bucket => bucket.id == image.bucket_id)?.name}
@@ -1003,7 +1015,7 @@ const generatePreviewContent = (image) => {
         <a 
           class="spotlight min-w-full max-w-full min-h-[260px] block" 
           href="${getFullUrl(image.url)}" 
-          data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${image.user_id == '1' ? '管理员' : '游客'}"
+          data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }"
         >
           <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden animate-pulse flex items-center justify-center">
             <div class="absolute inset-0 flex items-center justify-center">
@@ -1069,7 +1081,7 @@ const generatePreviewContent = (image) => {
         </div>
         <div class="flex items-center gap-1.5">
           <i class="ri-user-line"></i>
-          角色: ${image.user_id == '1' ? '管理员' : '游客'}
+          角色: ${ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }
         </div>
       </div>
     </div>
@@ -1280,10 +1292,10 @@ const addImageTagModal = async (imageId) => {
 onMounted(() => {
   // 初始化用户角色
   const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-  if (userInfo?.isTourist === true) {
-    roleImage.value = "guest";
-  } else {
+  if (userInfo?.role === 1) {
     isAdmin.value = true;
+  } else {
+    roleImage.value = userInfo?.role == 2 ? "guest" : (userInfo?.role == 3 ? "user": "guest");
   }
   
   // 加载数据

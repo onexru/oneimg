@@ -116,9 +116,10 @@ const refreshNavItems = () => {
     { path: '/stats', icon: 'bar-chart-grouped-line', name: '数据统计' }
   )
 
-  if (userInfo?.isTourist !== true) {
+  if (userInfo?.role == 1) {
     navItems.value.push(
       { path: '/buckets', icon: 'database-2-line', name: '存储管理' },
+      { path: '/users', icon: 'user-line', name: '用户管理' },
       { path: '/account', icon: 'shield-user-line', name: '账户设置' },
       { path: '/settings', icon: 'settings-4-line', name: '系统设置' }
     )
