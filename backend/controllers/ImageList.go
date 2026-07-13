@@ -26,6 +26,7 @@ type ImageWithTags struct {
 	Height          int                          `json:"height" gorm:"column:height"`
 	Storage         string                       `json:"storage" gorm:"column:storage"`
 	BucketId        int                          `json:"bucket_id" gorm:"column:bucket_id"`
+	AccessBucketId  int                          `json:"access_bucket_id" gorm:"column:access_bucket_id"`
 	UserId          int                          `json:"user_id" gorm:"column:user_id"`
 	UploaderRole    int                          `json:"uploader_role" gorm:"-"`
 	Md5             string                       `json:"md5" gorm:"column:md5"`
@@ -171,7 +172,7 @@ func GetImageList(c *gin.Context) {
 
 	var images []ImageWithTags
 	if len(imageIds) > 0 {
-		imageFields := "id, url, thumbnail, file_name, file_size, mime_type, width, height, storage, bucket_id, user_id, md5, uuid, created_at"
+		imageFields := "id, url, thumbnail, file_name, file_size, mime_type, width, height, storage, bucket_id, access_bucket_id, user_id, md5, uuid, created_at"
 		if err := db.Model(&models.Image{}).
 			Select(imageFields).
 			Where("id IN (?)", imageIds).
@@ -283,8 +284,10 @@ func GetImageList(c *gin.Context) {
 		return
 	}
 	for i := range images {
-		images[i].Url = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Url)
-		images[i].Thumbnail = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Thumbnail)
+		if images[i].AccessBucketId == 0 {
+			images[i].Url = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Url)
+			images[i].Thumbnail = applyPublicImageURL(setting, images[i].Storage, images[i].BucketId, images[i].Thumbnail)
+		}
 		images[i].StorageStatuses = storageStatuses[images[i].Id]
 	}
 

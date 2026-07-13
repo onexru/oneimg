@@ -1,0 +1,6 @@
+.env
+data/.config_secret
+frontend/dist/
+frontend/node_modules/
+oneimg
+uploads/

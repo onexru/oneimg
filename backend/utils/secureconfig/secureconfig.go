@@ -97,6 +97,7 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 		"save_original_name":            setting.SaveOriginalName,
 		"default_storage":               setting.DefaultStorage,
 		"multi_storage_sync":            setting.MultiStorageSync,
+		"encrypted_storage":             setting.EncryptedStorage,
 		"oidc_enable":                   setting.OIDCEnable,
 		"oidc_issuer":                   setting.OIDCIssuer,
 		"oidc_client_id":                setting.OIDCClientID,

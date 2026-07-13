@@ -37,6 +37,9 @@ func NormalizeDomain(value string) (string, error) {
 }
 
 func HasDomain(setting models.Settings) bool {
+	if setting.EncryptedStorage {
+		return false
+	}
 	domain, err := NormalizeDomain(setting.PublicImageDomain)
 	return err == nil && domain != ""
 }
@@ -44,6 +47,9 @@ func HasDomain(setting models.Settings) bool {
 func Build(setting models.Settings, imagePath string) string {
 	path := strings.TrimSpace(imagePath)
 	if path == "" || isAbsoluteURL(path) {
+		return path
+	}
+	if setting.EncryptedStorage {
 		return path
 	}
 

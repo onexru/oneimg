@@ -30,14 +30,10 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 	uc := uploads.NewUploadContext(c)
 	db := database.GetDB()
 
-	bucketID := setting.DefaultStorage
-	if rawBucketID := c.PostForm("bucket_id"); rawBucketID != "" {
-		parsedID, err := strconv.Atoi(rawBucketID)
-		if err != nil {
-			uc.Fail(http.StatusBadRequest, "存储ID无效")
-			return
-		}
-		bucketID = parsedID
+	bucketID, err := resolveLegacyRequestedBucketID(c, setting, c.PostForm("bucket_id"))
+	if err != nil {
+		uc.Fail(http.StatusBadRequest, "%v", err)
+		return
 	}
 
 	allowed, err := canUseLegacyUploadBucket(c, setting, bucketID)
@@ -179,14 +175,10 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag, rawBucketID string) {
 	uc := uploads.NewUploadContext(c)
 	db := database.GetDB()
-	bucketID := setting.DefaultStorage
-	if rawBucketID != "" {
-		parsedID, err := strconv.Atoi(rawBucketID)
-		if err != nil {
-			uc.Fail(http.StatusBadRequest, "存储ID无效")
-			return
-		}
-		bucketID = parsedID
+	bucketID, err := resolveLegacyRequestedBucketID(c, setting, rawBucketID)
+	if err != nil {
+		uc.Fail(http.StatusBadRequest, "%v", err)
+		return
 	}
 
 	allowed, err := canUseLegacyUploadBucket(c, setting, bucketID)
@@ -351,4 +343,28 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 	responseResult.URL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.URL)
 	responseResult.ThumbnailURL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.ThumbnailURL)
 	uc.Success("URL 图片上传成功", map[string]any{"file": responseResult})
+}
+
+func resolveLegacyRequestedBucketID(c *gin.Context, setting models.Settings, rawBucketID string) (int, error) {
+	if rawBucketID != "" {
+		bucketID, err := strconv.Atoi(rawBucketID)
+		if err != nil || bucketID <= 0 {
+			return 0, errors.New("存储ID无效")
+		}
+		return bucketID, nil
+	}
+
+	available, err := resolveLegacyUploadBuckets(c, setting)
+	if err != nil {
+		return 0, fmt.Errorf("获取可用存储源失败：%w", err)
+	}
+	for _, bucket := range available {
+		if bucket.Id == setting.DefaultStorage {
+			return bucket.Id, nil
+		}
+	}
+	if len(available) > 0 {
+		return available[0].Id, nil
+	}
+	return 0, errors.New("当前没有可用的存储源")
 }

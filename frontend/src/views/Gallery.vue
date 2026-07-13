@@ -104,6 +104,12 @@
             </div>
           <div v-if="selectedImages.length > 0" class="batch-actions flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
             <button
+              @click="handleBatchSetAccessSource"
+              class="soft-button">
+              <i class="ri-route-line"></i>
+              批量设置访问源
+            </button>
+            <button
             @click="handleBatchSetTag"
             class="soft-button">
                 <i class="ri-bookmark-2-fill"></i>
@@ -190,6 +196,29 @@
                 {{ image.width }}×{{ image.height }}
               </p>
               <p class="gallery-image-card-meta">{{ formatDate(image.created_at) }}</p>
+              <div class="mt-2" @click.stop>
+                <label :for="`access-source-${image.id}`" class="mb-1 flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  <i class="ri-route-line"></i>
+                  访问链接读取源
+                </label>
+                <select
+                  :id="`access-source-${image.id}`"
+                  class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/20 disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
+                  :value="getSelectedAccessBucketId(image)"
+                  :disabled="isAccessSourceUpdating(image.id) || getAccessSourceOptions(image).length === 0"
+                  @change="handleAccessSourceChange(image, $event)"
+                  @click.stop
+                >
+                  <option
+                    v-for="source in getAccessSourceOptions(image)"
+                    :key="`${image.id}-access-${source.bucket_id}`"
+                    :value="source.bucket_id"
+                    :disabled="source.bucket_disabled || source.access_unavailable"
+                  >
+                    {{ getAccessSourceOptionLabel(source) }}
+                  </option>
+                </select>
+              </div>
               <div v-if="multiStorageSync" class="mt-2 space-y-1.5">
                 <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 dark:border-white/10 dark:bg-slate-950">
                   <span class="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200">本机</span>
@@ -398,6 +427,7 @@ const selectedTags = ref([]); // 选中的标签ID数组
 const selectAll = ref(false); // 全选状态
 const currentPreviewImage = ref(null);
 const multiStorageSync = ref(false);
+const accessSourceUpdatingIds = ref([]);
 let syncPollTimer = null;
 
 // 路由实例
@@ -418,6 +448,69 @@ const visiblePages = computed(() => {
   
   return pages;
 });
+
+const getSelectedAccessBucketId = (image) => {
+  const selected = Number(image?.access_bucket_id || 0);
+  if (selected > 0) return selected;
+  const localSource = Array.isArray(image?.storage_statuses)
+    ? image.storage_statuses.find(source => source?.status === 'success' && source?.bucket_type === 'default' && !source?.bucket_disabled)
+    : null;
+  return Number(localSource?.bucket_id || image?.bucket_id || 0);
+};
+
+const getAccessSourceOptions = (image) => {
+  const statuses = Array.isArray(image?.storage_statuses) ? image.storage_statuses : [];
+  const options = statuses
+    .filter(source => source?.bucket_id && source.status === 'success')
+    .map(source => ({ ...source }));
+  const selectedBucketId = getSelectedAccessBucketId(image);
+
+  if (!options.some(source => Number(source.bucket_id) === selectedBucketId)) {
+    const selectedStatus = statuses.find(source => Number(source?.bucket_id) === selectedBucketId);
+    if (selectedStatus) {
+      options.push({ ...selectedStatus, access_unavailable: true });
+    }
+  }
+
+  if (options.length === 0 && image?.bucket_id) {
+    const bucket = presetBuckets.value.find(item => Number(item.id) === Number(image.bucket_id));
+    options.push({
+      bucket_id: Number(image.bucket_id),
+      bucket_name: bucket?.name || `存储源 #${image.bucket_id}`,
+      bucket_type: bucket?.type || image.storage,
+      bucket_disabled: bucket?.disabled === true,
+      status: 'success',
+    });
+  }
+
+  const unique = new Map();
+  options.forEach(source => unique.set(Number(source.bucket_id), source));
+  return Array.from(unique.values()).sort((left, right) => {
+    if (left.bucket_type === 'default' && right.bucket_type !== 'default') return -1;
+    if (left.bucket_type !== 'default' && right.bucket_type === 'default') return 1;
+    return Number(left.bucket_id) - Number(right.bucket_id);
+  });
+};
+
+const getAccessSourceOptionLabel = (source) => {
+  const name = source?.bucket_type === 'default'
+    ? `${source?.bucket_name || '本机'}（默认）`
+    : getStorageDisplayName(source);
+  if (source?.bucket_disabled) return `${name}（已停用，回退本机）`;
+  if (source?.access_unavailable) return `${name}（不可用，回退本机）`;
+  return name;
+};
+
+const isAccessSourceUpdating = imageId => accessSourceUpdatingIds.value.includes(Number(imageId));
+
+const setAccessSourceUpdating = (imageId, updating) => {
+  const id = Number(imageId);
+  if (updating && !accessSourceUpdatingIds.value.includes(id)) {
+    accessSourceUpdatingIds.value = [...accessSourceUpdatingIds.value, id];
+  } else if (!updating) {
+    accessSourceUpdatingIds.value = accessSourceUpdatingIds.value.filter(item => item !== id);
+  }
+};
 
 // ====================== 监听器 ======================
 /**
@@ -776,6 +869,139 @@ const handleImageSelection = (imageId, isChecked) => {
   } else {
     selectedImages.value = selectedImages.value.filter(id => id !== imageId);
   }
+};
+
+const handleAccessSourceChange = async (image, event) => {
+  const previousBucketId = getSelectedAccessBucketId(image);
+  const bucketId = Number(event.target.value);
+  if (!bucketId || bucketId === previousBucketId) return;
+
+  const source = getAccessSourceOptions(image).find(item => Number(item.bucket_id) === bucketId);
+  if (!source || source.bucket_disabled || source.access_unavailable) {
+    event.target.value = String(previousBucketId);
+    Message.warning('该存储源当前不可用');
+    return;
+  }
+
+  setAccessSourceUpdating(image.id, true);
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/images/${image.id}/access-source`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      },
+      body: JSON.stringify({ bucket_id: bucketId })
+    });
+    const result = await response.json();
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '设置访问源失败');
+    }
+    image.access_bucket_id = bucketId;
+    if (currentPreviewImage.value?.id === image.id) {
+      currentPreviewImage.value.access_bucket_id = bucketId;
+    }
+    Message.success(result.message || '图片访问源已更新');
+  } catch (error) {
+    event.target.value = String(previousBucketId);
+    console.error('设置图片访问源失败:', error);
+    Message.error(error.message || '设置图片访问源失败');
+  } finally {
+    setAccessSourceUpdating(image.id, false);
+  }
+};
+
+const getBatchAccessSourceOptions = () => {
+  const selected = images.value.filter(image => selectedImages.value.includes(image.id));
+  if (selected.length === 0) return [];
+
+  const candidates = getAccessSourceOptions(selected[0]).filter(
+    source => !source.bucket_disabled && !source.access_unavailable
+  );
+  return candidates.filter(candidate => selected.every(image =>
+    getAccessSourceOptions(image).some(source =>
+      Number(source.bucket_id) === Number(candidate.bucket_id) &&
+      !source.bucket_disabled &&
+      !source.access_unavailable
+    )
+  ));
+};
+
+const updateBatchAccessSource = async (bucketId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/images/access-source`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      },
+      body: JSON.stringify({
+        image_ids: selectedImages.value,
+        bucket_id: Number(bucketId),
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '批量设置访问源失败');
+    }
+    images.value.forEach(image => {
+      if (selectedImages.value.includes(image.id)) image.access_bucket_id = Number(bucketId);
+    });
+    Message.success(result.message || '批量访问源已更新');
+    return true;
+  } catch (error) {
+    console.error('批量设置访问源失败:', error);
+    Message.error(error.message || '批量设置访问源失败');
+    return false;
+  }
+};
+
+const handleBatchSetAccessSource = () => {
+  if (selectedImages.value.length === 0) {
+    Message.warning('请选择要编辑的图片');
+    return;
+  }
+
+  const sources = getBatchAccessSourceOptions();
+  if (sources.length === 0) {
+    Message.warning('所选图片没有共同的、已同步成功的可用存储源');
+    return;
+  }
+  const localSource = sources.find(source => source.bucket_type === 'default');
+  const defaultBucketId = localSource?.bucket_id || sources[0].bucket_id;
+  const modal = new showFormModal({
+    title: '批量设置访问源',
+    formFields: [
+      {
+        name: 'bucket_id',
+        label: '访问链接读取源',
+        type: 'select',
+        required: true,
+        defaultValue: String(defaultBucketId),
+        options: sources.map(source => ({
+          value: String(source.bucket_id),
+          label: getAccessSourceOptionLabel(source),
+        })),
+        tip: `仅显示这 ${selectedImages.value.length} 张图片都已同步成功的存储源`,
+      },
+    ],
+    buttons: [
+      {
+        text: '取消',
+        type: 'default',
+        callback: modalInstance => modalInstance.close(),
+      },
+      {
+        text: '确认设置',
+        type: 'primary',
+        callback: async modalInstance => {
+          const formData = serializeForm(modalInstance);
+          if (await updateBatchAccessSource(formData.bucket_id)) modalInstance.close();
+        },
+      },
+    ],
+  });
+  modal.open();
 };
 
 /**

@@ -34,13 +34,26 @@
         v-for="storage in buckets"
         :key="storage.key"
         class="section-card relative"
+        :class="{ 'opacity-75': storage.disabled }"
       >
         <h3 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
           {{ storage.name }}
           <span class="text-xs bg-gray-100 dark:bg-dark-300 text-gray-500 dark:text-gray-300 px-2 py-0.5 rounded-full">
             {{ storage.type === 'default' ? '默认存储' : storage.type.toUpperCase() }}
           </span>
+          <span
+            class="rounded-full px-2 py-0.5 text-xs"
+            :class="storage.disabled
+              ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'"
+          >
+            {{ storage.disabled ? '已停用' : '已启用' }}
+          </span>
         </h3>
+
+        <p v-if="storage.disabled" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+          已有文件保留；新上传、同步和图片访问暂不使用该存储源。
+        </p>
 
         <div class="grid grid-cols-3 gap-3 mb-5">
           <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
@@ -84,6 +97,14 @@
           </button>
           <template v-if="storage.type !== 'default'">
             <button
+              type="button"
+              :disabled="togglingBucketId === storage.id"
+              @click="ToggleBucketEnabled(storage)"
+              class="soft-button text-sm disabled:cursor-wait disabled:opacity-60">
+              <i :class="togglingBucketId === storage.id ? 'ri-loader-4-line animate-spin' : (storage.disabled ? 'ri-play-circle-line' : 'ri-pause-circle-line')"></i>
+              {{ togglingBucketId === storage.id ? '处理中' : (storage.disabled ? '启用存储' : '临时停用') }}
+            </button>
+            <button
               @click="UpdateBucketModal(storage)"
               class="soft-button text-sm">
               <i class="ri-edit-fill"></i>
@@ -108,6 +129,7 @@ import message from '@/utils/message.js';
 const buckets = ref([]);
 const testingBucketId = ref(null);
 const testingDraft = ref(false);
+const togglingBucketId = ref(null);
 
 const typeSpecificFields = {
   s3: [
@@ -361,6 +383,33 @@ const TestSavedBucket = async (storage) => {
     message.error(error.message || '存储连接测试失败');
   } finally {
     testingBucketId.value = null;
+  }
+};
+
+const ToggleBucketEnabled = async (storage) => {
+  if (togglingBucketId.value !== null) return;
+  togglingBucketId.value = storage.id;
+  const enabled = storage.disabled === true;
+  try {
+    const response = await fetch(`/api/buckets/${storage.id}/enabled`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      },
+      body: JSON.stringify({ enabled })
+    });
+    const result = await response.json();
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '更新存储源状态失败');
+    }
+    storage.disabled = result.data?.disabled === true;
+    message.success(result.message || (enabled ? '存储源已启用' : '存储源已临时停用'));
+  } catch (error) {
+    console.error('更新存储源状态失败:', error);
+    message.error(error.message || '更新存储源状态失败');
+  } finally {
+    togglingBucketId.value = null;
   }
 };
 

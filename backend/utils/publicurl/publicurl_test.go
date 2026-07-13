@@ -47,3 +47,18 @@ func TestBuildForStorageOnlyRewritesDefaultSupportedBucket(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildForStorageKeepsProxyURLForEncryptedStorage(t *testing.T) {
+	setting := models.Settings{
+		DefaultStorage:    2,
+		PublicImageDomain: "img.example.com",
+		EncryptedStorage:  true,
+	}
+	const imagePath = "/uploads/a.webp"
+	if got := BuildForStorage(setting, "s3", 2, imagePath); got != imagePath {
+		t.Fatalf("encrypted storage URL = %q, want proxy path %q", got, imagePath)
+	}
+	if HasDomain(setting) {
+		t.Fatal("direct image domain must not be effective for encrypted storage")
+	}
+}

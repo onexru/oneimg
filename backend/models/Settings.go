@@ -25,6 +25,7 @@ type Settings struct {
 	// 默认存储
 	DefaultStorage   int  `gorm:"column:default_storage;default:1" json:"default_storage"`           // 单存储模式下的默认存储
 	MultiStorageSync bool `gorm:"column:multi_storage_sync;default:false" json:"multi_storage_sync"` // 是否启用本机落盘后的多存储后台同步
+	EncryptedStorage bool `gorm:"column:encrypted_storage;default:false" json:"encrypted_storage"`   // 是否加密新写入到各存储源的图片文件
 
 	// 外部身份认证
 	OIDCEnable             bool   `gorm:"column:oidc_enable;default:false" json:"oidc_enable"`

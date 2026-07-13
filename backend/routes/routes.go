@@ -110,6 +110,8 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.DELETE("/images/tag", controllers.DeleteImageTag)
 			auth.DELETE("/images/tags", controllers.DeleteImageTags) // 批量删除图片标签
 			auth.POST("/images/tags", controllers.AddImageTags)
+			auth.PUT("/images/access-source", controllers.BatchUpdateImageAccessSource)
+			auth.PUT("/images/:id/access-source", controllers.UpdateImageAccessSource)
 
 			// 通过URL上传图片
 			auth.POST("/images/url", controllers.UploadImagesByURL)
@@ -125,6 +127,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 				auth.POST("/buckets", controllers.AddBuckets)
 				auth.POST("/buckets/test", controllers.TestBucketConnection)
 				auth.POST("/buckets/update/:id", controllers.UpdateBuckets)
+				auth.PUT("/buckets/:id/enabled", controllers.UpdateBucketEnabled)
 				auth.DELETE("/buckets/:id", controllers.DeleteBuckets)
 
 				// 账户管理接口

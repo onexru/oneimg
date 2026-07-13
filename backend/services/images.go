@@ -6,6 +6,7 @@ import (
 	"image"
 	"mime/multipart"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/securestorage"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,7 +38,7 @@ func UploadToLocal(fileBytes []byte, fileHeader *multipart.FileHeader, setting m
 
 	// 2. 保存文件到本地
 	savePath := "./uploads"
-	if err := SaveFile(fileBytes, savePath, uniqueFileName); err != nil {
+	if err := SaveFileWithEncryption(fileBytes, savePath, uniqueFileName, setting.EncryptedStorage); err != nil {
 		return nil, fmt.Errorf("保存文件失败：%v", err)
 	}
 
@@ -71,6 +72,10 @@ func UploadToWebDAV(fileBytes []byte, fileHeader *multipart.FileHeader, setting 
 }
 
 func SaveFile(fileBytes []byte, savePath, fileName string) error {
+	return SaveFileWithEncryption(fileBytes, savePath, fileName, false)
+}
+
+func SaveFileWithEncryption(fileBytes []byte, savePath, fileName string, encrypted bool) error {
 	// 创建目录（如果不存在）
 	if err := os.MkdirAll(savePath, 0755); err != nil {
 		return fmt.Errorf("创建目录失败：%v", err)
@@ -78,14 +83,7 @@ func SaveFile(fileBytes []byte, savePath, fileName string) error {
 
 	// 写入文件
 	fullPath := filepath.Join(savePath, fileName)
-	file, err := os.Create(fullPath)
-	if err != nil {
-		return fmt.Errorf("创建文件失败：%v", err)
-	}
-	defer file.Close()
-
-	_, err = file.Write(fileBytes)
-	if err != nil {
+	if err := securestorage.WriteFile(fullPath, fileBytes, encrypted); err != nil {
 		return fmt.Errorf("写入文件失败：%v", err)
 	}
 

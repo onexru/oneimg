@@ -23,6 +23,7 @@ import (
 	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/s3"
+	"oneimg/backend/utils/securestorage"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
 )
@@ -81,14 +82,18 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	if !setting.SaveWebp {
 		contentType = fileHeader.Header.Get("Content-Type")
 	}
+	storedImageBytes, err := securestorage.Encode(processedImage.CompressedBytes, setting.EncryptedStorage)
+	if err != nil {
+		return nil, fmt.Errorf("加密图片失败：%v", err)
+	}
 
 	// 获取Bucket
 	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
 	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
 		Bucket:      aws.String(storageConfig.R2Bucket),
 		Key:         aws.String(objectKey),
-		Body:        bytes.NewReader(processedImage.CompressedBytes),
-		ContentType: aws.String(contentType),
+		Body:        bytes.NewReader(storedImageBytes),
+		ContentType: aws.String(storageContentType(contentType, setting.EncryptedStorage)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("R2上传失败：%v", err)
@@ -97,11 +102,15 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	thumbnailURL := ""
 	// 检查是否上传缩略图
 	if setting.Thumbnail {
+		storedThumbnailBytes, encryptErr := securestorage.Encode(processedImage.ThumbnailBytes, setting.EncryptedStorage)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
+		}
 		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
 			Bucket:      aws.String(storageConfig.R2Bucket),
 			Key:         aws.String(PathJoin(subDir, "thumbnails", uniqueFileName)), // 缩略图存放路径
-			Body:        bytes.NewReader(processedImage.ThumbnailBytes),
-			ContentType: aws.String("image/webp"),
+			Body:        bytes.NewReader(storedThumbnailBytes),
+			ContentType: aws.String(storageContentType("image/webp", setting.EncryptedStorage)),
 		})
 		if err == nil {
 			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
@@ -172,14 +181,18 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	if !setting.SaveWebp {
 		contentType = fileHeader.Header.Get("Content-Type")
 	}
+	storedImageBytes, err := securestorage.Encode(processedImage.CompressedBytes, setting.EncryptedStorage)
+	if err != nil {
+		return nil, fmt.Errorf("加密图片失败：%v", err)
+	}
 
 	// 获取Bucket
 	storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
 	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
 		Bucket:      aws.String(storageConfig.S3Bucket),
 		Key:         aws.String(objectKey),
-		Body:        bytes.NewReader(processedImage.CompressedBytes),
-		ContentType: aws.String(contentType),
+		Body:        bytes.NewReader(storedImageBytes),
+		ContentType: aws.String(storageContentType(contentType, setting.EncryptedStorage)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("S3/R2上传失败：%v", err)
@@ -188,11 +201,15 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 	thumbnailURL := ""
 	// 检查是否上传缩略图
 	if setting.Thumbnail {
+		storedThumbnailBytes, encryptErr := securestorage.Encode(processedImage.ThumbnailBytes, setting.EncryptedStorage)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
+		}
 		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
 			Bucket:      aws.String(storageConfig.S3Bucket),
 			Key:         aws.String(PathJoin(subDir, "thumbnails", uniqueFileName)), // 缩略图存放路径
-			Body:        bytes.NewReader(processedImage.ThumbnailBytes),
-			ContentType: aws.String("image/webp"),
+			Body:        bytes.NewReader(storedThumbnailBytes),
+			ContentType: aws.String(storageContentType("image/webp", setting.EncryptedStorage)),
 		})
 		if err == nil {
 			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
@@ -268,7 +285,11 @@ func (u *WebDAVUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 	})
 
 	// 上传文件到WebDAV服务器
-	err = client.WebDAVUpload(context.TODO(), objectPath, bytes.NewReader(processedImage.CompressedBytes))
+	storedImageBytes, err := securestorage.Encode(processedImage.CompressedBytes, setting.EncryptedStorage)
+	if err != nil {
+		return nil, fmt.Errorf("加密图片失败：%v", err)
+	}
+	err = client.WebDAVUpload(context.TODO(), objectPath, bytes.NewReader(storedImageBytes))
 	if err != nil {
 		return nil, fmt.Errorf("WebDAV上传失败：%v", err)
 	}
@@ -276,7 +297,11 @@ func (u *WebDAVUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 	// 检查是否上传缩略图
 	thumbnailURL := ""
 	if setting.Thumbnail {
-		err = client.WebDAVUpload(context.TODO(), PathJoin(subDir, "thumbnails", uniqueFileName), bytes.NewReader(processedImage.ThumbnailBytes))
+		storedThumbnailBytes, encryptErr := securestorage.Encode(processedImage.ThumbnailBytes, setting.EncryptedStorage)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
+		}
+		err = client.WebDAVUpload(context.TODO(), PathJoin(subDir, "thumbnails", uniqueFileName), bytes.NewReader(storedThumbnailBytes))
 		if err == nil {
 			thumbnailURL = PathJoin(subDir, "thumbnails", uniqueFileName)
 		}
@@ -347,10 +372,14 @@ func (u *FTPUploader) Upload(c *gin.Context, setting *models.Settings, bucket *m
 		Timeout:  10,
 	})
 	defer ftpUtil.Close()
+	storedImageBytes, err := securestorage.Encode(processedImage.CompressedBytes, setting.EncryptedStorage)
+	if err != nil {
+		return nil, fmt.Errorf("加密图片失败：%v", err)
+	}
 	err = ftpUtil.UploadImage(
 		objectPath,
-		processedImage.CompressedBytes,
-		processedImage.MimeType,
+		storedImageBytes,
+		storageContentType(processedImage.MimeType, setting.EncryptedStorage),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("FTP上传失败：%v", err)
@@ -359,10 +388,14 @@ func (u *FTPUploader) Upload(c *gin.Context, setting *models.Settings, bucket *m
 	// 检查是否上传缩略图
 	thumbnailURL := ""
 	if setting.Thumbnail {
+		storedThumbnailBytes, encryptErr := securestorage.Encode(processedImage.ThumbnailBytes, setting.EncryptedStorage)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
+		}
 		err := ftpUtil.UploadImage(
 			PathJoin(subDir, "thumbnails", uniqueFileName),
-			processedImage.ThumbnailBytes,
-			"image/webp",
+			storedThumbnailBytes,
+			storageContentType("image/webp", setting.EncryptedStorage),
 		)
 		if err == nil {
 			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
@@ -431,7 +464,7 @@ func (u *DefaultUploader) Upload(c *gin.Context, setting *models.Settings, bucke
 	filePath := filepath.Join(fullSubDir, uniqueFileName)
 
 	// 保存处理后的图片文件
-	if err := saveFile(filePath, processedImage.CompressedBytes); err != nil {
+	if err := saveFile(filePath, processedImage.CompressedBytes, setting.EncryptedStorage); err != nil {
 		return nil, fmt.Errorf("保存文件失败：%v", err)
 	}
 	thumbnailURL := ""
@@ -441,7 +474,7 @@ func (u *DefaultUploader) Upload(c *gin.Context, setting *models.Settings, bucke
 			// 构建缩略图文件路径
 			thumbFilePath := filepath.Join(fullSubDir, "thumbnails", uniqueFileName)
 			// 保存缩略图文件
-			if err := saveFile(thumbFilePath, processedImage.ThumbnailBytes); err != nil {
+			if err := saveFile(thumbFilePath, processedImage.ThumbnailBytes, setting.EncryptedStorage); err != nil {
 				log.Println(err)
 				// 忽略错误
 			}
@@ -517,11 +550,17 @@ func (u *TelegramUploader) Upload(c *gin.Context, setting *models.Settings, buck
 	uniqueFileName := processedImage.UniqueFileName
 
 	// 上传主图片
-	fileID, messageID, err := tgClient.UploadPhotoByBytes(
+	storedImageBytes, err := securestorage.Encode(processedImage.CompressedBytes, setting.EncryptedStorage)
+	if err != nil {
+		return nil, fmt.Errorf("加密图片失败：%v", err)
+	}
+	fileID, messageID, err := uploadTelegramBytes(
+		tgClient,
 		storageConfig.TGReceivers,
-		processedImage.CompressedBytes,
+		storedImageBytes,
 		processedImage.UniqueFileName,
 		fmt.Sprintf("上传图片: %s", processedImage.UniqueFileName),
+		setting.EncryptedStorage,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("Telegram上传图片失败")
@@ -532,11 +571,17 @@ func (u *TelegramUploader) Upload(c *gin.Context, setting *models.Settings, buck
 	thumbFileIDURL := ""
 	thumbFileMessageID := 0
 	if setting.Thumbnail && len(processedImage.ThumbnailBytes) > 0 {
-		thumbFileID, thumbMessageID, err := tgClient.UploadPhotoByBytes(
+		storedThumbnailBytes, encryptErr := securestorage.Encode(processedImage.ThumbnailBytes, setting.EncryptedStorage)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
+		}
+		thumbFileID, thumbMessageID, err := uploadTelegramBytes(
+			tgClient,
 			storageConfig.TGReceivers,
-			processedImage.ThumbnailBytes,
+			storedThumbnailBytes,
 			fmt.Sprintf("thumbnail_%s", uniqueFileName),
 			fmt.Sprintf("缩略图: %s", processedImage.UniqueFileName),
+			setting.EncryptedStorage,
 		)
 		if err == nil {
 			// Telegram没有直接的URL，这里存储fileID作为标识
@@ -589,15 +634,8 @@ func ensureUploadDir(uploadPath string) error {
 }
 
 // saveFile 保存文件到磁盘
-func saveFile(filePath string, data []byte) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.Write(data)
-	return err
+func saveFile(filePath string, data []byte, encrypted bool) error {
+	return securestorage.WriteFile(filePath, data, encrypted)
 }
 
 func getProcessingSettings(setting *models.Settings, bucket *models.Buckets) models.Settings {
@@ -606,6 +644,20 @@ func getProcessingSettings(setting *models.Settings, bucket *models.Buckets) mod
 		processingSettings.WatermarkEnable = false
 	}
 	return processingSettings
+}
+
+func storageContentType(contentType string, encrypted bool) string {
+	if encrypted {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
+func uploadTelegramBytes(client *telegram.Config, chatID string, data []byte, filename, caption string, encrypted bool) (string, int, error) {
+	if encrypted {
+		return client.UploadDocumentByBytes(chatID, data, filename+".oneimg", caption)
+	}
+	return client.UploadPhotoByBytes(chatID, data, filename, caption)
 }
 
 // 辅助函数

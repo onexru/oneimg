@@ -757,6 +757,23 @@
                                 </label>
                             </div>
 
+                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">加密存储</p>
+                                    <p class="setting-row-hint">开启后，新上传的原图和缩略图会以 AES-256-GCM 密文保存到本地及所有远端存储，访问时由程序统一解密后返回明文图片。历史文件保持原格式；请勿更换 CONFIG_SECRET。</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                    <input
+                                        type="checkbox"
+                                        v-model="systemSettings.encrypted_storage"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('encrypted_storage', systemSettings.encrypted_storage)"
+                                    >
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
+                                </label>
+                            </div>
+
                             <!-- 是否压缩图片 -->
                             <div v-show="activeSettingsTab === 'image'" class="setting-row">
                                 <div>
@@ -989,6 +1006,7 @@ const presetBuckets = ref([
 const systemSettings = reactive({
     id: 1,
     multi_storage_sync: false,
+    encrypted_storage: false,
     compress_image: false,
     save_webp: false,
     thumbnail: false,
@@ -1088,10 +1106,13 @@ const publicImageDomainUnavailable = computed(() => {
 })
 
 const publicImageDomainInputDisabled = computed(() => {
-    return publicImageDomainUnavailable.value && !hasPublicImageDomain.value
+    return (systemSettings.encrypted_storage || publicImageDomainUnavailable.value) && !hasPublicImageDomain.value
 })
 
 const publicImageDomainHint = computed(() => {
+    if (systemSettings.encrypted_storage) {
+        return '加密存储已开启，图片必须通过程序解密后访问，不能使用存储服务直链域名。'
+    }
     if (!supportsPublicImageDomain.value) {
         return '当前默认存储不支持图片直链域名，仅 S3/R2 存储可用。'
     }
@@ -1257,6 +1278,12 @@ const handleSwitchChange = (key, value) => {
         }
     }
 
+    if (key === 'encrypted_storage' && value === true && hasPublicImageDomain.value) {
+        message.warning('加密存储要求所有图片经程序解密，请先清空图片直链域名')
+        systemSettings.encrypted_storage = false
+        return
+    }
+
     if (key == "start_api") {
         if (systemSettings.api_token === '' && !systemSettings.api_token_configured) {
             message.warning('请先填写API Token')
@@ -1294,6 +1321,12 @@ const handleFieldBlur = (key, value) => {
         const normalizedValue = normalizePublicImageDomain(value)
         systemSettings.public_image_domain = normalizedValue
         value = normalizedValue
+
+        if (systemSettings.encrypted_storage && normalizedValue !== '') {
+            message.warning('加密存储已开启，不能配置图片直链域名')
+            systemSettings.public_image_domain = updateSetting.public_image_domain || ''
+            return
+        }
 
         if (publicImageDomainUnavailable.value && normalizedValue !== '') {
             message.warning('当前默认存储不支持图片直链域名')
