@@ -119,7 +119,10 @@ func GetRandomImages(c *gin.Context) {
 			return
 		}
 
-		publicURL := applyPublicImageURL(setting, images[0].Storage, images[0].BucketId, images[0].Url)
+		publicURL := images[0].Url
+		if images[0].AccessBucketId == 0 {
+			publicURL = applyPublicImageURL(setting, images[0].Storage, images[0].BucketId, images[0].Url)
+		}
 		if strings.HasPrefix(publicURL, "http://") || strings.HasPrefix(publicURL, "https://") {
 			c.Redirect(http.StatusFound, publicURL)
 			return

@@ -117,9 +117,11 @@ func GetBucketsList(c *gin.Context) {
 	var bucketRes []map[string]any
 	for _, bucket := range buckets {
 		res := map[string]any{
-			"id":   bucket.Id,
-			"name": bucket.Name,
-			"type": bucket.Type,
+			"id":       bucket.Id,
+			"name":     bucket.Name,
+			"type":     bucket.Type,
+			"enabled":  !bucket.Disabled,
+			"disabled": bucket.Disabled,
 		}
 		bucketRes = append(bucketRes, res)
 	}
@@ -435,6 +437,62 @@ func UpdateBuckets(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("更新成功", bucket))
 }
 
+type updateBucketEnabledRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
+// UpdateBucketEnabled temporarily enables or disables a remote storage
+// source. Disabling is reversible and deliberately keeps every stored object
+// and synchronization record intact.
+func UpdateBucketEnabled(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, result.Error(400, "存储源ID无效"))
+		return
+	}
+
+	var req updateBucketEnabledRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, "启用状态参数无效"))
+		return
+	}
+
+	db := database.GetDB()
+	var bucket models.Buckets
+	if err := db.DB.First(&bucket, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, result.Error(404, "存储源不存在"))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, result.Error(500, "查询存储源失败"))
+		return
+	}
+	if bucket.Type == "default" && !*req.Enabled {
+		c.JSON(http.StatusBadRequest, result.Error(400, "本机存储源用于访问回退，不能停用"))
+		return
+	}
+
+	disabled := !*req.Enabled
+	if err := db.DB.Model(&bucket).Update("disabled", disabled).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "更新存储源状态失败"))
+		return
+	}
+	bucket.Disabled = disabled
+	if *req.Enabled {
+		services.WakeStorageSyncWorker()
+	}
+
+	message := "存储源已启用"
+	if disabled {
+		message = "存储源已临时停用"
+	}
+	c.JSON(http.StatusOK, result.Success(message, gin.H{
+		"id":       bucket.Id,
+		"enabled":  !bucket.Disabled,
+		"disabled": bucket.Disabled,
+	}))
+}
+
 // DeleteBuckets removes only the copies held by this storage source. Images
 // whose canonical/other copies remain are preserved.
 func DeleteBuckets(c *gin.Context) {
@@ -497,6 +555,9 @@ func DeleteBuckets(c *gin.Context) {
 		}
 
 		if err := tx.Where("bucket_id = ?", id).Delete(&models.ImageStorage{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Image{}).Where("access_bucket_id = ?", id).Update("access_bucket_id", 0).Error; err != nil {
 			return err
 		}
 		var users []models.User

@@ -107,11 +107,11 @@ DEFAULT_PASS=123456
 # Session配置
 SESSION_SECRET=
 
-# 配置加密密钥（用于敏感配置字段加密存储）
+# 配置加密密钥（用于敏感配置及图片文件加密，启用加密存储后请勿更换）
 CONFIG_SECRET=
 `
 
-	configSecret := generateRandomSecret(32)
+	configSecret := loadOrCreatePersistentConfigSecret()
 
 	// 替换模板中的密钥占位符
 	envContent := strings.Replace(envTemplate, "SESSION_SECRET=", "SESSION_SECRET="+sessionSecret, 1)
@@ -129,7 +129,7 @@ CONFIG_SECRET=
 		log.Fatalf("无法写入.env文件：%s 是一个目录", envPath)
 	}
 
-	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
 		log.Fatalf("生成默认.env文件失败：%v", err)
 	}
 
@@ -144,6 +144,28 @@ func generateRandomSecret(length int) string {
 		log.Fatalf("生成随机密钥失败：%v", err)
 	}
 	return base64.URLEncoding.EncodeToString(bytes)
+}
+
+// loadOrCreatePersistentConfigSecret keeps the image-encryption key in the
+// data directory. This matters for container deployments where /app/data is
+// persistent but a generated /app/.env disappears when the container is
+// recreated.
+func loadOrCreatePersistentConfigSecret() string {
+	const secretPath = "./data/.config_secret"
+	if stored, err := os.ReadFile(secretPath); err == nil {
+		if secret := strings.TrimSpace(string(stored)); secret != "" {
+			return secret
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(secretPath), 0755); err != nil {
+		log.Fatalf("创建配置密钥目录失败：%v", err)
+	}
+	secret := generateRandomSecret(32)
+	if err := os.WriteFile(secretPath, []byte(secret+"\n"), 0600); err != nil {
+		log.Fatalf("保存持久化配置密钥失败：%v", err)
+	}
+	return secret
 }
 
 // 初始化配置（优先加载外部.env，无则生成默认）
@@ -191,7 +213,10 @@ func NewConfig() {
 
 	// Session配置（读取.env中的值，无则生成）
 	sessionSecret := getEnv("SESSION_SECRET", generateRandomSecret(32))
-	configSecret := getEnv("CONFIG_SECRET", generateRandomSecret(32))
+	configSecret := strings.TrimSpace(getEnv("CONFIG_SECRET", ""))
+	if configSecret == "" {
+		configSecret = loadOrCreatePersistentConfigSecret()
+	}
 
 	// 初始化全局配置
 	App = &Config{

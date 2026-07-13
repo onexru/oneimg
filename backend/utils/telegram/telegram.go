@@ -125,6 +125,22 @@ type PhotoResponse struct {
 	ErrorCode   int    `json:"error_code,omitempty"`
 }
 
+type DocumentResponse struct {
+	OK     bool `json:"ok"`
+	Result struct {
+		Document struct {
+			FileID       string `json:"file_id"`
+			FileUniqueID string `json:"file_unique_id"`
+			FileName     string `json:"file_name"`
+			MimeType     string `json:"mime_type"`
+			FileSize     int64  `json:"file_size,omitempty"`
+		} `json:"document"`
+		MessageID int `json:"message_id"`
+	} `json:"result"`
+	Description string `json:"description,omitempty"`
+	ErrorCode   int    `json:"error_code,omitempty"`
+}
+
 type FileResponse struct {
 	OK     bool `json:"ok"`
 	Result struct {
@@ -427,4 +443,85 @@ func (c *Config) uploadPhotoByBytesRequest(apiURL string, requestBody *bytes.Buf
 		return "", 0, fmt.Errorf("未返回图片信息")
 	}
 	return photoResp.Result.Photo[len(photoResp.Result.Photo)-1].FileID, photoResp.Result.MessageID, nil
+}
+
+// UploadDocumentByBytes stores arbitrary bytes without Telegram attempting to
+// decode or recompress them. Encrypted image objects must use this endpoint so
+// the ciphertext arrives byte-for-byte unchanged.
+func (c *Config) UploadDocumentByBytes(chatID string, data []byte, filename string, caption string) (fileID string, messageID int, err error) {
+	if c.BotToken == "" {
+		return "", 0, fmt.Errorf("bot token 不能为空")
+	}
+	if chatID == "" {
+		return "", 0, fmt.Errorf("chat_id 不能为空")
+	}
+	if len(data) == 0 {
+		return "", 0, fmt.Errorf("文件字节流不能为空")
+	}
+	if filename == "" {
+		return "", 0, fmt.Errorf("文件名不能为空")
+	}
+	if len(data) > 50*1024*1024 {
+		return "", 0, fmt.Errorf("文件字节流超过50MB限制（当前：%d字节）", len(data))
+	}
+
+	var lastErr error
+	for i := 0; i <= c.Retry; i++ {
+		fileID, messageID, lastErr = c.uploadDocumentByBytesOnce(chatID, data, filename, caption)
+		if lastErr == nil {
+			return fileID, messageID, nil
+		}
+		if i < c.Retry {
+			time.Sleep(time.Duration(1<<i) * 500 * time.Millisecond)
+		}
+	}
+	return "", 0, fmt.Errorf("重试%d次后仍上传加密文件失败: %w", c.Retry, lastErr)
+}
+
+func (c *Config) uploadDocumentByBytesOnce(chatID string, data []byte, filename string, caption string) (string, int, error) {
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	if err := writer.WriteField("chat_id", chatID); err != nil {
+		return "", 0, fmt.Errorf("写入chat_id失败: %w", err)
+	}
+	if caption != "" {
+		if err := writer.WriteField("caption", caption); err != nil {
+			return "", 0, fmt.Errorf("写入caption失败: %w", err)
+		}
+	}
+	documentPart, err := writer.CreateFormFile("document", filepath.Base(filename))
+	if err != nil {
+		return "", 0, fmt.Errorf("创建文件表单字段失败: %w", err)
+	}
+	if _, err := documentPart.Write(data); err != nil {
+		return "", 0, fmt.Errorf("写入文件字节流失败: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", 0, fmt.Errorf("关闭multipart writer失败: %w", err)
+	}
+
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", c.BotToken)
+	req, err := http.NewRequest(http.MethodPost, apiURL, &requestBody)
+	if err != nil {
+		return "", 0, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	client := &http.Client{Timeout: c.Timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", 0, fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var documentResp DocumentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&documentResp); err != nil {
+		return "", 0, fmt.Errorf("解析响应失败: %w", err)
+	}
+	if !documentResp.OK {
+		return "", 0, fmt.Errorf("telegram API 错误 [code:%d]: %s", documentResp.ErrorCode, documentResp.Description)
+	}
+	if documentResp.Result.Document.FileID == "" {
+		return "", 0, fmt.Errorf("未返回文件信息")
+	}
+	return documentResp.Result.Document.FileID, documentResp.Result.MessageID, nil
 }

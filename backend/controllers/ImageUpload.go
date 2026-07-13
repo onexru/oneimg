@@ -493,12 +493,20 @@ func GetUploadConfig(c *gin.Context) {
 			return
 		}
 		bucketRes := make([]map[string]any, 0, len(buckets))
+		effectiveDefaultBucket := setting.DefaultStorage
+		defaultAvailable := false
 		for _, bucket := range buckets {
 			bucketRes = append(bucketRes, toResponse(bucket))
+			if bucket.Id == setting.DefaultStorage {
+				defaultAvailable = true
+			}
+		}
+		if !defaultAvailable && len(buckets) > 0 {
+			effectiveDefaultBucket = buckets[0].Id
 		}
 		config["buckets"] = bucketRes
 		config["sync_buckets"] = []map[string]any{}
-		config["default_bucket"] = setting.DefaultStorage
+		config["default_bucket"] = effectiveDefaultBucket
 	} else {
 		localBucket, syncBuckets, err := resolveUploadBuckets(c, setting)
 		if err != nil {

@@ -4,6 +4,7 @@ type Buckets struct {
 	Id       int            `json:"id" gorm:"type:integer;primaryKey;autoIncrement"`
 	Name     string         `json:"name" gorm:"not null;unique"`                      // 存储名称，唯一
 	Type     string         `json:"type" gorm:"not null"`                             // 存储类型
+	Disabled bool           `json:"disabled" gorm:"not null;default:false;index"`     // 临时停用，不删除已有副本
 	Capacity uint64         `json:"capacity" gorm:"not null"`                         // 容量
 	Config   map[string]any `json:"config" gorm:"type:text;not null;serializer:json"` // 配置
 	Usage    uint64         `json:"usage" gorm:"not null"`                            // 已使用容量

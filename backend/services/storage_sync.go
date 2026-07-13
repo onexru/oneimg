@@ -18,6 +18,7 @@ import (
 	"oneimg/backend/utils/buckets"
 	"oneimg/backend/utils/ftp"
 	storageS3 "oneimg/backend/utils/s3"
+	"oneimg/backend/utils/securestorage"
 	storageSettings "oneimg/backend/utils/settings"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
@@ -122,7 +123,11 @@ func processNextStorageSyncTask() bool {
 	}
 
 	var replica models.ImageStorage
-	lookup := db.DB.Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", models.ImageStorageStatusPending, time.Now()).
+	lookup := db.DB.Where(
+		"status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?) AND "+
+			"EXISTS (SELECT 1 FROM buckets WHERE buckets.id = image_storages.bucket_id AND buckets.disabled = ?)",
+		models.ImageStorageStatusPending, time.Now(), false,
+	).
 		Order("id ASC").
 		Limit(1).
 		Find(&replica)
@@ -178,6 +183,9 @@ func synchronizeReplica(ctx context.Context, replica *models.ImageStorage) (map[
 	var bucket models.Buckets
 	if err := db.First(&bucket, replica.BucketID).Error; err != nil {
 		return nil, fmt.Errorf("load bucket %d: %w", replica.BucketID, err)
+	}
+	if bucket.Disabled {
+		return nil, fmt.Errorf("storage source %d is temporarily disabled", bucket.Id)
 	}
 
 	artifact, err := buildLocalStorageArtifact(image)
@@ -354,11 +362,16 @@ func uploadArtifactToS3(ctx context.Context, bucket models.Buckets, artifact loc
 	if err != nil {
 		return err
 	}
+	mainEncrypted, err := securestorage.IsEncryptedFile(artifact.MainPath)
+	if err != nil {
+		mainFile.Close()
+		return err
+	}
 	_, uploadErr := client.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket:      aws.String(remoteBucket),
 		Key:         aws.String(remoteObjectKey(artifact.URL)),
 		Body:        mainFile,
-		ContentType: aws.String(artifact.MimeType),
+		ContentType: aws.String(synchronizedContentType(artifact.MimeType, mainEncrypted)),
 	})
 	closeErr := mainFile.Close()
 	if uploadErr != nil {
@@ -375,11 +388,16 @@ func uploadArtifactToS3(ctx context.Context, bucket models.Buckets, artifact loc
 	if err != nil {
 		return err
 	}
+	thumbnailEncrypted, err := securestorage.IsEncryptedFile(artifact.ThumbnailPath)
+	if err != nil {
+		thumbnailFile.Close()
+		return err
+	}
 	_, uploadErr = client.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket:      aws.String(remoteBucket),
 		Key:         aws.String(remoteObjectKey(artifact.Thumbnail)),
 		Body:        thumbnailFile,
-		ContentType: aws.String("image/webp"),
+		ContentType: aws.String(synchronizedContentType("image/webp", thumbnailEncrypted)),
 	})
 	closeErr = thumbnailFile.Close()
 	if uploadErr != nil {
@@ -440,7 +458,7 @@ func uploadArtifactToFTP(bucket models.Buckets, artifact localStorageArtifact) e
 	if err != nil {
 		return err
 	}
-	if err := client.UploadImage(artifact.URL, mainBytes, artifact.MimeType); err != nil {
+	if err := client.UploadImage(artifact.URL, mainBytes, synchronizedContentType(artifact.MimeType, securestorage.IsEncrypted(mainBytes))); err != nil {
 		return fmt.Errorf("upload main image: %w", err)
 	}
 
@@ -451,7 +469,7 @@ func uploadArtifactToFTP(bucket models.Buckets, artifact localStorageArtifact) e
 	if err != nil {
 		return err
 	}
-	if err := client.UploadImage(artifact.Thumbnail, thumbnailBytes, "image/webp"); err != nil {
+	if err := client.UploadImage(artifact.Thumbnail, thumbnailBytes, synchronizedContentType("image/webp", securestorage.IsEncrypted(thumbnailBytes))); err != nil {
 		return fmt.Errorf("upload thumbnail: %w", err)
 	}
 	return nil
@@ -467,7 +485,8 @@ func uploadArtifactToTelegram(bucket models.Buckets, artifact localStorageArtifa
 	if err != nil {
 		return nil, err
 	}
-	fileID, messageID, err := client.UploadPhotoByBytes(
+	fileID, messageID, err := uploadTelegramArtifactBytes(
+		client,
 		config.TGReceivers,
 		mainBytes,
 		artifact.FileName,
@@ -489,7 +508,8 @@ func uploadArtifactToTelegram(bucket models.Buckets, artifact localStorageArtifa
 	if err != nil {
 		return metadata, err
 	}
-	thumbnailFileID, thumbnailMessageID, err := client.UploadPhotoByBytes(
+	thumbnailFileID, thumbnailMessageID, err := uploadTelegramArtifactBytes(
+		client,
 		config.TGReceivers,
 		thumbnailBytes,
 		"thumbnail_"+artifact.FileName,
@@ -501,6 +521,20 @@ func uploadArtifactToTelegram(bucket models.Buckets, artifact localStorageArtifa
 	metadata["tg_thumbnail_file_id"] = thumbnailFileID
 	metadata["tg_thumbnail_message_id"] = thumbnailMessageID
 	return metadata, nil
+}
+
+func synchronizedContentType(contentType string, encrypted bool) string {
+	if encrypted {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
+func uploadTelegramArtifactBytes(client *telegram.Config, chatID string, data []byte, filename, caption string) (string, int, error) {
+	if securestorage.IsEncrypted(data) {
+		return client.UploadDocumentByBytes(chatID, data, filename+".oneimg", caption)
+	}
+	return client.UploadPhotoByBytes(chatID, data, filename, caption)
 }
 
 func remoteObjectKey(path string) string {
@@ -1058,6 +1092,11 @@ func removeReplicaRecord(db *gorm.DB, bucket models.Buckets, replica models.Imag
 			}
 		}
 		if replica.ID != 0 {
+			if err := tx.Model(&models.Image{}).
+				Where("id = ? AND access_bucket_id = ?", replica.ImageID, bucket.Id).
+				Update("access_bucket_id", 0).Error; err != nil {
+				return err
+			}
 			return tx.Delete(&models.ImageStorage{}, replica.ID).Error
 		}
 		return nil

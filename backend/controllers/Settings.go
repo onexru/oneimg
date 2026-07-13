@@ -18,6 +18,7 @@ import (
 	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/secureconfig"
+	"oneimg/backend/utils/securestorage"
 	"oneimg/backend/utils/settings"
 
 	"gorm.io/gorm"
@@ -484,6 +485,23 @@ func validateSettingData(key string, value any) error {
 				return fmt.Errorf("请先完整配置 CAS Server URL 和回调地址")
 			}
 		}
+	case "encrypted_storage":
+		enabled, err := convertValueToTargetType(key, value, reflect.TypeOf(false))
+		if err != nil {
+			return err
+		}
+		if enabled.(bool) {
+			setting, err := settings.GetSettings()
+			if err != nil {
+				return fmt.Errorf("获取系统配置失败")
+			}
+			if strings.TrimSpace(setting.PublicImageDomain) != "" {
+				return fmt.Errorf("加密存储要求所有图片经程序解密，请先清空图片直链域名")
+			}
+			if _, err := securestorage.Encrypt(nil); err != nil {
+				return err
+			}
+		}
 	case "public_image_domain":
 		domain, err := publicurl.NormalizeDomain(fmt.Sprintf("%v", value))
 		if err != nil {
@@ -495,6 +513,9 @@ func validateSettingData(key string, value any) error {
 		setting, err := settings.GetSettings()
 		if err != nil {
 			return fmt.Errorf("获取系统配置失败")
+		}
+		if setting.EncryptedStorage {
+			return fmt.Errorf("加密存储已开启，图片必须经程序解密，不能配置直链域名")
 		}
 		bucketType, err := getBucketTypeByID(setting.DefaultStorage)
 		if err != nil {
@@ -645,6 +666,9 @@ func getBucketTypeByID(id int) (string, error) {
 	var bucket models.Buckets
 	if err := db.First(&bucket, id).Error; err != nil {
 		return "", fmt.Errorf("存储桶不存在")
+	}
+	if bucket.Disabled {
+		return "", fmt.Errorf("存储源已停用，请先启用")
 	}
 	return bucket.Type, nil
 }

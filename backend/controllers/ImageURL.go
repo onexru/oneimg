@@ -22,6 +22,9 @@ func applyPublicImageURL(setting models.Settings, storage string, bucketID int, 
 }
 
 func rewriteImageURLs(setting models.Settings, image *models.Image) {
+	if image.AccessBucketId > 0 {
+		return
+	}
 	image.Url = applyPublicImageURL(setting, image.Storage, image.BucketId, image.Url)
 	image.Thumbnail = applyPublicImageURL(setting, image.Storage, image.BucketId, image.Thumbnail)
 }

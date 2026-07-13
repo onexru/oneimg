@@ -21,6 +21,7 @@ func TestResolveUploadBucketsSwitchModes(t *testing.T) {
 		{Id: 1, Name: "local", Type: "default", Config: map[string]any{}},
 		{Id: 2, Name: "default remote", Type: "s3", Capacity: 1024, Config: map[string]any{}},
 		{Id: 3, Name: "assigned remote", Type: "webdav", Capacity: 1024, Config: map[string]any{}},
+		{Id: 4, Name: "paused remote", Type: "ftp", Disabled: true, Capacity: 1024, Config: map[string]any{}},
 	}
 	if err := db.Create(&buckets).Error; err != nil {
 		t.Fatalf("create buckets: %v", err)
@@ -31,7 +32,7 @@ func TestResolveUploadBucketsSwitchModes(t *testing.T) {
 		Username: "sync-user",
 		Password: "test",
 		Permission: models.Permission{
-			Buckets: []int{3},
+			Buckets: []int{3, 4},
 		},
 	}
 	if err := db.Create(&user).Error; err != nil {

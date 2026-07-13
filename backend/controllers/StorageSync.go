@@ -16,17 +16,18 @@ import (
 )
 
 type ImageStorageStatusResponse struct {
-	BucketID    int        `json:"bucket_id"`
-	BucketName  string     `json:"bucket_name"`
-	BucketType  string     `json:"bucket_type"`
-	Status      string     `json:"status"`
-	URL         string     `json:"url,omitempty"`
-	Thumbnail   string     `json:"thumbnail,omitempty"`
-	Error       string     `json:"error,omitempty"`
-	RetryCount  int        `json:"retry_count"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
-	SyncedAt    *time.Time `json:"synced_at,omitempty"`
+	BucketID       int        `json:"bucket_id"`
+	BucketName     string     `json:"bucket_name"`
+	BucketType     string     `json:"bucket_type"`
+	BucketDisabled bool       `json:"bucket_disabled"`
+	Status         string     `json:"status"`
+	URL            string     `json:"url,omitempty"`
+	Thumbnail      string     `json:"thumbnail,omitempty"`
+	Error          string     `json:"error,omitempty"`
+	RetryCount     int        `json:"retry_count"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
+	SyncedAt       *time.Time `json:"synced_at,omitempty"`
 }
 
 // resolveUploadBuckets returns the durable local source and the remote targets
@@ -72,6 +73,9 @@ func resolveUploadBuckets(c *gin.Context, setting models.Settings) (models.Bucke
 
 	targets := make([]models.Buckets, 0, len(allBuckets))
 	for _, bucket := range allBuckets {
+		if bucket.Disabled {
+			continue
+		}
 		if bucket.Id == localBucket.Id || bucket.Type == "default" {
 			continue
 		}
@@ -115,6 +119,9 @@ func resolveLegacyUploadBuckets(c *gin.Context, setting models.Settings) ([]mode
 
 	result := make([]models.Buckets, 0, len(allBuckets))
 	for _, bucket := range allBuckets {
+		if bucket.Disabled {
+			continue
+		}
 		if bucket.Id != setting.DefaultStorage {
 			if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
 				continue
@@ -166,7 +173,7 @@ func loadImageStorageStatuses(imageIDs []int, setting models.Settings) (map[int]
 	}
 	var bucketList []models.Buckets
 	if len(bucketIDs) > 0 {
-		if err := db.Select("id", "name", "type").Where("id IN ?", bucketIDs).Find(&bucketList).Error; err != nil {
+		if err := db.Select("id", "name", "type", "disabled").Where("id IN ?", bucketIDs).Find(&bucketList).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -186,17 +193,18 @@ func loadImageStorageStatuses(imageIDs []int, setting models.Settings) (map[int]
 			bucketName = fmt.Sprintf("存储源 #%d", storage.BucketID)
 		}
 		result[storage.ImageID] = append(result[storage.ImageID], ImageStorageStatusResponse{
-			BucketID:    storage.BucketID,
-			BucketName:  bucketName,
-			BucketType:  bucketType,
-			Status:      storage.Status,
-			URL:         applyPublicImageURL(setting, bucketType, storage.BucketID, storage.URL),
-			Thumbnail:   applyPublicImageURL(setting, bucketType, storage.BucketID, storage.Thumbnail),
-			Error:       storage.Error,
-			RetryCount:  storage.RetryCount,
-			UpdatedAt:   storage.UpdatedAt,
-			NextRetryAt: storage.NextRetryAt,
-			SyncedAt:    storage.SyncedAt,
+			BucketID:       storage.BucketID,
+			BucketName:     bucketName,
+			BucketType:     bucketType,
+			BucketDisabled: bucket.Disabled,
+			Status:         storage.Status,
+			URL:            applyPublicImageURL(setting, bucketType, storage.BucketID, storage.URL),
+			Thumbnail:      applyPublicImageURL(setting, bucketType, storage.BucketID, storage.Thumbnail),
+			Error:          storage.Error,
+			RetryCount:     storage.RetryCount,
+			UpdatedAt:      storage.UpdatedAt,
+			NextRetryAt:    storage.NextRetryAt,
+			SyncedAt:       storage.SyncedAt,
 		})
 	}
 
