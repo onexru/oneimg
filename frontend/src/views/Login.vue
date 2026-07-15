@@ -18,6 +18,14 @@
         <div class="card glass-panel w-full max-w-md overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
             <div class="card-body p-6">
                 <div class="mb-8 text-center">
+                    <div v-if="loginConfig.start_register" class="flex justify-end">
+                        <router-link
+                            to="/register"
+                            class="text-sm text-gray-500 dark:text-gray-400"
+                        >
+                            注册
+                        </router-link>
+                    </div>
                     <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary to-blue-700 text-2xl text-white shadow-lg shadow-primary/20">
                         <i class="ri-lock-2-line"></i>
                     </div>
@@ -162,7 +170,8 @@ const loginConfig = reactive({
     oidc_enabled: false,
     oidc_display_name: '',
     cas_enabled: false,
-    cas_display_name: ''
+    cas_display_name: '',
+    start_register: false
 })
 
 const externalLoginErrors = {

@@ -41,13 +41,37 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户ID
+	// 获取当前用户ID和角色
 	session := sessions.Default(c)
 	userID := session.Get("user_id")
 	if userID == nil {
 		c.JSON(http.StatusUnauthorized, AccountResponse{
 			Code:    401,
 			Message: "未登录",
+			Success: false,
+		})
+		return
+	}
+
+	// 获取角色并做类型断言 (兼容 session 存储时可能发生的 int/float64 转换)
+	userRole := session.Get("user_role")
+	role := 0
+	if userRole != nil {
+		switch v := userRole.(type) {
+		case int:
+			role = v
+		case float64:
+			role = int(v)
+		case uint:
+			role = int(v)
+		}
+	}
+
+	// 权限校验：非管理员(1)禁止修改用户名
+	if role != 1 && req.NewUsername != "" {
+		c.JSON(http.StatusForbidden, AccountResponse{
+			Code:    403,
+			Message: "无权修改用户名",
 			Success: false,
 		})
 		return
@@ -128,13 +152,12 @@ func ChangeAccountInfo(c *gin.Context) {
 		}
 
 		// 更新用户名
-		if err := db.Model(&user).Update("username", req.NewUsername).Error; err != nil {
+		if err := tx.Model(&user).Update("username", req.NewUsername).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, AccountResponse{
 				Code:    500,
 				Message: "用户名更新失败",
 				Success: false,
 			})
-			// 回滚事务
 			tx.Rollback()
 			return
 		}
@@ -149,19 +172,17 @@ func ChangeAccountInfo(c *gin.Context) {
 				Message: "密码加密失败",
 				Success: false,
 			})
-			// 回滚事务
 			tx.Rollback()
 			return
 		}
 
 		// 更新密码
-		if err := db.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+		if err := tx.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, AccountResponse{
 				Code:    500,
 				Message: "密码更新失败",
 				Success: false,
 			})
-			// 回滚事务
 			tx.Rollback()
 			return
 		}
@@ -179,8 +200,6 @@ func ChangeAccountInfo(c *gin.Context) {
 
 	// 退出登录
 	session.Clear()
-	session.Save()
-
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, AccountResponse{
 			Code:    500,
@@ -204,12 +223,8 @@ func isTouristUsername(username string) bool {
 
 // ClearAllSessions 清除所有会话
 func ClearAllSessions(c *gin.Context) {
-	// 获取当前session
 	session := sessions.Default(c)
-
-	// 清除当前session
 	session.Clear()
-	session.Save()
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, AccountResponse{
 			Code:    500,

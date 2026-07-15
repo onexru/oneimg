@@ -69,6 +69,7 @@ func GetLoginSettings(c *gin.Context) {
 		map[string]any{
 			"pow_verify":        settingModel.PowVerify,
 			"tourist":           settingModel.Tourist,
+			"start_register":    settingModel.StartRegister,
 			"oidc_enabled":      oidcSettingsReady(settingModel),
 			"oidc_display_name": externalLoginDisplayName(settingModel.OIDCDisplayName, "OIDC 登录"),
 			"cas_enabled":       casSettingsReady(settingModel),
@@ -166,7 +167,6 @@ func UpdateSettings(c *gin.Context) {
 }
 
 // 辅助函数，筛选设置项
-
 func filterSettings(settingsMap map[string]any, keys []string) map[string]any {
 	if len(keys) == 0 {
 		return settingsMap

@@ -415,7 +415,7 @@
                         </div>
                         <div class="setting-group"> 
                             <label class="field-label" for="seo_description">
-                                网站标题
+                                网站描述
                             </label>
                             <textarea
                                 id="seo_description"
@@ -838,6 +838,21 @@
                                     <div class="switch-thumb"></div>
                                 </label>
                             </div>
+                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
+                                <div>
+                                    <p class="setting-row-title">开放用户注册</p>
+                                </div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
+                                    <input 
+                                        type="checkbox" 
+                                        v-model="systemSettings.start_register"
+                                        class="sr-only peer"
+                                        @change="handleSwitchChange('start_register', systemSettings.start_register)"
+                                    >
+                                    <div class="switch-track"></div>
+                                    <div class="switch-thumb"></div>
+                                </label>
+                            </div>
                             <div v-show="activeSettingsTab === 'notifications'" class="setting-row">
                                 <div>
                                     <p class="setting-row-title">启用 TG 通知</p>
@@ -1059,7 +1074,8 @@ const systemSettings = reactive({
     allowed_types: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml',
     default_path: '/uploads/{year}/{moon}',
     file_name: '{random}',
-    public_image_domain: ''
+    public_image_domain: '',
+    start_register: false
 })
 
 const updateSetting = reactive({})

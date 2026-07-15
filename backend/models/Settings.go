@@ -21,6 +21,7 @@ type Settings struct {
 	APIToken         string `gorm:"column:api_token;default:''" json:"api_token"`                      // 兼容旧字段
 	APITokenHash     string `gorm:"column:api_token_hash;default:''" json:"-"`                         // API Token哈希
 	SaveOriginalName bool   `gorm:"column:save_original_name;default:false" json:"save_original_name"` // 是否保存原文件名（默认不保存）
+	StartRegister    bool   `gorm:"column:start_register;default:false" json:"start_register"`         // 是否启用注册（默认关闭）
 
 	// 默认存储
 	DefaultStorage   int  `gorm:"column:default_storage;default:1" json:"default_storage"`           // 单存储模式下的默认存储

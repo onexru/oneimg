@@ -109,18 +109,26 @@ const refreshNavItems = () => {
     return
   }
 
+  // 基础菜单（所有已登录用户可见）
   navItems.value.push(
     { path: '/', icon: 'home-5-line', name: '控制台' },
     { path: '/gallery', icon: 'gallery-view-2', name: '图库管理' },
     { path: '/tags', icon: 'price-tag-3-line', name: '标签管理' },
-    { path: '/stats', icon: 'bar-chart-grouped-line', name: '数据统计' }
+    { path: '/stats', icon: 'bar-chart-grouped-line', name: '数据统计' },
   )
 
+  // 账户设置：仅非游客（管理员或普通用户）可见
+  if (userInfo?.role != 2) {
+    navItems.value.push(
+      { path: '/account', icon: 'shield-user-line', name: '账户设置' },
+    )
+  }
+
+  // 管理员专属菜单
   if (userInfo?.role == 1) {
     navItems.value.push(
       { path: '/buckets', icon: 'database-2-line', name: '存储管理' },
       { path: '/users', icon: 'user-line', name: '用户管理' },
-      { path: '/account', icon: 'shield-user-line', name: '账户设置' },
       { path: '/settings', icon: 'settings-4-line', name: '系统设置' }
     )
   }

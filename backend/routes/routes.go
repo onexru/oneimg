@@ -66,6 +66,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	{
 		// 公开接口（无需认证）
 		api.POST("/login", controllers.Login)
+		api.POST("/register", controllers.Register)
 		api.POST("/logout", controllers.Logout)
 		api.GET("/logout", controllers.Logout)
 		// 返回登录设置

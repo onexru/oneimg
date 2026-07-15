@@ -92,6 +92,7 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 		"tg_receivers":                  setting.TGReceivers,
 		"tg_notice_text":                setting.TGNoticeText,
 		"start_api":                     setting.StartAPI,
+		"start_register":                setting.StartRegister,
 		"api_token":                     apiTokenStatus,
 		"api_token_configured":          strings.TrimSpace(setting.APITokenHash) != "",
 		"save_original_name":            setting.SaveOriginalName,

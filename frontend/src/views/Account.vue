@@ -8,7 +8,8 @@
 
         <!-- 主要内容 -->
         <div class="pb-16">
-            <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
+            <!-- 动态网格布局：管理员双列，普通用户单列居中 -->
+            <div class="grid gap-6" :class="isAdmin ? 'grid-cols-[repeat(auto-fit,minmax(320px,1fr))]' : 'grid-cols-1 max-w-2xl mx-auto'">
 
                 <div class="section-card mx-auto overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8">
@@ -21,8 +22,8 @@
                         
                         <!-- 账户修改表单 -->
                         <form @submit.prevent="updateAccount" class="account-form space-y-6">
-                            <!-- 新用户名 -->
-                            <div class="setting-group">
+                            <!-- 新用户名：仅管理员可见 -->
+                            <div v-if="isAdmin" class="setting-group">
                                 <label 
                                     class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" 
                                     for="newUsername"
@@ -107,16 +108,17 @@
                         </form>
                     </div>
                 </div>
-                <!-- Github版本卡片 -->
-                <div class="section-card mx-auto overflow-hidden w-full m-4">
+
+                <!-- Github版本卡片：仅管理员可见 -->
+                <div v-if="isAdmin" class="section-card mx-auto overflow-hidden w-full m-4">
                     <div class="panel-content p-6 md:p-8">
                         <div class="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-4 dark:border-white/10">
                             <div>
                                 <h2 class="panel-title flex items-center text-xl font-semibold">
-                            <span class="panel-icon mr-2 text-2xl">
-                                <i class="ri-github-fill"></i>
-                            </span>
-                            版本信息
+                                    <span class="panel-icon mr-2 text-2xl">
+                                        <i class="ri-github-fill"></i>
+                                    </span>
+                                    版本信息
                                 </h2>
                             </div>
                             <span class="inline-flex shrink-0 items-center rounded-full border border-slate-200/80 bg-slate-50 px-3 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400">GitHub Release</span>
@@ -172,11 +174,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import message from '@/utils/message.js'
 
 const router = useRouter()
+
+// 获取用户信息和角色判断
+const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+const isAdmin = computed(() => userInfo?.role === 1)
 
 // 表单数据
 const accountForm = ref({
@@ -200,6 +206,12 @@ const formatReleaseDate = (dateStr) => {
 
 // 获取Github最新版本信息
 const getLatestVersion = async () => {
+    // 非管理员不请求版本信息
+    if (!isAdmin.value) {
+        isLoadingVersion.value = false
+        return
+    }
+
     try {
         const res = await fetch('https://api.github.com/repos/onexru/oneimg/releases/latest')
         if (res.ok) {
@@ -219,6 +231,10 @@ const getLatestVersion = async () => {
 // 页面挂载时自动请求版本信息
 onMounted(() => {
     getLatestVersion()
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    if (userInfo?.role === 2) {
+        router.replace('/')
+    }
 })
 
 // 更新账户信息
@@ -291,10 +307,14 @@ const updateAccount = async () => {
                 router.push('/login')
                 return message.error('登录已过期，请重新登录')
             }
+            // 权限处理
+            if (response.status === 403) {
+                return message.error(result.message || '无权执行此操作')
+            }
             throw new Error(result.message || '修改失败')
         }
         
-        message.success('修改成功')
+        message.success('修改成功，请重新登录')
 
         // 清空表单
         accountForm.value = {
@@ -304,9 +324,9 @@ const updateAccount = async () => {
             confirmPassword: ''
         }
         
-        // 刷新页面
+        // 跳转到登录页重新登录
         setTimeout(() => {
-            window.location.reload();
+            router.push('/login')
         }, 1000)
 
     } catch (error) {
