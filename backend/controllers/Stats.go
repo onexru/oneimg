@@ -51,6 +51,18 @@ type SizeDistributionItem struct {
 	Count int64  `json:"count"`
 }
 
+// scopeStatsImages 按角色限制统计范围：管理员看全局，用户/游客只看自己。
+func scopeStatsImages(db *gorm.DB, roleID, userID int, userUUID string) *gorm.DB {
+	q := db.Model(&models.Image{})
+	if roleID == models.RoleAdmin {
+		return q
+	}
+	if roleID == models.RoleGuest {
+		return q.Where("uuid = ?", userUUID)
+	}
+	return q.Where("user_id = ?", userID)
+}
+
 // GetDashboardStats 获取仪表板统计数据
 func GetDashboardStats(c *gin.Context) {
 	db := database.GetDB().DB
@@ -60,31 +72,20 @@ func GetDashboardStats(c *gin.Context) {
 	roleID := c.GetInt("user_role")
 	userID := c.GetInt("user_id")
 	userUUID := GetUUID(c)
-	// 获取总图片数量
-	if roleID == models.RoleAdmin {
-		db.Model(&models.Image{}).Count(&stats.TotalImages)
-	} else {
-		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Count(&stats.TotalImages)
-	}
+
+	// 获取总图片数量（每次重新 scope，避免 GORM 条件叠加）
+	scopeStatsImages(db, roleID, userID, userUUID).Count(&stats.TotalImages)
 
 	// 获取总大小
 	var totalSize struct {
 		Total int64
 	}
-	if roleID == models.RoleAdmin {
-		db.Model(&models.Image{}).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
-	} else {
-		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
-	}
+	scopeStatsImages(db, roleID, userID, userUUID).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
 	stats.TotalSize = totalSize.Total
 
 	// 获取今日上传数量
 	today := time.Now().Format("2006-01-02")
-	if roleID == models.RoleAdmin {
-		db.Model(&models.Image{}).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
-	} else {
-		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
-	}
+	scopeStatsImages(db, roleID, userID, userUUID).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
 
 	// 获取本月上传数量
 	now := time.Now()
@@ -93,18 +94,10 @@ func GetDashboardStats(c *gin.Context) {
 
 	startTime := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endTime := startTime.AddDate(0, 1, 0)
-	if roleID == models.RoleAdmin {
-		db.Model(&models.Image{}).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
-	} else {
-		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
-	}
+	scopeStatsImages(db, roleID, userID, userUUID).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
 
 	// 获取最近上传的图片
-	if roleID == models.RoleAdmin {
-		db.Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
-	} else {
-		db.Model(&models.Image{}).Where("user_id = ? OR uuid = ?", userID, userUUID).Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
-	}
+	scopeStatsImages(db, roleID, userID, userUUID).Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
 	setting, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatsResponse{
@@ -119,13 +112,13 @@ func GetDashboardStats(c *gin.Context) {
 	}
 
 	// 获取最近7天的上传趋势
-	stats.UploadTrend = getUploadTrend(db, 7)
+	stats.UploadTrend = getUploadTrend(db, 7, roleID, userID, userUUID)
 
 	// 获取格式统计
-	stats.FormatStats = getFormatStats(db)
+	stats.FormatStats = getFormatStats(db, roleID, userID, userUUID)
 
 	// 获取大小分布
-	stats.SizeDistribution = getSizeDistribution(db)
+	stats.SizeDistribution = getSizeDistribution(db, roleID, userID, userUUID)
 
 	c.JSON(http.StatusOK, StatsResponse{
 		Code:    200,
@@ -136,14 +129,14 @@ func GetDashboardStats(c *gin.Context) {
 }
 
 // getUploadTrend 获取上传趋势
-func getUploadTrend(db *gorm.DB, days int) []UploadTrendItem {
+func getUploadTrend(db *gorm.DB, days int, roleID, userID int, userUUID string) []UploadTrendItem {
 	var trend []UploadTrendItem
 
 	for i := days - 1; i >= 0; i-- {
 		date := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
 
 		var count int64
-		db.Model(&models.Image{}).Where("DATE(created_at) = ?", date).Count(&count)
+		scopeStatsImages(db, roleID, userID, userUUID).Where("DATE(created_at) = ?", date).Count(&count)
 
 		trend = append(trend, UploadTrendItem{
 			Date:  date,
@@ -155,10 +148,10 @@ func getUploadTrend(db *gorm.DB, days int) []UploadTrendItem {
 }
 
 // getFormatStats 获取格式统计
-func getFormatStats(db *gorm.DB) []FormatStatsItem {
+func getFormatStats(db *gorm.DB, roleID, userID int, userUUID string) []FormatStatsItem {
 	var stats []FormatStatsItem
 
-	rows, err := db.Model(&models.Image{}).
+	rows, err := scopeStatsImages(db, roleID, userID, userUUID).
 		Select("mime_type as format, COUNT(*) as count, COALESCE(SUM(file_size), 0) as size").
 		Group("mime_type").
 		Rows()
@@ -178,7 +171,7 @@ func getFormatStats(db *gorm.DB) []FormatStatsItem {
 }
 
 // getSizeDistribution 获取大小分布
-func getSizeDistribution(db *gorm.DB) []SizeDistributionItem {
+func getSizeDistribution(db *gorm.DB, roleID, userID int, userUUID string) []SizeDistributionItem {
 	var distribution []SizeDistributionItem
 
 	// 定义大小范围
@@ -197,7 +190,7 @@ func getSizeDistribution(db *gorm.DB) []SizeDistributionItem {
 
 	for _, r := range ranges {
 		var count int64
-		query := db.Model(&models.Image{})
+		query := scopeStatsImages(db, roleID, userID, userUUID)
 
 		if r.max == 0 {
 			// 最后一个范围，只有最小值
@@ -220,6 +213,9 @@ func getSizeDistribution(db *gorm.DB) []SizeDistributionItem {
 // GetImageStats 获取图片详细统计
 func GetImageStats(c *gin.Context) {
 	db := database.GetDB().DB
+	roleID := c.GetInt("user_role")
+	userID := c.GetInt("user_id")
+	userUUID := GetUUID(c)
 
 	// 获取查询参数
 	period := c.DefaultQuery("period", "month") // day, week, month, year
@@ -228,15 +224,15 @@ func GetImageStats(c *gin.Context) {
 
 	switch period {
 	case "day":
-		stats = getDailyStats(db)
+		stats = getDailyStats(db, roleID, userID, userUUID)
 	case "week":
-		stats = getWeeklyStats(db)
+		stats = getWeeklyStats(db, roleID, userID, userUUID)
 	case "month":
-		stats = getMonthlyStats(db)
+		stats = getMonthlyStats(db, roleID, userID, userUUID)
 	case "year":
-		stats = getYearlyStats(db)
+		stats = getYearlyStats(db, roleID, userID, userUUID)
 	default:
-		stats = getMonthlyStats(db)
+		stats = getMonthlyStats(db, roleID, userID, userUUID)
 	}
 
 	c.JSON(http.StatusOK, StatsResponse{
@@ -248,7 +244,7 @@ func GetImageStats(c *gin.Context) {
 }
 
 // getDailyStats 获取每日统计
-func getDailyStats(db *gorm.DB) []UploadTrendItem {
+func getDailyStats(db *gorm.DB, roleID, userID int, userUUID string) []UploadTrendItem {
 	var stats []UploadTrendItem
 
 	// 获取最近30天的数据
@@ -256,7 +252,7 @@ func getDailyStats(db *gorm.DB) []UploadTrendItem {
 		date := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
 
 		var count int64
-		db.Model(&models.Image{}).Where("DATE(created_at) = ?", date).Count(&count)
+		scopeStatsImages(db, roleID, userID, userUUID).Where("DATE(created_at) = ?", date).Count(&count)
 
 		stats = append(stats, UploadTrendItem{
 			Date:  date,
@@ -268,7 +264,7 @@ func getDailyStats(db *gorm.DB) []UploadTrendItem {
 }
 
 // getWeeklyStats 获取每周统计
-func getWeeklyStats(db *gorm.DB) []UploadTrendItem {
+func getWeeklyStats(db *gorm.DB, roleID, userID int, userUUID string) []UploadTrendItem {
 	var stats []UploadTrendItem
 
 	// 获取最近12周的数据
@@ -278,7 +274,7 @@ func getWeeklyStats(db *gorm.DB) []UploadTrendItem {
 		weekEnd := weekStart.AddDate(0, 0, 6)
 
 		var count int64
-		db.Model(&models.Image{}).
+		scopeStatsImages(db, roleID, userID, userUUID).
 			Where("created_at >= ? AND created_at <= ?",
 				weekStart.Format("2006-01-02"),
 				weekEnd.Format("2006-01-02 23:59:59")).
@@ -294,7 +290,7 @@ func getWeeklyStats(db *gorm.DB) []UploadTrendItem {
 }
 
 // getMonthlyStats 获取每月统计
-func getMonthlyStats(db *gorm.DB) []UploadTrendItem {
+func getMonthlyStats(db *gorm.DB, roleID, userID int, userUUID string) []UploadTrendItem {
 	var stats []UploadTrendItem
 
 	// 获取最近12个月的数据
@@ -303,7 +299,7 @@ func getMonthlyStats(db *gorm.DB) []UploadTrendItem {
 		monthStr := date.Format("2006-01")
 
 		var count int64
-		db.Model(&models.Image{}).
+		scopeStatsImages(db, roleID, userID, userUUID).
 			Where("strftime('%Y-%m', created_at) = ?", monthStr).
 			Count(&count)
 
@@ -317,7 +313,7 @@ func getMonthlyStats(db *gorm.DB) []UploadTrendItem {
 }
 
 // getYearlyStats 获取每年统计
-func getYearlyStats(db *gorm.DB) []UploadTrendItem {
+func getYearlyStats(db *gorm.DB, roleID, userID int, userUUID string) []UploadTrendItem {
 	var stats []UploadTrendItem
 
 	// 获取最近5年的数据
@@ -325,7 +321,7 @@ func getYearlyStats(db *gorm.DB) []UploadTrendItem {
 		year := time.Now().AddDate(-i, 0, 0).Format("2006")
 
 		var count int64
-		db.Model(&models.Image{}).
+		scopeStatsImages(db, roleID, userID, userUUID).
 			Where("strftime('%Y', created_at) = ?", year).
 			Count(&count)
 

@@ -117,7 +117,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.POST("/sessions/clear", middlewares.RequirePermission("setting:security"), controllers.ClearAllSessions)
 
 			// --- 用户管理 ---
-			auth.GET("/users", controllers.GetUsers)
+			auth.GET("/users", middlewares.AdminOnlyMiddleware(), controllers.GetUsers)
 			auth.POST("/users/Add", middlewares.RequirePermission("user:create"), controllers.CreateUser)
 			auth.DELETE("/users/:id", middlewares.RequirePermission("user:delete"), controllers.DeleteUser)
 			auth.POST("/users/updateRole", middlewares.RequirePermission("user:role:update"), controllers.UpdateUserRole)

@@ -178,14 +178,7 @@ func normalizeImageIDs(imageIDs []int) []int {
 }
 
 func canManageImageAccessSource(c *gin.Context, image models.Image) bool {
-	switch c.GetInt("user_role") {
-	case models.RoleAdmin:
-		return true
-	case models.RoleUser:
-		return image.UserId == c.GetInt("user_id")
-	case models.RoleGuest:
-		return CheckImageAccessPermission(c, image, "image:access:source")
-	default:
-		return false
-	}
+	// 与删除/标签操作一致：本人、超级管理员、或持有 image:access:source 权限；
+	// 同时禁止非超管操作超级管理员的图片。
+	return CheckImageAccessPermission(c, image, "image:access:source")
 }

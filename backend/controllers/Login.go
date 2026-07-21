@@ -3,6 +3,7 @@ package controllers
 import (
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"oneimg/backend/config"
@@ -165,27 +166,19 @@ func generateTouristID(uuid string) uint {
 	return id
 }
 
-// 辅助函数：生成随机UUID
+// 辅助函数：生成随机UUID（正确十六进制编码）
 func generateRandomUUID() string {
 	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		// 降级方案：使用时间戳+随机数
-		return "guest_" + time.Now().Format("20060102150405") + "_" + strings.ReplaceAll(time.Now().String(), ":", "")
+	if _, err := rand.Read(b); err != nil {
+		// 降级方案：使用时间戳
+		return "guest_" + time.Now().Format("20060102150405.000000000")
 	}
 
 	// 设置UUID版本和变体
 	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
 
-	// 格式化UUID字符串
-	return strings.ToLower(
-		string(b[0:4]) + "-" +
-			string(b[4:6]) + "-" +
-			string(b[6:8]) + "-" +
-			string(b[8:10]) + "-" +
-			string(b[10:16]),
-	)[:36]
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // 设置Session

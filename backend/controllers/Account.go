@@ -133,6 +133,7 @@ func ChangeAccountInfo(c *gin.Context) {
 	// 如果用户名存在修改用户
 	if req.NewUsername != "" {
 		if isTouristUsername(req.NewUsername) {
+			tx.Rollback()
 			c.JSON(http.StatusBadRequest, AccountResponse{
 				Code:    400,
 				Message: "游客保留用户名",
@@ -143,6 +144,7 @@ func ChangeAccountInfo(c *gin.Context) {
 
 		var existingUser models.User
 		if err := db.Where("username = ? AND id != ?", req.NewUsername, userID).First(&existingUser).Error; err == nil {
+			tx.Rollback()
 			c.JSON(http.StatusBadRequest, AccountResponse{
 				Code:    400,
 				Message: "用户名已存在",
@@ -153,12 +155,12 @@ func ChangeAccountInfo(c *gin.Context) {
 
 		// 更新用户名
 		if err := tx.Model(&user).Update("username", req.NewUsername).Error; err != nil {
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, AccountResponse{
 				Code:    500,
 				Message: "用户名更新失败",
 				Success: false,
 			})
-			tx.Rollback()
 			return
 		}
 	}

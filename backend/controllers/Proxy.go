@@ -465,10 +465,11 @@ func proxyWebDAVFile(c *gin.Context, relPath, mimeType string, bucket models.Buc
 
 // proxyLocalFile 本地文件代理（添加水印支持）
 func proxyLocalFile(c *gin.Context, realPath string, mimeType string, watermarkCfg watermark.WatermarkConfig) {
-	fullPath := filepath.Join(filepath.Clean(realPath))
-	// 去除第一个/和\
-	fullPath = strings.TrimPrefix(fullPath, "/")
-	fullPath = strings.TrimPrefix(fullPath, "\\")
+	fullPath, err := resolveSafeLocalPath(realPath)
+	if err != nil {
+		c.JSON(http.StatusForbidden, result.Error(403, "文件路径非法"))
+		return
+	}
 
 	fileInfo, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
@@ -496,6 +497,37 @@ func proxyLocalFile(c *gin.Context, realPath string, mimeType string, watermarkC
 			c.JSON(http.StatusInternalServerError, result.Error(500, "本地文件解密失败"))
 		}
 	}
+}
+
+// resolveSafeLocalPath 将库中存储路径解析为进程工作目录下的安全相对路径，阻止路径穿越。
+func resolveSafeLocalPath(realPath string) (string, error) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(realPath), "\\", "/")
+	normalized = strings.TrimPrefix(normalized, "/")
+	if normalized == "" {
+		return "", errors.New("empty path")
+	}
+	// 禁止绝对路径与 Windows 盘符路径
+	if filepath.IsAbs(normalized) || (len(normalized) >= 2 && normalized[1] == ':') {
+		return "", errors.New("absolute path not allowed")
+	}
+	clean := filepath.Clean(normalized)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", errors.New("path traversal")
+	}
+
+	absFile, err := filepath.Abs(clean)
+	if err != nil {
+		return "", err
+	}
+	absRoot, err := filepath.Abs(".")
+	if err != nil {
+		return "", err
+	}
+	sep := string(filepath.Separator)
+	if absFile != absRoot && !strings.HasPrefix(absFile, absRoot+sep) {
+		return "", errors.New("path outside workspace")
+	}
+	return absFile, nil
 }
 
 // FTP代理（添加水印支持）

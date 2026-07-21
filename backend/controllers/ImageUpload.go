@@ -14,6 +14,7 @@ import (
 	"oneimg/backend/services"
 	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/safefetch"
 	"oneimg/backend/utils/settings"
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/uploads"
@@ -612,11 +613,14 @@ func UploadImagesByURL(c *gin.Context) {
 		return
 	}
 
-	// 下载图片
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(req.Urls)
+	// 下载图片（拒绝内网/metadata，防止 SSRF）
+	if err := safefetch.ValidatePublicHTTPURL(req.Urls); err != nil {
+		uc.Fail(400, "URL 不合法或禁止访问内网地址")
+		return
+	}
+	resp, err := safefetch.Get(c.Request.Context(), req.Urls, 60*time.Second)
 	if err != nil {
-		uc.Fail(500, "图片下载失败：%v", err)
+		uc.Fail(400, "图片下载失败：%v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -635,9 +639,12 @@ func UploadImagesByURL(c *gin.Context) {
 	if fileName == "/" || fileName == "." || fileName == "" {
 		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
 	}
+	fileName = filepath.Base(strings.ReplaceAll(fileName, "\\", "/"))
+	if strings.Contains(fileName, "..") || fileName == "." || fileName == "" {
+		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
+	}
 
-	maxRead := int64(setting.MaxFileSize) + 1
-	fileBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxRead))
+	fileBytes, err := safefetch.ReadLimited(resp.Body, int64(setting.MaxFileSize))
 	if err != nil {
 		uc.Fail(500, "读取图片失败：%v", err)
 		return
