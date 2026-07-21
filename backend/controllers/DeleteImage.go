@@ -29,7 +29,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// DeleteImage 删除图片
+// DeleteImage 删除图片：先删各存储物理副本，再事务释放容量并删库记录。
 func DeleteImage(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
@@ -45,14 +45,11 @@ func DeleteImage(c *gin.Context) {
 
 	db := database.GetDB().DB
 	var image models.Image
-
-	// 查询图片信息
 	if err := db.First(&image, uint(id)).Error; err != nil {
 		c.JSON(http.StatusNotFound, result.Error(404, "图片不存在"))
 		return
 	}
 
-	// 集中、统一的权限校验
 	if !CheckImageAccessPermission(c, image, "image:delete") {
 		c.JSON(http.StatusForbidden, result.Error(403, "无权访问或删除此图片"))
 		return
@@ -61,7 +58,6 @@ func DeleteImage(c *gin.Context) {
 	deleteCtx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
 
-	// 先删除所有云端/本地物理文件
 	if err := services.DeleteImageReplicas(deleteCtx, image); err != nil {
 		log.Printf("删除图片 %d 的存储副本失败：%v", image.Id, err)
 		c.JSON(http.StatusBadGateway, result.Error(502, "部分存储源删除失败，文件记录已保留，可稍后重试"))
@@ -70,13 +66,11 @@ func DeleteImage(c *gin.Context) {
 
 	fileSize := uint64(image.FileSize)
 	err = db.Transaction(func(tx *gorm.DB) error {
-		// 查出该图片全部存储副本记录
 		var storageList []models.ImageStorage
 		if err := tx.Where("image_id = ?", image.Id).Find(&storageList).Error; err != nil {
 			return err
 		}
 
-		// 遍历所有副本，每个对应Bucket扣减容量（usage - size，最小0）
 		for _, storage := range storageList {
 			err := tx.Model(&models.Buckets{}).
 				Where("id = ?", storage.BucketID).
@@ -87,7 +81,6 @@ func DeleteImage(c *gin.Context) {
 			}
 		}
 
-		// 删除关联表与主记录
 		if err := tx.Where("image_id = ?", image.Id).Delete(&models.ImageStorage{}).Error; err != nil {
 			return err
 		}
@@ -109,36 +102,32 @@ func DeleteImage(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("删除成功，对应存储容量已释放", nil))
 }
 
-// 辅助函数：统一权限校验
+// CheckImageAccessPermission 校验当前用户是否可操作目标图片。
+// 规则：超管图片仅超管可动；本人或超管放行；否则需 requiredPerm；游客用 UUID+MD5。
 func CheckImageAccessPermission(c *gin.Context, image models.Image, requiredPerm string) bool {
 	userId := c.GetInt("user_id")
 
-	// 超级管理员的图片只能超级管理员自己操作，防止普通管理员越权
 	if image.UserId == models.SuperAdminID && userId != models.SuperAdminID {
 		return false
 	}
-
-	// 本人操作，或者本身是超级管理员，直接放行
 	if (userId > 0 && userId == image.UserId) || userId == models.SuperAdminID {
 		return true
 	}
 
-	// 检查是否有专门的越权操作权限
 	user, exists := middlewares.GetCurrentUser(c)
 	if exists && requiredPerm != "" && user.Permission.HasPermission(requiredPerm) {
 		return true
 	}
 
-	// 游客基于 Token/UUID 校验
 	currentUserUUID := GetUUID(c)
 	currentUsername := c.GetString("username")
 	if image.UUID != "" && image.UUID == currentUserUUID && md5.Md5(currentUsername+image.FileName) == image.MD5 {
 		return true
 	}
-
 	return false
 }
 
+// deleteLocalFile 删除本地 uploads 下相对路径文件（忽略不存在）。
 func deleteLocalFile(fileUrl string) {
 	if fileUrl == "" {
 		return
@@ -150,13 +139,14 @@ func deleteLocalFile(fileUrl string) {
 	}
 }
 
-// DeleteDefaultStorageImage 删除默认存储的图片
+// DeleteDefaultStorageImage 删除本地默认存储上的原图与缩略图。
 func DeleteDefaultStorageImage(image models.Image) bool {
 	deleteLocalFile(image.Url)
 	deleteLocalFile(image.Thumbnail)
 	return true
 }
 
+// deleteS3Object 删除 S3/R2 单个对象。
 func deleteS3Object(ctx context.Context, client *awss3.Client, bucketName, fileUrl string) error {
 	if fileUrl == "" {
 		return nil
@@ -169,7 +159,7 @@ func deleteS3Object(ctx context.Context, client *awss3.Client, bucketName, fileU
 	return err
 }
 
-// DeleteR2StorageImage 删除R2存储的图片
+// DeleteR2StorageImage 删除 R2 上的原图与缩略图。
 func DeleteR2StorageImage(image models.Image, bucket models.Buckets) bool {
 	setting, err := settings.GetSettings()
 	if err != nil {
@@ -196,7 +186,7 @@ func DeleteR2StorageImage(image models.Image, bucket models.Buckets) bool {
 	return true
 }
 
-// DeleteS3StorageImage 删除S3存储的图片
+// DeleteS3StorageImage 删除 S3 上的原图与缩略图。
 func DeleteS3StorageImage(image models.Image, bucket models.Buckets) bool {
 	setting, err := settings.GetSettings()
 	if err != nil {
@@ -225,7 +215,7 @@ func DeleteS3StorageImage(image models.Image, bucket models.Buckets) bool {
 	return true
 }
 
-// DeleteWebDavStorageImage 删除WebDAV存储的图片
+// DeleteWebDavStorageImage 删除 WebDAV 上的原图与缩略图。
 func DeleteWebDavStorageImage(image models.Image, bucket models.Buckets) bool {
 	storageConfig := buckets.ConvertToWebDavBucket(bucket.Config)
 	client := webdav.Client(webdav.Config{
@@ -252,7 +242,7 @@ func DeleteWebDavStorageImage(image models.Image, bucket models.Buckets) bool {
 	return mainOk && thumbOk
 }
 
-// DeleteFtpStorageImage 删除FTP存储的图片
+// DeleteFtpStorageImage 删除 FTP 上的原图与缩略图。
 func DeleteFtpStorageImage(image models.Image, bucket models.Buckets) bool {
 	storageConfig := buckets.ConvertToFTPBucket(bucket.Config)
 	ftpUtil := ftp.NewFTPUtil(ftp.FTPConfig{
@@ -277,7 +267,7 @@ func DeleteFtpStorageImage(image models.Image, bucket models.Buckets) bool {
 	return true
 }
 
-// DeleteTelegramStorageImage 删除TG存储的图片
+// DeleteTelegramStorageImage 删除 Telegram 消息中的图片与缩略图。
 func DeleteTelegramStorageImage(image models.Image, bucket models.Buckets) bool {
 	storageConfig := buckets.ConvertToTelegramBucket(bucket.Config)
 

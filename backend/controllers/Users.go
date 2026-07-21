@@ -3,29 +3,24 @@ package controllers
 import (
 	"math/rand"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-// 包初始化：初始化随机种子
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-// GetUsers 用户列表分页查询
+// GetUsers 分页查询用户列表（管理员）。
 func GetUsers(c *gin.Context) {
 	db := database.GetDB().DB
 
-	// 分页参数
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
 		page = 1
@@ -39,47 +34,34 @@ func GetUsers(c *gin.Context) {
 	var total int64
 	query := db.Model(&users)
 
-	// ID筛选
-	idStr := c.DefaultQuery("id", "0")
-	id, err := strconv.Atoi(idStr)
-	if err == nil && id > 0 {
+	if id, err := strconv.Atoi(c.DefaultQuery("id", "0")); err == nil && id > 0 {
 		query = query.Where("id = ?", id)
 	}
-
-	// 用户名模糊搜索
-	username := c.DefaultQuery("username", "")
-	if username != "" {
+	if username := c.DefaultQuery("username", ""); username != "" {
 		query = query.Where("username LIKE ?", "%"+username+"%")
 	}
-
-	// 角色筛选
-	roleStr := c.DefaultQuery("role", "0")
-	role, err := strconv.Atoi(roleStr)
-	if err == nil && role > 0 {
+	if role, err := strconv.Atoi(c.DefaultQuery("role", "0")); err == nil && role > 0 {
 		query = query.Where("role = ?", role)
 	}
 
-	// 统计总数
 	if err := query.Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "查询总数失败："+err.Error()))
 		return
 	}
 
-	// 分页查询
 	offset := (page - 1) * limit
 	if err := query.Order("id DESC").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "查询用户列表失败："+err.Error()))
 		return
 	}
 
-	resultData := map[string]any{
+	c.JSON(http.StatusOK, result.Success("查询成功", map[string]any{
 		"total": total,
 		"list":  users,
-	}
-	c.JSON(http.StatusOK, result.Success("查询成功", resultData))
+	}))
 }
 
-// CreateUser 新增用户
+// CreateUser 创建用户。
 func CreateUser(c *gin.Context) {
 	type CreateUserReq struct {
 		Username string `json:"username" binding:"required,min=3,max=50"`
@@ -99,12 +81,10 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
-	// 角色兜底
 	if req.Role != models.RoleAdmin && req.Role != models.RoleUser {
 		req.Role = models.RoleUser
 	}
 
-	// 密码加密
 	hashedPwd, err := hashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "密码加密失败"))
@@ -122,7 +102,6 @@ func CreateUser(c *gin.Context) {
 		UpdatedAt: time.Now(),
 	}
 
-	// 创建用户
 	if err := db.Create(&newUser).Error; err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unique constraint") || strings.Contains(errMsg, "duplicate key") {
@@ -141,7 +120,7 @@ func CreateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("创建成功", resp))
 }
 
-// DeleteUser 删除用户（修复未执行Delete的bug）
+// DeleteUser 删除用户；外部身份保留为禁用墓碑，防止 SSO 自动重建。
 func DeleteUser(c *gin.Context) {
 	userIDStr := c.Param("id")
 	id, err := strconv.Atoi(userIDStr)
@@ -150,13 +129,11 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// 禁止删除超级管理员
 	if id == models.SuperAdminID {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "不能删除超级管理员账号"))
 		return
 	}
 
-	// 禁止删除自身
 	loginUID, _ := c.Get("user_id")
 	if loginUID == id {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "不能删除当前登录用户"))
@@ -165,13 +142,11 @@ func DeleteUser(c *gin.Context) {
 
 	db := database.GetDB().DB
 	var user models.User
-	// 校验用户存在
 	if err := db.Where("id = ?", id).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, result.Fail(404, "用户不存在"))
 		return
 	}
 
-	// 保留已删除用户的外部身份作为禁用墓碑，防止下次 SSO 又自动建号。
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.ExternalIdentity{}).Where("user_id = ?", id).Updates(map[string]any{
 			"user_id":  0,
@@ -188,27 +163,24 @@ func DeleteUser(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("删除成功", nil))
 }
 
-// UpdateUserRole 修改用户角色
+// UpdateUserRole 修改用户角色（不可改超管/自身）。
 func UpdateUserRole(c *gin.Context) {
 	type UpdateRoleReq struct {
 		ID   int `json:"id" binding:"required,min=1"`
 		Role int `json:"role" binding:"required,oneof=1 3"`
 	}
 	var req UpdateRoleReq
-	// 缺失核心绑定逻辑，已补上
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "参数校验失败："+err.Error()))
 		return
 	}
 
 	id := req.ID
-	// 禁止修改超级管理员角色
 	if id == models.SuperAdminID {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改超级管理员角色"))
 		return
 	}
 
-	// 禁止修改自身角色
 	loginUID, _ := c.Get("user_id")
 	if loginUID == id {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改当前登录用户角色"))
@@ -222,7 +194,6 @@ func UpdateUserRole(c *gin.Context) {
 		return
 	}
 
-	// 更新角色
 	if err := db.Model(&user).Update("role", req.Role).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "更新角色失败："+err.Error()))
 		return
@@ -231,7 +202,7 @@ func UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("更新成功", nil))
 }
 
-// ResetPassword 重置用户密码
+// ResetPassword 重置用户密码并返回明文新密码（仅管理员操作）。
 func ResetPassword(c *gin.Context) {
 	userIDStr := c.Param("id")
 	id, err := strconv.Atoi(userIDStr)
@@ -364,7 +335,6 @@ func UpdateUserPermission(c *gin.Context) {
 		validCodes = user.Permission.Codes
 	}
 
-	// 保证不为 nil
 	if validCodes == nil {
 		validCodes = []string{}
 	}
@@ -387,13 +357,13 @@ func UpdateUserPermission(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success(message, nil))
 }
 
-// hashPassword bcrypt加密密码
+// hashPassword 使用 bcrypt 加密密码。
 func hashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(hash), err
 }
 
-// generateRandomSecret 生成指定长度纯字母数字随机密码（修复base64超长问题）
+// generateRandomSecret 生成指定长度的字母数字随机串。
 func generateRandomSecret(length int) string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, length)

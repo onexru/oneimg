@@ -39,6 +39,7 @@ type GetSettingsRequest struct {
 // 十六进制颜色格式正则
 var hexColorRegex = regexp.MustCompile(`^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
+// GetSettings 获取系统设置（按权限过滤敏感字段）。
 func GetSettings(c *gin.Context) {
 	var req GetSettingsRequest
 	_ = c.ShouldBindJSON(&req)
@@ -106,7 +107,7 @@ func GetSettings(c *gin.Context) {
 	})
 }
 
-// 返回登录配置
+// GetLoginSettings 获取登录页公开配置。
 func GetLoginSettings(c *gin.Context) {
 	settingModel, err := settings.GetSettings()
 	if err != nil {
@@ -127,7 +128,7 @@ func GetLoginSettings(c *gin.Context) {
 	))
 }
 
-// 返回网站SEO信息
+// GetSEOSettings 获取站点 SEO 公开配置。
 func GetSEOSettings(c *gin.Context) {
 	settingModel, err := settings.GetSettings()
 	if err != nil {

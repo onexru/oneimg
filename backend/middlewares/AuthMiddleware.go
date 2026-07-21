@@ -2,23 +2,25 @@ package middlewares
 
 import (
 	"net/http"
+	"strings"
+
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/secureconfig"
 	"oneimg/backend/utils/settings"
-	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
 
-// AuthResponse 认证失败响应结构
+// AuthResponse 认证失败时的统一响应体。
 type AuthResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-// AuthMiddleware Session认证中间件
+// AuthMiddleware 校验 Session 或 API Token，并将当前用户写入上下文。
+// 上下文键：user_id、user_role、username、current_user。
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		setting, _ := settings.GetSettings()
@@ -32,21 +34,20 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 
 			if validateToken(setting, apiToken) {
-				// API Token 验证通过，注入一个拥有全部权限的虚拟超级管理员对象
+				// API Token 视为超级管理员（通配权限）
 				apiAdminUser := &models.User{
-					ID:       1,
+					ID:       models.SuperAdminID,
 					Role:     models.RoleAdmin,
 					Username: "api_admin",
 					Permission: models.Permission{
-						// 给个通配符，或者你可以在这里把 AllPermissionMap 的所有 key 塞进去
 						Codes:   []string{"*"},
 						Buckets: []int{},
 					},
 				}
-				c.Set("user_id", 1)
-				c.Set("user_role", 1)
+				c.Set("user_id", models.SuperAdminID)
+				c.Set("user_role", models.RoleAdmin)
 				c.Set("username", "api_admin")
-				c.Set("current_user", apiAdminUser) // 【新增】存入完整对象
+				c.Set("current_user", apiAdminUser)
 				c.Next()
 				return
 			}
@@ -54,7 +55,6 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		session := sessions.Default(c)
 		loggedIn := session.Get("logged_in")
-
 		if (loggedIn == nil || loggedIn != true) && apiToken == "" {
 			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户未登录"})
 			c.Abort()
@@ -64,7 +64,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		userID := session.Get("user_id")
 		userRole := session.Get("user_role")
 		username := session.Get("username")
-
 		if userID == nil || username == nil {
 			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
 			c.Abort()
@@ -74,7 +73,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		userIDValue, userIDOK := userID.(int)
 		userRoleValue, userRoleOK := userRole.(int)
 		usernameValue, usernameOK := username.(string)
-
 		if !userIDOK || !userRoleOK || !usernameOK {
 			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
 			c.Abort()
@@ -82,10 +80,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		var currentUser models.User
-		// 游客是虚拟账号；其他会话每次核对用户，使删除/角色变更立即生效。
+		// 游客为虚拟账号；正式用户每次从库加载，使删除/改角色即时生效。
 		if userRoleValue != models.RoleGuest {
 			db := database.GetDB().DB
-			// 【关键修改】这里必须查出 permission 字段
 			if db == nil || db.Select("id", "role", "username", "permission").First(&currentUser, userIDValue).Error != nil {
 				session.Clear()
 				_ = session.Save()
@@ -98,8 +95,11 @@ func AuthMiddleware() gin.HandlerFunc {
 			session.Set("user_role", userRoleValue)
 			session.Set("username", usernameValue)
 		} else {
-			// 如果是游客，构造一个空权限的游客对象
-			currentUser = models.User{ID: userIDValue, Role: models.RoleGuest, Username: usernameValue}
+			currentUser = models.User{
+				ID:       userIDValue,
+				Role:     models.RoleGuest,
+				Username: usernameValue,
+			}
 		}
 
 		session.Set("logged_in", true)
@@ -107,11 +107,11 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("user_role", userRoleValue)
 		c.Set("username", usernameValue)
 		c.Set("current_user", &currentUser)
-
 		c.Next()
 	}
 }
 
+// validateToken 校验 API Token（优先哈希比对，兼容明文遗留字段）。
 func validateToken(setting models.Settings, token string) bool {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -123,7 +123,7 @@ func validateToken(setting models.Settings, token string) bool {
 	return setting.APIToken != "" && secureconfig.ConstantTimeEqual(setting.APIToken, token)
 }
 
-// 细粒度权限校验中间件
+// RequirePermission 要求当前用户具备指定权限码；超级管理员与 "*" 直接放行。
 func RequirePermission(requiredCode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userInterface, exists := c.Get("current_user")
@@ -164,10 +164,10 @@ func RequirePermission(requiredCode string) gin.HandlerFunc {
 	}
 }
 
+// AdminOnlyMiddleware 仅允许管理员角色访问。
 func AdminOnlyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userRole := c.GetInt("user_role")
-		if userRole != 1 {
+		if c.GetInt("user_role") != models.RoleAdmin {
 			c.JSON(http.StatusForbidden, AuthResponse{Code: 403, Message: "无权访问"})
 			c.Abort()
 			return
@@ -176,7 +176,7 @@ func AdminOnlyMiddleware() gin.HandlerFunc {
 	}
 }
 
-// OptionalAuthMiddleware 可选认证中间件
+// OptionalAuthMiddleware 可选登录：已登录则注入 user_id/username，未登录不拦截。
 func OptionalAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
@@ -193,7 +193,7 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// 从上下文中获取当前用户完整信息
+// GetCurrentUser 从上下文读取当前用户对象。
 func GetCurrentUser(c *gin.Context) (*models.User, bool) {
 	userInterface, exists := c.Get("current_user")
 	if !exists {

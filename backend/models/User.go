@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// 用户模型
+// User 用户模型。
 type User struct {
 	ID         int        `json:"id" gorm:"type:integer;primaryKey;autoIncrement"`
 	Role       int        `json:"role" gorm:"default:1"`
@@ -19,6 +19,7 @@ type User struct {
 	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
+// 角色与超级管理员约定。
 const (
 	SuperAdminID = 1
 	RoleAdmin    = 1
@@ -26,20 +27,18 @@ const (
 	RoleUser     = 3
 )
 
+// AllPermissionMap 权限码到中文名称的映射。
 var AllPermissionMap = map[string]string{
-	// 用户管理
 	"user:create":            "添加用户",
 	"user:delete":            "删除用户",
 	"user:role:update":       "修改角色",
 	"user:permission:update": "编辑权限",
 	"user:password:reset":    "重置密码",
 
-	// Tag管理
 	"tag:create": "新增Tag",
 	"tag:delete": "删除Tag",
 	"tag:update": "编辑Tag",
 
-	// 系统设置
 	"setting:upload":       "上传与存储",
 	"setting:image":        "图片处理",
 	"setting:security":     "安全与登录",
@@ -47,20 +46,17 @@ var AllPermissionMap = map[string]string{
 	"setting:api":          "API",
 	"setting:seo":          "站点SEO",
 
-	// 存储管理
 	"storage:create": "新增存储",
 	"storage:update": "编辑存储",
 	"storage:delete": "删除存储",
 
-	// 图片管理
 	"image:delete":        "删除图片",
 	"image:tag:add":       "添加图片标签",
 	"image:tag:delete":    "删除图片标签",
 	"image:access:source": "图片存储源",
 }
 
-// ValidatePermissionCodes 严格校验模式：如果传入了一个不存在的权限码，直接报错
-// 适用场景：管理员手动输入或通过 API 精确修改权限时
+// ValidatePermissionCodes 严格校验：存在非法权限码则报错。
 func ValidatePermissionCodes(codes []string) error {
 	for _, code := range codes {
 		if _, exists := AllPermissionMap[code]; !exists {
@@ -70,8 +66,7 @@ func ValidatePermissionCodes(codes []string) error {
 	return nil
 }
 
-// FilterValidPermissionCodes 宽容过滤模式：过滤掉不存在的权限码，只保留合法的
-// 适用场景：前端提交了一堆复选框数据，为了防止前端被篡改，后端默默过滤掉非法项
+// FilterValidPermissionCodes 过滤掉非法权限码，仅保留合法项。
 func FilterValidPermissionCodes(codes []string) []string {
 	validCodes := make([]string, 0, len(codes))
 	for _, code := range codes {
@@ -82,7 +77,7 @@ func FilterValidPermissionCodes(codes []string) []string {
 	return validCodes
 }
 
-// GetPermissionName 根据 code 获取中文名 (额外提供的工具方法)
+// GetPermissionName 返回权限码中文名；未知码返回「未知权限」。
 func GetPermissionName(code string) string {
 	if name, ok := AllPermissionMap[code]; ok {
 		return name
@@ -90,20 +85,18 @@ func GetPermissionName(code string) string {
 	return "未知权限"
 }
 
-// 权限模型
+// Permission 用户权限：功能码列表 + 可用存储桶 ID。
 type Permission struct {
-	// OIDC code 列表
-	Codes []string `json:"codes" gorm:"default:[]"`
-	// 存储权限:存储桶ID列表
-	Buckets []int `json:"buckets" gorm:"default:[]"`
+	Codes   []string `json:"codes" gorm:"default:[]"`
+	Buckets []int    `json:"buckets" gorm:"default:[]"`
 }
 
-// 写入数据库：结构体序列化为 JSON
+// Value 序列化为 JSON 写入数据库。
 func (p Permission) Value() (driver.Value, error) {
 	return json.Marshal(p)
 }
 
-// 读取数据库：JSON 反序列化回结构体
+// Scan 从数据库 JSON 反序列化。
 func (p *Permission) Scan(src any) error {
 	if src == nil {
 		p.Buckets = []int{}
@@ -125,6 +118,7 @@ func (p *Permission) Scan(src any) error {
 	return json.Unmarshal(data, p)
 }
 
+// HasBucket 判断是否拥有指定存储桶权限。
 func (p *Permission) HasBucket(bucketID int) bool {
 	for _, b := range p.Buckets {
 		if b == bucketID {
@@ -134,6 +128,7 @@ func (p *Permission) HasBucket(bucketID int) bool {
 	return false
 }
 
+// IntSliceContains 判断整型切片是否包含目标值。
 func IntSliceContains(arr []int, target int) bool {
 	for _, v := range arr {
 		if v == target {
@@ -143,7 +138,7 @@ func IntSliceContains(arr []int, target int) bool {
 	return false
 }
 
-// HasPermission 判断是否拥有某个具体的功能权限
+// HasPermission 判断是否拥有指定功能权限码。
 func (p *Permission) HasPermission(code string) bool {
 	for _, c := range p.Codes {
 		if c == code {

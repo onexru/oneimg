@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SetupRoutes 注册中间件、API 与 SPA 回退路由。
 func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	cfg := config.App
 
@@ -38,7 +39,8 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			if appURL != "" && strings.EqualFold(origin, appURL) {
 				return true
 			}
-			return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")
+			return strings.HasPrefix(origin, "http://localhost:") ||
+				strings.HasPrefix(origin, "http://127.0.0.1:")
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
@@ -70,22 +72,20 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 		api.GET("/auth/cas/login", controllers.StartCASLogin)
 		api.GET("/auth/cas/callback", controllers.CASCallback)
 
+		// 需登录
 		auth := api.Group("")
 		auth.Use(middlewares.AuthMiddleware())
 		{
 			auth.GET("/user/status", controllers.CheckLoginStatus)
 			auth.GET("/uploadConfig", controllers.GetUploadConfig)
 
-			// 统计数据 (普通用户也能看自己的面板)
 			auth.GET("/stats/dashboard", controllers.GetDashboardStats)
 			auth.GET("/stats/images", controllers.GetImageStats)
 
-			// 标签查看
 			auth.GET("/tags", controllers.GetTags)
-			// 存储桶列表
 			auth.GET("/buckets/list", controllers.GetBucketsList)
 
-			// 图片相关操作
+			// 图片
 			auth.POST("/upload", controllers.UploadImage)
 			auth.POST("/upload/images", controllers.UploadImages)
 			auth.DELETE("/images/:id", controllers.DeleteImage)
@@ -99,12 +99,12 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.PUT("/images/:id/access-source", controllers.UpdateImageAccessSource)
 			auth.POST("/images/url", controllers.UploadImagesByURL)
 
-			// --- Tag 管理 ---
+			// 标签管理
 			auth.POST("/tags", middlewares.RequirePermission("tag:create"), controllers.AddTag)
 			auth.PUT("/tags/:id", middlewares.RequirePermission("tag:update"), controllers.UpdateTag)
 			auth.DELETE("/tags/:id", middlewares.RequirePermission("tag:delete"), controllers.DeleteTag)
 
-			// --- 存储管理 ---
+			// 存储管理
 			auth.GET("/buckets", controllers.GetBuckets)
 			auth.POST("/buckets", middlewares.RequirePermission("storage:create"), controllers.AddBuckets)
 			auth.POST("/buckets/test", controllers.TestBucketConnection)
@@ -112,11 +112,11 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.PUT("/buckets/:id/enabled", middlewares.RequirePermission("storage:update"), controllers.UpdateBucketEnabled)
 			auth.DELETE("/buckets/:id", middlewares.RequirePermission("storage:delete"), controllers.DeleteBuckets)
 
-			// --- 账户管理 (修改自己的密码/信息通常不需要特殊权限，如果是修改全局则需) ---
+			// 账户
 			auth.POST("/account/change", controllers.ChangeAccountInfo)
 			auth.POST("/sessions/clear", middlewares.RequirePermission("setting:security"), controllers.ClearAllSessions)
 
-			// --- 用户管理 ---
+			// 用户管理
 			auth.GET("/users", middlewares.AdminOnlyMiddleware(), controllers.GetUsers)
 			auth.POST("/users/Add", middlewares.RequirePermission("user:create"), controllers.CreateUser)
 			auth.DELETE("/users/:id", middlewares.RequirePermission("user:delete"), controllers.DeleteUser)
@@ -124,13 +124,13 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.POST("/users/resetPassword/:id", middlewares.RequirePermission("user:password:reset"), controllers.ResetPassword)
 			auth.POST("/users/updatePermission/:id", middlewares.RequirePermission("user:permission:update"), controllers.UpdateUserPermission)
 
-			// --- 系统设置 ---
+			// 系统设置
 			auth.Any("/settings/get", controllers.GetSettings)
 			auth.POST("/settings/update", controllers.UpdateSettings)
 		}
 	}
 
-	// 前端 SPA 路由
+	// SPA 回退：优先图片代理，否则返回 index.html
 	r.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "API Not Found"})

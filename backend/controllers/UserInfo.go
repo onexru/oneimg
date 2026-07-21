@@ -9,20 +9,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// CheckLoginStatus 返回当前登录用户的基本会话信息。
+// 前置：AuthMiddleware。
 func CheckLoginStatus(c *gin.Context) {
-	// 经过了AuthMiddleware，这里一定已经登录了
 	session := sessions.Default(c)
 	userID := session.Get("user_id")
 	username := session.Get("username")
 	role := c.GetInt("user_role")
 
-	// 使用统一返回格式
-	c.JSON(http.StatusOK, result.Success(
-		"已登录",
-		map[string]any{
-			"user_id":   userID,
-			"username":  username,
-			"logged_in": true,
-			"user_role": role,
-		}))
+	c.JSON(http.StatusOK, result.Success("已登录", map[string]any{
+		"user_id":   userID,
+		"username":  username,
+		"logged_in": true,
+		"user_role": role,
+	}))
 }

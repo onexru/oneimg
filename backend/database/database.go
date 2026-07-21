@@ -21,14 +21,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// Database 数据库操作类
+// Database 封装 GORM 连接。
 type Database struct {
 	DB *gorm.DB
 }
 
 var db *Database
 
-// NewDB 创建新的数据库连接
+// NewDB 使用给定 dialector 打开并校验数据库连接。
 func NewDB(dialector gorm.Dialector) (*Database, error) {
 	gormConfig := &gorm.Config{
 		SkipDefaultTransaction:                   true,
@@ -45,7 +45,6 @@ func NewDB(dialector gorm.Dialector) (*Database, error) {
 		return nil, fmt.Errorf("获取SQL连接失败: %w", err)
 	}
 
-	// 验证连接
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("连接验证失败: %w", err)
 	}

@@ -1,3 +1,7 @@
+/**
+ * 图片多存储同步状态展示工具。
+ */
+
 const STATUS_META = {
   pending: {
     label: '等待同步',

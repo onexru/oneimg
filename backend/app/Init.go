@@ -12,134 +12,102 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// System 应用运行时核心依赖。
 type System struct {
 	Config   *config.Config
 	Database *database.Database
 }
 
+// Init 加载配置、数据库、默认数据与后台任务。
 func Init() *System {
-	// 生成默认.env文件
 	if !config.EnvExists() {
 		config.CreateDefaultEnv()
 	}
-	// 创建配置实例
 	config.NewConfig()
 	cfg := config.App
-	// 初始化数据库
+
 	database.InitDB(cfg)
-	// 获取数据库实例
 	db := database.GetDB()
 
-	// 初始化图片服务
 	images.InitImageService()
-
-	// 初始化默认用户
 	InitDefaultUser(cfg, db)
-
-	// 初始化系统设置
 	InitSettings(db)
-
-	// 初始化默认存储配置
 	InitDefaultStorage(db)
 
-	// 为旧图片补齐单存储副本记录，然后启动持久化同步队列。
-	// Backfill 使用复合唯一索引保证幂等，因此每次启动都执行。
+	// 为旧图片补齐存储副本记录（幂等），再启动同步 worker。
 	if err := services.BackfillImageStorages(); err != nil {
 		log.Printf("图片存储副本回填失败: %v", err)
 	}
 	services.StartStorageSyncWorker()
 
-	r := &System{
+	return &System{
 		Config:   cfg,
 		Database: db,
 	}
-
-	return r
 }
 
-// hashPassword 对密码进行加密
+// hashPassword 使用 bcrypt 加密密码。
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err
 }
 
-// InitDefaultUser 初始化默认用户
+// InitDefaultUser 在空库时创建默认管理员。
 func InitDefaultUser(cfg *config.Config, db *database.Database) {
-	// 检查是否已存在用户
 	var count int64
 	db.DB.Model(&models.User{}).Count(&count)
-
 	if count > 0 {
 		log.Println("用户已存在，跳过默认用户初始化")
 		return
 	}
 
-	// 从配置中读取默认用户信息
-	defaultUsername := cfg.DefaultUser
-	defaultPassword := cfg.DefaultPass
-
-	// 加密密码
-	hashedPassword, err := hashPassword(defaultPassword)
+	hashedPassword, err := hashPassword(cfg.DefaultPass)
 	if err != nil {
 		log.Fatal("密码加密失败:", err)
 	}
 
-	// 创建默认用户
 	defaultUser := models.User{
-		Username: defaultUsername,
-		Role:     1,
+		Username: cfg.DefaultUser,
+		Role:     models.RoleAdmin,
 		Password: hashedPassword,
 	}
-
-	result := db.DB.Create(&defaultUser)
-	if result.Error != nil {
+	if result := db.DB.Create(&defaultUser); result.Error != nil {
 		log.Fatal("创建默认用户失败:", result.Error)
 	}
-
 	log.Printf("默认用户创建成功 - 用户名: %s", defaultUser.Username)
 }
 
-// InitDefaultStorage 初始化默认存储配置
+// InitDefaultStorage 在空库时创建本地默认存储桶，并执行版本迁移。
 func InitDefaultStorage(db *database.Database) {
-	// 默认使用本地存储
-	storageType := "default"
-	// 默认路径
-	storagePath := "/uploads"
+	const storageType = "default"
+	const storagePath = "/uploads"
 
-	// 查询是否已存在存储配置
 	var count int64
 	db.DB.Model(&models.Buckets{}).Where("type = ?", storageType).Count(&count)
-
 	if count > 0 {
 		log.Println("存储配置已存在，跳过默认存储初始化")
 		return
 	}
 
-	Config := map[string]any{
-		"storagePath": storagePath,
-	}
-
-	// 创建默认存储配置
 	storage := models.Buckets{
 		Id:       1,
 		Name:     "本地默认存储",
 		Type:     storageType,
-		Capacity: 0, // 无限容量
-		Config:   Config,
-		Usage:    0,
+		Capacity: 0,
+		Config: map[string]any{
+			"storagePath": storagePath,
+		},
+		Usage: 0,
 	}
-
-	result := db.DB.Create(&storage)
-	if result.Error != nil {
+	if result := db.DB.Create(&storage); result.Error != nil {
 		log.Fatal("创建默认存储配置失败:", result.Error)
 	}
+	log.Printf("默认存储配置创建成功 - 类型: %s, 路径: %s", storage.Type, storagePath)
 
-	log.Printf("默认存储配置创建成功 - 存储类型: %s, 存储路径: %s", storage.Type, storagePath)
-
-	// 版本存储迁移
 	Migrate(db)
 }
 
+// InitSettings 在空库时创建默认系统设置行。
 func InitSettings(db *database.Database) {
 	var count int64
 	db.DB.Model(&models.Settings{}).Count(&count)
@@ -147,8 +115,7 @@ func InitSettings(db *database.Database) {
 		log.Println("系统配置已存在，跳过系统配置初始化")
 		return
 	}
-	result := db.DB.Create(&models.Settings{})
-	if result.Error != nil {
+	if result := db.DB.Create(&models.Settings{}); result.Error != nil {
 		log.Fatal("创建系统配置失败:", result.Error)
 	}
 	log.Printf("系统配置创建成功")

@@ -1,3 +1,6 @@
+/**
+ * 前端路由：页面映射、登录守卫与 SEO 配置加载。
+ */
 import { createRouter, createWebHistory } from 'vue-router'
 
 let seoStting = {
@@ -7,15 +10,15 @@ let seoStting = {
   seo_icp: '',
   public_security: '',
   seo_icon: ''
-};
+}
 
 const seoBus = {
   callbacks: [],
   onUpdate: (cb) => seoBus.callbacks.push(cb),
   triggerUpdate: (data) => seoBus.callbacks.forEach(cb => cb(data))
-};
+}
 
-let seoRequestPromise = null;
+let seoRequestPromise = null
 
 const routes = [
   {

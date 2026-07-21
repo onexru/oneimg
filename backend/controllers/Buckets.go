@@ -35,12 +35,12 @@ type DiskUsageDetail struct {
 	Percent    float64 `json:"percent"` // 使用率
 }
 
-// 工具函数：保留float64类型数值的两位小数
+// keepTwoDecimal 将 float64 四舍五入到两位小数。
 func keepTwoDecimal(num float64) float64 {
 	return float64(int(num*100+0.5)) / 100
 }
 
-// 获取所有存储桶
+// GetBuckets 获取全部存储桶及容量使用情况（敏感配置已脱敏）。
 func GetBuckets(c *gin.Context) {
 	var buckets []models.Buckets
 	db := database.GetDB()
@@ -105,7 +105,7 @@ func GetBuckets(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("ok", bucketRes))
 }
 
-// 获取存储桶列表
+// GetBucketsList 获取启用中的存储桶简要列表（上传选择用）。
 func GetBucketsList(c *gin.Context) {
 	var buckets []models.Buckets
 	db := database.GetDB()
@@ -129,8 +129,9 @@ func GetBucketsList(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("ok", bucketRes))
 }
 
+// AddBuckets 新增存储桶。
 func AddBuckets(c *gin.Context) {
-	// 一次性读取请求体字节，解决EOF核心问题
+	// 读取原始 body，便于后续 JSON 预处理（如 FTP 端口类型）
 	bodyBytes, err := c.GetRawData()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, "读取请求体失败："+err.Error()))
@@ -275,7 +276,7 @@ func AddBuckets(c *gin.Context) {
 	c.JSON(http.StatusOK, result.Success("添加成功", responseBucket))
 }
 
-// 更新存储桶
+// UpdateBuckets 更新存储桶配置。
 func UpdateBuckets(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -296,7 +297,7 @@ func UpdateBuckets(c *gin.Context) {
 		return
 	}
 
-	// 一次性读取请求体字节，解决EOF核心问题
+	// 读取原始 body，便于后续 JSON 预处理（如 FTP 端口类型）
 	bodyBytes, err := c.GetRawData()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, "读取请求体失败："+err.Error()))
@@ -441,9 +442,7 @@ type updateBucketEnabledRequest struct {
 	Enabled *bool `json:"enabled" binding:"required"`
 }
 
-// UpdateBucketEnabled temporarily enables or disables a remote storage
-// source. Disabling is reversible and deliberately keeps every stored object
-// and synchronization record intact.
+// UpdateBucketEnabled 启用/禁用存储桶；禁用可逆，保留对象与同步记录。
 func UpdateBucketEnabled(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -493,8 +492,7 @@ func UpdateBucketEnabled(c *gin.Context) {
 	}))
 }
 
-// DeleteBuckets removes only the copies held by this storage source. Images
-// whose canonical/other copies remain are preserved.
+// DeleteBuckets 删除存储桶；仅移除该源上的副本，保留其它源与主记录。
 func DeleteBuckets(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {

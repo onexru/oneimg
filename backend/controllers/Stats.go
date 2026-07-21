@@ -73,30 +73,23 @@ func GetDashboardStats(c *gin.Context) {
 	userID := c.GetInt("user_id")
 	userUUID := GetUUID(c)
 
-	// 获取总图片数量（每次重新 scope，避免 GORM 条件叠加）
+	// 每次重新 scope，避免 GORM 条件叠加
 	scopeStatsImages(db, roleID, userID, userUUID).Count(&stats.TotalImages)
 
-	// 获取总大小
 	var totalSize struct {
 		Total int64
 	}
 	scopeStatsImages(db, roleID, userID, userUUID).Select("COALESCE(SUM(file_size), 0) as total").Scan(&totalSize)
 	stats.TotalSize = totalSize.Total
 
-	// 获取今日上传数量
 	today := time.Now().Format("2006-01-02")
 	scopeStatsImages(db, roleID, userID, userUUID).Where("DATE(created_at) = ?", today).Count(&stats.TodayUploads)
 
-	// 获取本月上传数量
 	now := time.Now()
-	year := now.Year()
-	month := now.Month()
-
-	startTime := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	startTime := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	endTime := startTime.AddDate(0, 1, 0)
 	scopeStatsImages(db, roleID, userID, userUUID).Where("created_at >= ? AND created_at < ?", startTime, endTime).Count(&stats.MonthUploads)
 
-	// 获取最近上传的图片
 	scopeStatsImages(db, roleID, userID, userUUID).Order("created_at DESC").Limit(10).Find(&stats.RecentImages)
 	setting, err := settings.GetSettings()
 	if err != nil {

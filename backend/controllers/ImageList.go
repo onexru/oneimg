@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// ImageWithTags 列表接口返回的图片及其标签、存储同步状态。
 type ImageWithTags struct {
 	Id              int                          `json:"id" gorm:"primaryKey;autoIncrement;column:id"`
 	Url             string                       `json:"url" gorm:"column:url"`
@@ -36,12 +37,12 @@ type ImageWithTags struct {
 	StorageStatuses []ImageStorageStatusResponse `json:"storage_statuses" gorm:"-"`
 }
 
-// 映射到数据库表
+// TableName 映射 images 表。
 func (ImageWithTags) TableName() string {
 	return "images"
 }
 
-// GetImageList 获取图片列表
+// GetImageList 分页获取图片列表（按角色过滤可见范围）。
 func GetImageList(c *gin.Context) {
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {

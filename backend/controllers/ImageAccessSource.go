@@ -36,8 +36,7 @@ func (err *imageAccessSourceError) Error() string {
 	return err.message
 }
 
-// UpdateImageAccessSource selects the successful storage replica used by one
-// image's stable URL. It never changes the canonical/original image fields.
+// UpdateImageAccessSource 切换单张图片对外访问所用的成功存储副本（不改原图元数据）。
 func UpdateImageAccessSource(c *gin.Context) {
 	imageID, err := strconv.Atoi(c.Param("id"))
 	if err != nil || imageID <= 0 {

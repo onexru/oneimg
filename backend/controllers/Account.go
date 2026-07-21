@@ -13,23 +13,24 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ChangeAccountInfoRequest 修改登录信息请求结构
+// ChangeAccountInfoRequest 修改账户信息请求体。
 type ChangeAccountInfoRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"min=6"`
 	NewUsername     string `json:"new_username" binding:"max=64"`
 }
 
-// AccountResponse 账户响应结构
+// AccountResponse 账户相关接口响应体。
 type AccountResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Success bool   `json:"success"`
 }
 
+// uuidRegex 匹配标准 UUID（游客用户名格式）。
 var uuidRegex = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
-// ChangeAccountInfo 修改密码
+// ChangeAccountInfo 修改当前登录用户的用户名/密码；成功后强制重新登录。
 func ChangeAccountInfo(c *gin.Context) {
 	var req ChangeAccountInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,7 +42,6 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户ID和角色
 	session := sessions.Default(c)
 	userID := session.Get("user_id")
 	if userID == nil {
@@ -53,10 +53,9 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 获取角色并做类型断言 (兼容 session 存储时可能发生的 int/float64 转换)
-	userRole := session.Get("user_role")
+	// Session 角色可能是 int/float64/uint，统一转 int
 	role := 0
-	if userRole != nil {
+	if userRole := session.Get("user_role"); userRole != nil {
 		switch v := userRole.(type) {
 		case int:
 			role = v
@@ -67,8 +66,8 @@ func ChangeAccountInfo(c *gin.Context) {
 		}
 	}
 
-	// 权限校验：非管理员(1)禁止修改用户名
-	if role != 1 && req.NewUsername != "" {
+	// 仅管理员可改用户名
+	if role != models.RoleAdmin && req.NewUsername != "" {
 		c.JSON(http.StatusForbidden, AccountResponse{
 			Code:    403,
 			Message: "无权修改用户名",
@@ -77,10 +76,7 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 获取数据库实例
 	db := database.GetDB().DB
-
-	// 查找用户
 	var user models.User
 	if err := db.First(&user, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, AccountResponse{
@@ -91,7 +87,6 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 验证当前密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.CurrentPassword)); err != nil {
 		c.JSON(http.StatusBadRequest, AccountResponse{
 			Code:    400,
@@ -119,7 +114,6 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 开启事务
 	tx := db.Begin()
 	if err := tx.Error; err != nil {
 		c.JSON(http.StatusInternalServerError, AccountResponse{
@@ -130,7 +124,6 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 如果用户名存在修改用户
 	if req.NewUsername != "" {
 		if isTouristUsername(req.NewUsername) {
 			tx.Rollback()
@@ -153,7 +146,6 @@ func ChangeAccountInfo(c *gin.Context) {
 			return
 		}
 
-		// 更新用户名
 		if err := tx.Model(&user).Update("username", req.NewUsername).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, AccountResponse{
@@ -166,31 +158,28 @@ func ChangeAccountInfo(c *gin.Context) {
 	}
 
 	if req.NewPassword != "" {
-		// 加密新密码
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 		if err != nil {
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, AccountResponse{
 				Code:    500,
 				Message: "密码加密失败",
 				Success: false,
 			})
-			tx.Rollback()
 			return
 		}
 
-		// 更新密码
 		if err := tx.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, AccountResponse{
 				Code:    500,
 				Message: "密码更新失败",
 				Success: false,
 			})
-			tx.Rollback()
 			return
 		}
 	}
 
-	// 提交事务
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, AccountResponse{
 			Code:    500,
@@ -200,7 +189,7 @@ func ChangeAccountInfo(c *gin.Context) {
 		return
 	}
 
-	// 退出登录
+	// 凭证变更后清除会话，要求重新登录
 	session.Clear()
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, AccountResponse{
@@ -218,12 +207,12 @@ func ChangeAccountInfo(c *gin.Context) {
 	})
 }
 
-// isTouristUsername 辅助函数，检查是否为游客账号
+// isTouristUsername 判断是否为游客/保留用户名。
 func isTouristUsername(username string) bool {
 	return strings.HasPrefix(username, "guest_") || username == "guest" || uuidRegex.MatchString(username)
 }
 
-// ClearAllSessions 清除所有会话
+// ClearAllSessions 清除当前请求的 Session。
 func ClearAllSessions(c *gin.Context) {
 	session := sessions.Default(c)
 	session.Clear()
@@ -243,14 +232,7 @@ func ClearAllSessions(c *gin.Context) {
 	})
 }
 
-// 辅助函数，获取用户UUID
+// GetUUID 返回游客标识：优先会话中的 username（多为 UUID）。
 func GetUUID(c *gin.Context) string {
-	uuidRegex := regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-	if uuidRegex.MatchString(c.GetString("username")) {
-		return c.GetString("username")
-	} else if c.GetString("username") == "00000000-0000-0000-0000-000000000000" {
-		return "00000000-0000-0000-0000-000000000000"
-	} else {
-		return c.GetString("username")
-	}
+	return c.GetString("username")
 }

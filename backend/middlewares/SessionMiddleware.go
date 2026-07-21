@@ -2,35 +2,32 @@ package middlewares
 
 import (
 	"net/http"
-	"oneimg/backend/config"
 	"strings"
+
+	"oneimg/backend/config"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/memstore"
 	"github.com/gin-gonic/gin"
 )
 
+// SessionStore 全局 Session 存储（进程内内存）。
 var SessionStore sessions.Store
 
-// SessionMiddleware 配置session中间件
+// SessionMiddleware 初始化 Cookie Session，并挂载到 Gin。
 func SessionMiddleware(cfg *config.Config) gin.HandlerFunc {
-	// 使用cookie存储session
-	SessionStore = memstore.NewStore(
-		[]byte(cfg.SessionSecret),
-	)
-
-	// 配置session选项
+	SessionStore = memstore.NewStore([]byte(cfg.SessionSecret))
 	SessionStore.Options(sessions.Options{
-		MaxAge:   24 * 60 * 60, // 24小时，单位秒
-		HttpOnly: true,         // 防止XSS攻击
+		MaxAge:   24 * 60 * 60, // 24 小时
+		HttpOnly: true,
 		Secure:   isHTTPS(cfg.AppURL),
 		SameSite: http.SameSiteStrictMode,
-		Path:     "/",          // cookie路径
+		Path:     "/",
 	})
-
 	return sessions.Sessions("oneimg-session", SessionStore)
 }
 
+// isHTTPS 根据配置的 AppURL 判断是否应启用 Secure Cookie。
 func isHTTPS(rawURL string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(rawURL)), "https://")
 }

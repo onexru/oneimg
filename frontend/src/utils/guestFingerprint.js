@@ -1,43 +1,42 @@
+/**
+ * 游客指纹：生成并持久化 UUID，供游客登录与上传归属使用。
+ */
 class GuestFingerprint {
-  // 1. 持久化存储配置
-  static STORAGE_KEY = "guest_unique_id_v3"; // 版本号避免兼容问题
-  static EXPIRE_DAYS = 365 * 2; // 持久化2年
+  static STORAGE_KEY = 'guest_unique_id_v3'
+  static EXPIRE_DAYS = 365 * 2
 
-  // 2. 生成/获取主UUID（核心标识，持久化）
+  /** 获取或创建主 UUID（localStorage + Cookie 双写）。 */
   static getMainUUID() {
-    let stored = localStorage.getItem(this.STORAGE_KEY);
+    let stored = localStorage.getItem(this.STORAGE_KEY)
     if (stored) {
       try {
-        const { uuid, expire } = JSON.parse(stored);
-        // 未过期则直接返回
-        if (Date.now() < expire) return uuid;
-      } catch (e) { /* 解析失败则重新生成 */ }
+        const { uuid, expire } = JSON.parse(stored)
+        if (Date.now() < expire) return uuid
+      } catch (e) {
+        // 解析失败则重新生成
+      }
     }
 
-    // 生成新UUID（浏览器原生API，无依赖）
-    const uuid = crypto.randomUUID ? crypto.randomUUID() : this.fallbackUUID();
-    // 设置过期时间
-    const expire = Date.now() + this.EXPIRE_DAYS * 24 * 60 * 60 * 1000;
-    // 持久化到localStorage（Cookie兜底，防止localStorage被禁）
+    const uuid = crypto.randomUUID ? crypto.randomUUID() : this.fallbackUUID()
+    const expire = Date.now() + this.EXPIRE_DAYS * 24 * 60 * 60 * 1000
     try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ uuid, expire }));
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ uuid, expire }))
     } catch (e) {
-      console.warn("localStorage存储失败，使用Cookie兜底", e);
+      console.warn('localStorage 存储失败，使用 Cookie 兜底', e)
     }
-    this.setCookie(this.STORAGE_KEY, JSON.stringify({ uuid, expire }), this.EXPIRE_DAYS);
-
-    return uuid;
+    this.setCookie(this.STORAGE_KEY, JSON.stringify({ uuid, expire }), this.EXPIRE_DAYS)
+    return uuid
   }
 
-  // 降级生成UUID（兼容旧浏览器）
+  /** 兼容旧浏览器的 UUID 生成。 */
   static fallbackUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-      const r = Math.random() * 16 | 0;
-      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-    });
+      const r = Math.random() * 16 | 0
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+    })
   }
 
-  // Cookie兜底存储（localStorage失效时）
+  /** Cookie 兜底存储。 */
   static setCookie(name, value, days) {
     try {
       const date = new Date();

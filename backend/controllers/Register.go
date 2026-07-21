@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Register 用户自助注册（需开启注册开关）。
 func Register(c *gin.Context) {
 	settings, err := settings.GetSettings()
 	if err != nil {
@@ -35,7 +36,6 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 检查是否开启了pow验证
 	if settings.PowVerify {
 		if req.PowToken == "" {
 			c.JSON(http.StatusBadRequest, result.Error(400, "请完成人机验证"))
