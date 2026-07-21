@@ -1,5 +1,5 @@
 .env
-data/.config_secret
+data
 frontend/dist/
 frontend/node_modules/
 oneimg

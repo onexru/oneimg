@@ -184,7 +184,7 @@ func canManageImageAccessSource(c *gin.Context, image models.Image) bool {
 	case models.RoleUser:
 		return image.UserId == c.GetInt("user_id")
 	case models.RoleGuest:
-		return CheckImageAccessPermission(c, image)
+		return CheckImageAccessPermission(c, image, "image:access:source")
 	default:
 		return false
 	}

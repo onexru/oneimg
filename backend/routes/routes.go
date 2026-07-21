@@ -15,15 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 设置路由
 func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	cfg := config.App
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
-	// 基础中间件
-	// OIDC code 和 CAS ticket 位于回调查询串中，不将这两个路由写入访问日志。
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{
 		"/api/auth/oidc/callback",
 		"/api/auth/cas/callback",
@@ -32,7 +29,6 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	r.Use(middlewares.ConfigMiddleware(cfg))
 	r.Use(middlewares.SessionMiddleware(cfg))
 
-	// 跨域配置
 	r.Use(cors.New(cors.Config{
 		AllowOriginFunc: func(origin string) bool {
 			if strings.TrimSpace(origin) == "" {
@@ -57,51 +53,39 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	}
 	assetsFS, _ := fs.Sub(distFS, "assets")
 	r.StaticFS("/assets", http.FS(assetsFS))
-
-	// 静态资源
 	r.StaticFile("/favicon.ico", "./frontend/dist/favicon.ico")
 
-	// API路由分组
 	api := r.Group("/api")
 	{
-		// 公开接口（无需认证）
+		// 公开接口
 		api.POST("/login", controllers.Login)
 		api.POST("/register", controllers.Register)
 		api.POST("/logout", controllers.Logout)
 		api.GET("/logout", controllers.Logout)
-		// 返回登录设置
 		api.GET("/settings/login", controllers.GetLoginSettings)
-		// 返回SEO设置
 		api.GET("/settings/seo", controllers.GetSEOSettings)
-		// 随机图片
 		api.GET("/images/random", controllers.GetRandomImages)
 		api.GET("/auth/oidc/login", controllers.StartOIDCLogin)
 		api.GET("/auth/oidc/callback", controllers.OIDCCallback)
 		api.GET("/auth/cas/login", controllers.StartCASLogin)
 		api.GET("/auth/cas/callback", controllers.CASCallback)
 
-		// 需要认证的接口分组（应用AuthMiddleware）
 		auth := api.Group("")
 		auth.Use(middlewares.AuthMiddleware())
 		{
-			// 用户信息接口
 			auth.GET("/user/status", controllers.CheckLoginStatus)
-
-			// 获取上传配置
 			auth.GET("/uploadConfig", controllers.GetUploadConfig)
 
-			// 标签管理接口
-			auth.GET("/tags", controllers.GetTags)
-			auth.DELETE("/tags/:id", controllers.DeleteTag)
-
-			// 存储桶列表
-			auth.GET("/buckets/list", controllers.GetBucketsList)
-
-			// 统计数据
+			// 统计数据 (普通用户也能看自己的面板)
 			auth.GET("/stats/dashboard", controllers.GetDashboardStats)
 			auth.GET("/stats/images", controllers.GetImageStats)
 
-			// 图片相关接口
+			// 标签查看
+			auth.GET("/tags", controllers.GetTags)
+			// 存储桶列表
+			auth.GET("/buckets/list", controllers.GetBucketsList)
+
+			// 图片相关操作
 			auth.POST("/upload", controllers.UploadImage)
 			auth.POST("/upload/images", controllers.UploadImages)
 			auth.DELETE("/images/:id", controllers.DeleteImage)
@@ -109,68 +93,57 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.GET("/images/:id", controllers.GetImageDetail)
 			auth.POST("/images/tag", controllers.AddImageTag)
 			auth.DELETE("/images/tag", controllers.DeleteImageTag)
-			auth.DELETE("/images/tags", controllers.DeleteImageTags) // 批量删除图片标签
+			auth.DELETE("/images/tags", controllers.DeleteImageTags)
 			auth.POST("/images/tags", controllers.AddImageTags)
 			auth.PUT("/images/access-source", controllers.BatchUpdateImageAccessSource)
 			auth.PUT("/images/:id/access-source", controllers.UpdateImageAccessSource)
-
-			// 通过URL上传图片
 			auth.POST("/images/url", controllers.UploadImagesByURL)
 
-			// 需要管理员权限
-			auth.Use(middlewares.AdminOnlyMiddleware())
-			{
-				// 新增标签
-				auth.POST("/tags", controllers.AddTag)
+			// --- Tag 管理 ---
+			auth.POST("/tags", middlewares.RequirePermission("tag:create"), controllers.AddTag)
+			auth.PUT("/tags/:id", middlewares.RequirePermission("tag:update"), controllers.UpdateTag)
+			auth.DELETE("/tags/:id", middlewares.RequirePermission("tag:delete"), controllers.DeleteTag)
 
-				// 存储管理接口
-				auth.GET("/buckets", controllers.GetBuckets)
-				auth.POST("/buckets", controllers.AddBuckets)
-				auth.POST("/buckets/test", controllers.TestBucketConnection)
-				auth.POST("/buckets/update/:id", controllers.UpdateBuckets)
-				auth.PUT("/buckets/:id/enabled", controllers.UpdateBucketEnabled)
-				auth.DELETE("/buckets/:id", controllers.DeleteBuckets)
+			// --- 存储管理 ---
+			auth.GET("/buckets", controllers.GetBuckets)
+			auth.POST("/buckets", middlewares.RequirePermission("storage:create"), controllers.AddBuckets)
+			auth.POST("/buckets/test", controllers.TestBucketConnection)
+			auth.POST("/buckets/update/:id", middlewares.RequirePermission("storage:update"), controllers.UpdateBuckets)
+			auth.PUT("/buckets/:id/enabled", middlewares.RequirePermission("storage:update"), controllers.UpdateBucketEnabled)
+			auth.DELETE("/buckets/:id", middlewares.RequirePermission("storage:delete"), controllers.DeleteBuckets)
 
-				// 账户管理接口
-				auth.POST("/account/change", controllers.ChangeAccountInfo)
-				auth.POST("/sessions/clear", controllers.ClearAllSessions)
+			// --- 账户管理 (修改自己的密码/信息通常不需要特殊权限，如果是修改全局则需) ---
+			auth.POST("/account/change", controllers.ChangeAccountInfo)
+			auth.POST("/sessions/clear", middlewares.RequirePermission("setting:security"), controllers.ClearAllSessions)
 
-				// 用户管理接口
-				auth.GET("/users", controllers.GetUsers)
-				auth.POST("/users/Add", controllers.CreateUser)
-				auth.DELETE("/users/:id", controllers.DeleteUser)
-				auth.POST("/users/updateRole", controllers.UpdateUserRole)
-				auth.POST("/users/resetPassword/:id", controllers.ResetPassword)
-				auth.POST("/users/updatePermission/:id", controllers.UpdateUserPermission)
+			// --- 用户管理 ---
+			auth.GET("/users", controllers.GetUsers)
+			auth.POST("/users/Add", middlewares.RequirePermission("user:create"), controllers.CreateUser)
+			auth.DELETE("/users/:id", middlewares.RequirePermission("user:delete"), controllers.DeleteUser)
+			auth.POST("/users/updateRole", middlewares.RequirePermission("user:role:update"), controllers.UpdateUserRole)
+			auth.POST("/users/resetPassword/:id", middlewares.RequirePermission("user:password:reset"), controllers.ResetPassword)
+			auth.POST("/users/updatePermission/:id", middlewares.RequirePermission("user:permission:update"), controllers.UpdateUserPermission)
 
-				// 系统设置接口
-				auth.Any("/settings/get", controllers.GetSettings)
-				auth.POST("/settings/update", controllers.UpdateSettings)
-			}
+			// --- 系统设置 ---
+			auth.Any("/settings/get", controllers.GetSettings)
+			auth.POST("/settings/update", controllers.UpdateSettings)
 		}
 	}
 
-	// 前端SPA路由与图片代理逻辑集成
+	// 前端 SPA 路由
 	r.NoRoute(func(c *gin.Context) {
-		// 1. API路径返回404
 		if strings.HasPrefix(c.Request.URL.Path, "/api") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "API Not Found"})
 			return
 		}
-
-		// 2. 尝试通过图片代理识别图片路径
 		if controllers.ImageProxy(c) {
 			return
 		}
-
-		// 3. 回退到前端 SPA 页面
 		indexContent, err := fs.ReadFile(distFS, "index.html")
 		if err != nil {
 			c.String(http.StatusInternalServerError, "加载前端页面失败：%s", err)
 			return
 		}
-
-		// 返回HTML内容
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, string(indexContent))
 	})

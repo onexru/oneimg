@@ -15,6 +15,17 @@
               <span class="gallery-inline-label">角色</span>
               <div class="role-buttons grid w-full grid-cols-2 overflow-hidden rounded-[16px] border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 sm:inline-flex sm:w-auto">
             <button
+              @click="changeRole('all')"
+              class="px-3 py-1.5 text-sm transition-all"
+              :class="[
+                roleImage === 'all' 
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
+                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
+              ]"
+            >
+              全部
+            </button>
+            <button
               @click="changeRole('admin')"
               class="px-3 py-1.5 text-sm transition-all"
               :class="[
@@ -315,6 +326,7 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const PAGE_SIZE = 20;
 const ROLE_MAP = {
+  all: '全部',
   admin: '管理员',
   guest: '游客',
   user: '用户'
@@ -383,7 +395,7 @@ const loading = ref(false);
 const viewMode = ref('grid');
 const currentPage = ref(1);
 const totalPages = ref(1);
-const roleImage = ref("admin");
+const roleImage = ref("all");
 const isAdmin = ref(false);
 const presetTags = ref([]);
 const presetBuckets = ref([]);
@@ -660,12 +672,11 @@ const pustImageTag = async (imageId, values) => {
       }
       Message.success(result.message || '添加成功');
     } else {
-      Message.error(result.message || '添加失败');
       openPreview(currentPreviewImage.value);
+      throw new Error(result.message || '添加失败');
     }
   } catch (err) {
-    Message.error(`出错了：${err.message}`);
-    console.warn(err);
+    Message.error(err.message || '添加失败，请稍后重试');
   }
 };
 
@@ -681,14 +692,6 @@ const deleteImageTagAsync = async (imageId, tagId) => {
     });
     const result = await response.json();
     if (response.ok && result.code === 200) {
-      const image = images.value.find(item => item.id === imageId);
-      if (image) {
-        image.tags = image.tags.filter(item => item.id !== tagId);
-        if (image.tags.length === 0) {
-          image.tags.push({ id: 0, name: '默认' });
-        }
-        currentPreviewImage.value = image;
-      }
       Message.success(result.message || '删除成功');
       return true;
     } else {
@@ -1408,6 +1411,16 @@ const generatePreviewContent = (image) => {
   `;
 };
 
+/**
+ * 清理预览相关资源
+ */
+const cleanupPreview = () => {
+  // 清理全局函数
+  window.copyPreviewImageLink = null;
+  window.downloadPreviewImage = null;
+  window.deletePreviewImage = null;
+  window.closePreviewModal = null;
+};
 const registerPreviewGlobalFunctions = (modal, imageId) => {
   window.copyPreviewImageLink = (type) => {
     if (!currentPreviewImage.value) return;
@@ -1441,6 +1454,7 @@ const registerPreviewGlobalFunctions = (modal, imageId) => {
   };
 
   window.deletePreviewImage = (id) => {
+    closePreviewModal();
     const modal = new PopupModal({
       title: '删除确认',
       content: `
@@ -1456,7 +1470,11 @@ const registerPreviewGlobalFunctions = (modal, imageId) => {
         {
           text: '取消',
           type: 'default',
-          callback: (m) => m.close()
+          callback: (m) => {
+            m.close();
+            const image = images.value.find(item => item.id === id);
+            openPreview(image);
+          }
         },
         {
           text: '确认删除',
@@ -1473,18 +1491,46 @@ const registerPreviewGlobalFunctions = (modal, imageId) => {
   };
 
   window.deleteImageTag = (event, imageId, tagId) => {
+    if (tagId == 0) {
+      Message.warning('默认标签不能删除');
+      return;
+    }
     event.stopPropagation();
     deleteImageTagAsync(imageId, tagId).then(success => {
       if (success) {
         const tagEl = event.target.closest(`[data-tag-id="${tagId}"]`);
-        if (tagEl) tagEl.remove();
         const image = images.value.find(item => item.id === imageId);
-        if (image) currentPreviewImage.value = image;
+        if (image) {
+          image.tags = image.tags.filter(item => item.id !== tagId);
+          if (image.tags.length === 0) {
+            image.tags.push({ id: 0, name: '默认' });
+            if (tagEl){
+              tagEl.innerHTML = `
+                <span>默认</span>
+                <button onclick="window.deleteImageTag(event, ${imageId}, 0)" class="ml-1 text-primary/70 hover:text-primary/30">
+                  <i class="ri-close-line text-xs"></i>
+                </button>
+              `;
+              tagEl.setAttribute('data-tag-id', '0');
+            }
+          } else {
+            if (tagEl) tagEl.remove();
+          }
+          currentPreviewImage.value = image;
+        }
       }
     });
   };
 
+  window.closePreviewModal = () => {
+    if (modal) {
+      modal.close();
+      cleanupPreview();
+    }
+  };
+
   window.addImageTag = (imageId) => {
+    closePreviewModal();
     const tagList = [{ value: "0", label: "请选择Tag", disabled: true }];
     presetTags.value.forEach(tag => {
       tagList.push({ value: tag.id, label: tag.name });
@@ -1505,7 +1551,11 @@ const registerPreviewGlobalFunctions = (modal, imageId) => {
         {
           text: '取消',
           type: 'default',
-          callback: (m) => m.close()
+          callback: (m) => {
+            m.close();
+            const image = images.value.find(item => item.id === imageId);
+            openPreview(image);
+          }
         },
         {
           text: '添加',

@@ -287,16 +287,13 @@ func UpdateUserPermission(c *gin.Context) {
 	}
 
 	type UpdatePermissionReq struct {
-		Permission []int `json:"permission"`
+		Permission []int    `json:"permission"`
+		Codes      []string `json:"codes"`
 	}
 	var req UpdatePermissionReq
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, result.Fail(400, "参数校验失败："+err.Error()))
-		return
-	}
-	if req.Permission == nil {
-		c.JSON(http.StatusBadRequest, result.Fail(400, "permission 为必填项"))
 		return
 	}
 
@@ -311,7 +308,6 @@ func UpdateUserPermission(c *gin.Context) {
 			return
 		}
 
-		// 单存储模式下这些 ID 仍是访问权限，不允许修改自身。
 		if c.GetInt("user_id") == id {
 			c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改当前登录用户权限"))
 			return
@@ -325,39 +321,59 @@ func UpdateUserPermission(c *gin.Context) {
 		return
 	}
 
-	uniquePermissions := make([]int, 0, len(req.Permission))
-	seenBuckets := make(map[int]struct{}, len(req.Permission))
-	for _, bucketID := range req.Permission {
-		if bucketID <= 0 {
-			c.JSON(http.StatusBadRequest, result.Fail(400, "存储源ID无效"))
-			return
+	var uniquePermissions []int
+	if req.Permission != nil {
+		uniquePermissions = make([]int, 0, len(req.Permission))
+		seenBuckets := make(map[int]struct{}, len(req.Permission))
+		for _, bucketID := range req.Permission {
+			if bucketID <= 0 {
+				c.JSON(http.StatusBadRequest, result.Fail(400, "存储源ID无效"))
+				return
+			}
+			if _, exists := seenBuckets[bucketID]; exists {
+				continue
+			}
+			seenBuckets[bucketID] = struct{}{}
+			uniquePermissions = append(uniquePermissions, bucketID)
 		}
-		if _, exists := seenBuckets[bucketID]; exists {
-			continue
+		if len(uniquePermissions) > 0 {
+			var bucketCount int64
+			bucketQuery := db.Model(&models.Buckets{}).Where("id IN ?", uniquePermissions)
+			invalidMessage := "包含不存在的存储源"
+			if setting.MultiStorageSync {
+				bucketQuery = bucketQuery.Where("type <> ?", "default")
+				invalidMessage = "同步存储源必须存在且不能是本地默认存储"
+			}
+			if err := bucketQuery.Count(&bucketCount).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, result.Fail(500, "校验存储源失败"))
+				return
+			}
+			if bucketCount != int64(len(uniquePermissions)) {
+				c.JSON(http.StatusBadRequest, result.Fail(400, invalidMessage))
+				return
+			}
 		}
-		seenBuckets[bucketID] = struct{}{}
-		uniquePermissions = append(uniquePermissions, bucketID)
-	}
-	if len(uniquePermissions) > 0 {
-		var bucketCount int64
-		bucketQuery := db.Model(&models.Buckets{}).Where("id IN ?", uniquePermissions)
-		invalidMessage := "包含不存在的存储源"
-		if setting.MultiStorageSync {
-			bucketQuery = bucketQuery.Where("type <> ?", "default")
-			invalidMessage = "同步存储源必须存在且不能是本地默认存储"
-		}
-		if err := bucketQuery.Count(&bucketCount).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, result.Fail(500, "校验存储源失败"))
-			return
-		}
-		if bucketCount != int64(len(uniquePermissions)) {
-			c.JSON(http.StatusBadRequest, result.Fail(400, invalidMessage))
-			return
-		}
+	} else {
+		uniquePermissions = user.Permission.Buckets
 	}
 
-	// 更新权限
+	var validCodes []string
+	if req.Codes != nil {
+		validCodes = models.FilterValidPermissionCodes(req.Codes)
+	} else {
+		validCodes = user.Permission.Codes
+	}
+
+	// 保证不为 nil
+	if validCodes == nil {
+		validCodes = []string{}
+	}
+	if uniquePermissions == nil {
+		uniquePermissions = []int{}
+	}
+
 	if err := db.Model(&user).Update("permission", models.Permission{
+		Codes:   validCodes,
 		Buckets: uniquePermissions,
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "更新权限失败："+err.Error()))

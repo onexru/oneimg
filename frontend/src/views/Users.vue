@@ -12,13 +12,9 @@
     </section>
 
     <!-- 工具栏 -->
-    <div
-      class="toolbar-surface flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-    >
+    <div class="toolbar-surface flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="relative flex-1">
-        <i
-          class="ri-search-line absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"
-        ></i>
+        <i class="ri-search-line absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"></i>
         <input
           v-model="searchInput"
           type="text"
@@ -39,15 +35,12 @@
         >
           <option value="all">全部角色</option>
           <option value="1">管理员</option>
-          <option value="2">普通用户</option>
+          <!-- 修复点：后端 role 校验为 oneof=1 3，普通用户的值应为 3 -->
+          <option value="3">普通用户</option>
         </select>
-        <div
-          class="stat-tile px-3.5 py-2.5 hidden sm:flex items-center gap-2 shrink-0"
-        >
+        <div class="stat-tile px-3.5 py-2.5 hidden sm:flex items-center gap-2 shrink-0">
           <span class="text-xs text-slate-400 dark:text-slate-500">共</span>
-          <span class="text-sm font-semibold text-slate-900 dark:text-white">{{
-            total
-          }}</span>
+          <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ total }}</span>
           <span class="text-xs text-slate-400 dark:text-slate-500">位用户</span>
         </div>
       </div>
@@ -56,62 +49,33 @@
     <!-- 移动端统计 -->
     <div class="sm:hidden stat-tile mt-3 px-3.5 py-2.5 flex items-center gap-2">
       <span class="text-xs text-slate-400 dark:text-slate-500">共</span>
-      <span class="text-sm font-semibold text-slate-900 dark:text-white">{{
-        total
-      }}</span>
+      <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ total }}</span>
       <span class="text-xs text-slate-400 dark:text-slate-500">位用户</span>
-      <span
-        v-if="debouncedSearch"
-        class="ml-auto text-xs text-slate-400 truncate"
-      >
-        搜索:
-        <span class="text-slate-700 dark:text-slate-200">{{
-          debouncedSearch
-        }}</span>
+      <span v-if="debouncedSearch" class="ml-auto text-xs text-slate-400 truncate">
+        搜索: <span class="text-slate-700 dark:text-slate-200">{{ debouncedSearch }}</span>
       </span>
     </div>
 
     <!-- 加载骨架 -->
-    <div
-      v-if="loading"
-      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mt-4"
-    >
-      <div
-        v-for="i in 8"
-        :key="i"
-        class="section-card h-[190px] animate-pulse overflow-hidden"
-      >
+    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mt-4">
+      <div v-for="i in 8" :key="i" class="section-card h-[190px] animate-pulse overflow-hidden">
         <div class="h-full bg-slate-200 dark:bg-slate-800 rounded-[16px]"></div>
       </div>
     </div>
 
     <!-- 空数据 -->
-    <div
-      v-else-if="users.length === 0"
-      class="section-card flex flex-col items-center justify-center py-20 text-center mt-4"
-    >
-      <div
-        class="flex items-center justify-center size-16 rounded-full bg-slate-100 dark:bg-slate-800 mb-4"
-      >
+    <div v-else-if="users.length === 0" class="section-card flex flex-col items-center justify-center py-20 text-center mt-4">
+      <div class="flex items-center justify-center size-16 rounded-full bg-slate-100 dark:bg-slate-800 mb-4">
         <i class="ri-user-line text-2xl text-slate-400 dark:text-slate-500"></i>
       </div>
-      <h3 class="text-lg font-medium text-slate-800 dark:text-white mb-1">
-        暂无用户数据
-      </h3>
+      <h3 class="text-lg font-medium text-slate-800 dark:text-white mb-1">暂无用户数据</h3>
       <p class="text-sm text-slate-500 dark:text-slate-400">
-        {{
-          debouncedSearch
-            ? "没有找到匹配的用户，试试其他关键词"
-            : '点击右上角"新增用户"按钮创建第一个用户'
-        }}
+        {{ debouncedSearch ? "没有找到匹配的用户，试试其他关键词" : '点击右上角"新增用户"按钮创建第一个用户' }}
       </p>
     </div>
 
     <!-- 用户卡片列表 -->
-    <div
-      v-else
-      class="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-6"
-    >
+    <div v-else class="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-6">
       <div
         v-for="user in users"
         :key="user.id"
@@ -122,11 +86,7 @@
           <!-- 顶部角色标识条 -->
           <div
             class="h-1.5 w-full"
-            :class="
-              user.role === 1
-                ? 'bg-emerald-500'
-                : 'bg-slate-300 dark:bg-slate-600'
-            "
+            :class="user.role === 1 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'"
           ></div>
           <div class="p-4 flex flex-col gap-3 h-full">
             <div class="flex items-start justify-between">
@@ -139,30 +99,20 @@
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <h3
-                      class="font-semibold text-sm text-slate-900 dark:text-white truncate"
-                      :title="user.username"
-                    >
+                    <h3 class="font-semibold text-sm text-slate-900 dark:text-white truncate" :title="user.username">
                       {{ user.username }}
                     </h3>
                     <span
                       v-if="user.id === SuperAdminID"
                       class="shrink-0 text-[10px] px-1.5 h-4 leading-4 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                    >
-                      超管
-                    </span>
+                    >超管</span>
                   </div>
-                  <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                    ID: {{ user.id }}
-                  </p>
+                  <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">ID: {{ user.id }}</p>
                 </div>
               </div>
 
               <!-- 下拉操作 -->
-              <div
-                class="relative shrink-0"
-                :ref="(el) => setDropdownRef(user.id, el)"
-              >
+              <div class="relative shrink-0" :ref="(el) => setDropdownRef(user.id, el)">
                 <button
                   class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-opacity duration-200 md:group-hover:opacity-100 opacity-100"
                   @click.stop="toggleDropdown(user.id)"
@@ -176,37 +126,25 @@
             <div class="flex items-center gap-1.5 flex-wrap">
               <span
                 class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border"
-                :class="
-                  user.role === 1
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-white/10'
-                "
+                :class="user.role === 1 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-white/10'"
               >
-                <i
-                  :class="
-                    user.role === 1 ? 'ri-shield-star-line' : 'ri-user-line'
-                  "
-                  class="text-xs"
-                ></i>
+                <i :class="user.role === 1 ? 'ri-shield-star-line' : 'ri-user-line'" class="text-xs"></i>
                 {{ user.role === 1 ? "管理员" : "普通用户" }}
               </span>
-              <span
-                class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-white/10"
-              >
+              <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-white/10">
                 <i class="ri-folder-3-line text-xs"></i>
                 {{ getUserBucketCount(user) }} {{ multiStorageSync ? '个同步源' : '个存储桶' }}
+              </span>
+              <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-white/10">
+                <i class="ri-key-2-line text-xs"></i>
+                {{ getUserCodeCount(user) }} 个权限
               </span>
             </div>
 
             <!-- 创建时间 -->
-            <div
-              class="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-auto pt-1"
-            >
+            <div class="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-auto pt-1">
               <i class="ri-calendar-line text-xs"></i>
-              <span
-                >创建于
-                {{ formatDate(user.CreatedAt || user.created_at) }}</span
-              >
+              <span>创建于 {{ formatDate(user.CreatedAt || user.created_at) }}</span>
             </div>
           </div>
         </div>
@@ -215,37 +153,22 @@
           class="absolute right-0 top-[55px] right-[20px] mt-1 w-44 z-[60] rounded-xl border border-slate-200/80 dark:border-white/10 bg-white dark:bg-slate-900 shadow-xl py-1.5"
           @click.stop
         >
-          <button
-            class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left"
-            @click="openRoleModal(user)"
-          >
+          <button class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left" @click="openRoleModal(user)">
             <i class="ri-shield-star-line text-base"></i>
             修改角色
           </button>
-          <button
-            class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left"
-            @click="openProfileModal(user)"
-          >
+          <button class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left" @click="openProfileModal(user)">
             <i class="ri-shield-keyhole-line text-base"></i>
             {{ multiStorageSync ? '设置同步源' : '设置权限' }}
           </button>
-          <button
-            class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left"
-            @click="handleResetPassword(user)"
-          >
+          <button class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left" @click="handleResetPassword(user)">
             <i class="ri-key-2-line text-base"></i>
             重置密码
           </button>
-          <div
-            class="my-1.5 border-t border-slate-100 dark:border-white/5"
-          ></div>
+          <div class="my-1.5 border-t border-slate-100 dark:border-white/5"></div>
           <button
             class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm transition text-left"
-            :class="
-              user.id === SuperAdminID
-                ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed bg-slate-50 dark:bg-slate-800/30'
-                : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
-            "
+            :class="user.id === SuperAdminID ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed bg-slate-50 dark:bg-slate-800/30' : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'"
             :disabled="user.id === SuperAdminID"
             @click="user.id !== SuperAdminID && openDeleteModal(user)"
           >
@@ -257,10 +180,7 @@
     </div>
 
     <!-- 分页 -->
-    <div
-      v-if="totalPages > 1"
-      class="flex items-center justify-center gap-1.5 mt-10"
-    >
+    <div v-if="totalPages > 1" class="flex items-center justify-center gap-1.5 mt-10">
       <button
         class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
         :disabled="page <= 1"
@@ -269,19 +189,11 @@
         <i class="ri-arrow-left-s-line text-sm"></i>
       </button>
       <template v-for="p in pageNumbers" :key="p">
-        <span
-          v-if="p === '...'"
-          class="px-1.5 text-slate-400 text-sm select-none"
-          >...</span
-        >
+        <span v-if="p === '...'" class="px-1.5 text-slate-400 text-sm select-none">...</span>
         <button
           v-else
           class="w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-medium transition"
-          :class="
-            page === p
-              ? 'border-slate-900 dark:border-white bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-              : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          "
+          :class="page === p ? 'border-slate-900 dark:border-white bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm' : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'"
           @click="goToPage(p)"
         >
           {{ p }}
@@ -305,12 +217,12 @@ import message from '@/utils/message.js'
 
 const SuperAdminID = 1
 const RoleAdmin = 1
-const RoleUser = 2
+const RoleUser = 3 
 const PAGE_LIMIT = 12
 
 const users = ref([])
 const total = ref(0)
-const buckets = ref([]);
+const buckets = ref([])
 const multiStorageSync = ref(false)
 const totalPages = ref(0)
 const page = ref(1)
@@ -320,12 +232,60 @@ const debouncedSearch = ref('')
 const roleFilter = ref('all')
 const activeDropdown = ref(null)
 const searchTimer = ref(null)
-// 存储每个卡片下拉DOM ref
 const dropdownRefs = ref(new Map())
 
 const AVATAR_COLORS = [
   'bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-cyan-500',
   'bg-violet-500', 'bg-pink-500', 'bg-teal-500', 'bg-orange-500',
+]
+
+const PERMISSION_GROUPS = [
+  {
+    title: '用户管理',
+    items: [
+      { code: 'user:create', name: '添加用户' },
+      { code: 'user:delete', name: '删除用户' },
+      { code: 'user:role:update', name: '修改角色' },
+      { code: 'user:permission:update', name: '编辑权限' },
+      { code: 'user:password:reset', name: '重置密码' },
+    ]
+  },
+  {
+    title: '内容与标签',
+    items: [
+      { code: 'tag:create', name: '新增Tag' },
+      { code: 'tag:delete', name: '删除Tag' },
+      { code: 'tag:update', name: '编辑Tag' },
+    ]
+  },
+  {
+    title: '存储管理',
+    items: [
+      { code: 'storage:create', name: '新增存储' },
+      { code: 'storage:update', name: '编辑存储' },
+      { code: 'storage:delete', name: '删除存储' },
+    ]
+  },
+  {
+    title: '图片管理',
+    items: [
+      { code: 'image:delete', name: '删除图片' },
+      { code: 'image:tag:add', name: '添加图片标签' },
+      { code: 'image:tag:delete', name: '删除图片标签' },
+      { code: 'image:access:source', name: '图片存储源' },
+    ]
+  },
+  {
+    title: '系统设置',
+    items: [
+      { code: 'setting:upload', name: '上传与存储' },
+      { code: 'setting:image', name: '图片处理' },
+      { code: 'setting:security', name: '安全与登录' },
+      { code: 'setting:notification', name: '通知' },
+      { code: 'setting:api', name: 'API' },
+      { code: 'setting:seo', name: '站点SEO' },
+    ]
+  }
 ]
 
 function getAvatarColor(id) {
@@ -344,10 +304,20 @@ function formatDate(dateStr) {
 }
 
 function getUserBucketCount(user) {
-  const userBucketIds = user.permission?.buckets || []
+  // 兼容容错：防止后端序列化大写或者小写不一致
+  const perms = user.permission || user.Permission || {}
+  const userBucketIds = perms.buckets || perms.Buckets || []
   if (!multiStorageSync.value) return userBucketIds.length
   return userBucketIds.filter(id => buckets.value.some(bucket => bucket.id === id && bucket.type !== 'default')).length
 }
+
+function getUserCodeCount(user) {
+  const perms = user.permission || user.Permission || {}
+  const userCodes = perms.codes || perms.Codes || []
+  return userCodes.length
+}
+
+
 
 const pageNumbers = computed(() => {
   const total = totalPages.value
@@ -369,7 +339,6 @@ function goToPage(p) {
   }
 }
 
-// 绑定单个下拉ref
 function setDropdownRef(userId, el) {
   if (el) dropdownRefs.value.set(userId, el)
   else dropdownRefs.value.delete(userId)
@@ -383,7 +352,6 @@ function closeDropdown() {
   activeDropdown.value = null
 }
 
-// 优化外部点击关闭：仅点击空白区域关闭，不干扰下拉内部
 function handleClickOutside(e) {
   if (!activeDropdown.value) return
   const targetId = activeDropdown.value
@@ -469,7 +437,7 @@ function openCreateModal() {
         options: [
           { label: '请选择角色', value: '', disabled: true },
           { label: '管理员', value: '1' },
-          { label: '普通用户', value: '3' },
+          { label: '普通用户', value: '3' }, // 这里原本是对的
         ],
         required: true,
       },
@@ -592,57 +560,94 @@ function openProfileModal(user) {
     const bucketOptions = multiStorageSync.value
         ? buckets.value.filter(item => item.type !== 'default')
         : buckets.value
-    // 当前用户已配置的存储桶 ID 数组
-    const userBucketIds = user.permission?.buckets || []
+        
+    // 兼容容错，获取当前用户的 buckets 和 codes
+    const perms = user.permission || user.Permission || {}
+    const userBucketIds = perms.buckets || perms.Buckets || []
+    const userCodes = perms.codes || perms.Codes || []
+    const userRole = user.role || 3;
+    
+    // 选中的存储桶
     const selectedIds = multiStorageSync.value
         ? userBucketIds.filter(id => bucketOptions.some(item => item.id === id))
         : [...userBucketIds]
+        
+    // 选中的功能权限码
+    const selectedCodes = [...userCodes]
 
-    // 生成存储桶卡片 HTML
+    // 渲染存储桶卡片
     function renderBucketCards() {
         if (bucketOptions.length === 0) {
             const emptyText = multiStorageSync.value ? '暂无可配置的远程存储源' : '暂无可配置的存储桶'
             return `<div class="w-full rounded-xl border border-dashed border-slate-200 px-4 py-5 text-center text-sm text-slate-400 dark:border-white/10 dark:text-slate-500">${emptyText}</div>`
         }
-        let html = ''
-        bucketOptions.forEach(item => {
+        return bucketOptions.map(item => {
             const isChecked = selectedIds.includes(item.id)
-            html += `
+            return `
             <div data-bucket-id="${item.id}" class="bucket-card relative border rounded-2xl px-4 py-2 cursor-pointer transition-all duration-300 shadow-sm select-none border-2 ${isChecked ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}">
                 ${isChecked ? `
                 <div class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                    <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                </div>
-                ` : ''}
+                    <i class="ri-check-line text-white text-[10px]"></i>
+                </div>` : ''}
                 <div class="text-center">
                     <div class="text-slate-900 dark:text-white text-sm whitespace-nowrap">${item.name}</div>
                 </div>
+            </div>`
+        }).join('')
+    }
+
+    // 渲染功能权限区
+    function renderCodeCards() {
+        return PERMISSION_GROUPS.map(group => `
+            <div class="mb-4 last:mb-0">
+                <div class="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-2">${group.title}</div>
+                <div class="flex flex-wrap gap-2">
+                    ${group.items.map(item => {
+                        const isChecked = selectedCodes.includes(item.code)
+                        return `
+                        <div data-code="${item.code}" class="code-card flex items-center gap-1.5 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-all duration-200 select-none ${isChecked ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">
+                            <i class="${isChecked ? 'ri-checkbox-circle-fill text-emerald-500' : 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600'} text-sm"></i>
+                            <span class="text-xs">${item.name}</span>
+                        </div>`
+                    }).join('')}
+                </div>
             </div>
-            `
-        })
-        return html
+        `).join('')
     }
 
     const modalContent = `
-        <div class="py-1 space-y-5">
+        <div class="py-1 space-y-6 custom-scrollbar pr-2">
             <p class="text-sm text-slate-600 dark:text-slate-300">
-                ${multiStorageSync.value
-                    ? `设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 上传后需要后台同步的存储源。`
-                    : `设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 的存储桶访问权限`}
+                设置用户 <strong class="text-slate-900 dark:text-white">${user.username}</strong> 的权限节点。
             </p>
-            ${multiStorageSync.value ? '<p class="text-xs text-slate-400 dark:text-slate-500">文件会始终先保存在本机，此处只配置额外同步目标。</p>' : ''}
-            <!-- 卡片多选流式布局 -->
-            <div id="bucketCardWrap" class="flex flex-wrap gap-3">
-                ${renderBucketCards()}
+            
+            <!-- 模块 1: 功能权限 -->
+            ${userRole === 3 ? '' : `
+            <div>
+                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                    <i class="ri-shield-keyhole-line text-blue-500"></i> 功能权限配置
+                </h4>
+                <div id="codeCardWrap" class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-white/5">
+                    ${renderCodeCards()}
+                </div>
+            </div>
+            `}
+            <!-- 模块 2: 存储源/桶权限 -->
+            <div>
+                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    <i class="ri-hard-drive-2-line text-purple-500"></i> ${multiStorageSync.value ? '同步存储源配置' : '存储桶访问权限'}
+                </h4>
+                ${multiStorageSync.value ? '<p class="text-xs text-slate-400 dark:text-slate-500 mb-3">文件会始终先保存在本机，此处只配置额外同步目标。</p>' : ''}
+                <div id="bucketCardWrap" class="flex flex-wrap gap-3">
+                    ${renderBucketCards()}
+                </div>
             </div>
         </div>
     `
 
     const modal = new PopupModal({
-        title: multiStorageSync.value ? '设置同步存储源' : '设置用户权限',
-        width: '620px',
+        title: '设置用户权限',
+        width: '680px',
         content: modalContent,
         buttons: [
             {
@@ -662,13 +667,14 @@ function openProfileModal(user) {
                                 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
                             },
                             body: JSON.stringify({
-                                permission: selectedIds
+                                permission: selectedIds,   // 对应后端的 buckets
+                                codes: selectedCodes       // 对应后端的 codes
                             })
                         })
                         const data = await res.json()
                         if (data.code === 200) {
                             modal.close()
-                            message.success(multiStorageSync.value ? '同步存储源已更新' : '权限更新成功')
+                            message.success('权限更新成功')
                             fetchUsers()
                         } else {
                             message.error(data.message || '更新失败')
@@ -682,26 +688,37 @@ function openProfileModal(user) {
     })
     modal.open()
 
-    // 绑定卡片点击事件封装
-    function bindCardClick() {
-        const wrap = document.getElementById('bucketCardWrap')
-        const cards = wrap.querySelectorAll('.bucket-card')
-        cards.forEach(card => {
+    // 绑定卡片点击事件
+    function bindInteractions() {
+        // 绑定 Bucket 卡片
+        const bucketWrap = document.getElementById('bucketCardWrap')
+        bucketWrap.querySelectorAll('.bucket-card').forEach(card => {
             card.onclick = () => {
                 const bid = Number(card.dataset.bucketId)
                 const idx = selectedIds.indexOf(bid)
                 if (idx > -1) selectedIds.splice(idx, 1)
                 else selectedIds.push(bid)
-                // 重渲染卡片
-                wrap.innerHTML = renderBucketCards()
-                bindCardClick()
+                bucketWrap.innerHTML = renderBucketCards()
+                bindInteractions() // 重新绑定
+            }
+        })
+
+        // 绑定 Code 卡片
+        const codeWrap = document.getElementById('codeCardWrap')
+        codeWrap.querySelectorAll('.code-card').forEach(card => {
+            card.onclick = () => {
+                const code = card.dataset.code
+                const idx = selectedCodes.indexOf(code)
+                if (idx > -1) selectedCodes.splice(idx, 1)
+                else selectedCodes.push(code)
+                codeWrap.innerHTML = renderCodeCards()
+                bindInteractions() // 重新绑定
             }
         })
     }
 
-    // 初始绑定
     setTimeout(() => {
-        bindCardClick()
+        bindInteractions()
     }, 80)
 }
 
@@ -723,6 +740,7 @@ function openRoleModal(user) {
             class="input-modern w-full py-2.5"
           >
             <option value="1" ${currentRole === '1' ? 'selected' : ''}>管理员</option>
+            <!-- 修复点：修改普通用户对应的 value 为 3，防止 400 校验错误 -->
             <option value="3" ${currentRole === '3' ? 'selected' : ''}>普通用户</option>
           </select>
         </div>
@@ -746,7 +764,8 @@ function openRoleModal(user) {
         type: 'primary',
         callback: async (modal) => {
           const newRoleSelect = modal.content.querySelector('select[name="newRole"]')
-          const newRole = parseInt(newRoleSelect?.value || '2')
+          // 修复点：默认缺省也应降级为 3
+          const newRole = parseInt(newRoleSelect?.value || '3')
 
           try {
             const res = await fetch('/api/users/updateRole', {
@@ -886,7 +905,7 @@ const resetPassword = async (user) => {
     message.error('网络错误，请重试')
   }
 }
-// 获取存储列表
+
 const GetBuckets = async () => {
   try {
     const response = await fetch('/api/buckets', {

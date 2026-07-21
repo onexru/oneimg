@@ -21,11 +21,10 @@ type AuthResponse struct {
 // AuthMiddleware Session认证中间件
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
 		setting, _ := settings.GetSettings()
 		apiToken := ""
+
 		if setting.StartAPI {
-			// 获取请求头中的token
 			authHeader := c.Request.Header.Get("Authorization")
 			parts := strings.SplitN(authHeader, "=", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "oneimg_token" {
@@ -33,38 +32,41 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 
 			if validateToken(setting, apiToken) {
+				// API Token 验证通过，注入一个拥有全部权限的虚拟超级管理员对象
+				apiAdminUser := &models.User{
+					ID:       1,
+					Role:     models.RoleAdmin,
+					Username: "api_admin",
+					Permission: models.Permission{
+						// 给个通配符，或者你可以在这里把 AllPermissionMap 的所有 key 塞进去
+						Codes:   []string{"*"},
+						Buckets: []int{},
+					},
+				}
 				c.Set("user_id", 1)
 				c.Set("user_role", 1)
-				c.Set("username", "admin")
+				c.Set("username", "api_admin")
+				c.Set("current_user", apiAdminUser) // 【新增】存入完整对象
 				c.Next()
 				return
 			}
 		}
 
-		// 获取session
 		session := sessions.Default(c)
-
-		// 检查是否已登录
 		loggedIn := session.Get("logged_in")
+
 		if (loggedIn == nil || loggedIn != true) && apiToken == "" {
-			c.JSON(http.StatusUnauthorized, AuthResponse{
-				Code:    401,
-				Message: "用户未登录",
-			})
+			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户未登录"})
 			c.Abort()
 			return
 		}
 
-		// 获取用户信息
 		userID := session.Get("user_id")
 		userRole := session.Get("user_role")
 		username := session.Get("username")
 
 		if userID == nil || username == nil {
-			c.JSON(http.StatusUnauthorized, AuthResponse{
-				Code:    401,
-				Message: "会话信息无效",
-			})
+			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
 			c.Abort()
 			return
 		}
@@ -72,17 +74,19 @@ func AuthMiddleware() gin.HandlerFunc {
 		userIDValue, userIDOK := userID.(int)
 		userRoleValue, userRoleOK := userRole.(int)
 		usernameValue, usernameOK := username.(string)
+
 		if !userIDOK || !userRoleOK || !usernameOK {
 			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
 			c.Abort()
 			return
 		}
 
+		var currentUser models.User
 		// 游客是虚拟账号；其他会话每次核对用户，使删除/角色变更立即生效。
 		if userRoleValue != models.RoleGuest {
-			db := database.GetDB()
-			var currentUser models.User
-			if db == nil || db.DB.Select("id", "role", "username").First(&currentUser, userIDValue).Error != nil {
+			db := database.GetDB().DB
+			// 【关键修改】这里必须查出 permission 字段
+			if db == nil || db.Select("id", "role", "username", "permission").First(&currentUser, userIDValue).Error != nil {
 				session.Clear()
 				_ = session.Save()
 				c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户不存在或已被禁用"})
@@ -93,16 +97,17 @@ func AuthMiddleware() gin.HandlerFunc {
 			usernameValue = currentUser.Username
 			session.Set("user_role", userRoleValue)
 			session.Set("username", usernameValue)
+		} else {
+			// 如果是游客，构造一个空权限的游客对象
+			currentUser = models.User{ID: userIDValue, Role: models.RoleGuest, Username: usernameValue}
 		}
 
-		// 将用户信息存储到上下文中，供后续处理使用
 		session.Set("logged_in", true)
-
 		c.Set("user_id", userIDValue)
 		c.Set("user_role", userRoleValue)
 		c.Set("username", usernameValue)
+		c.Set("current_user", &currentUser)
 
-		// 继续处理请求
 		c.Next()
 	}
 }
@@ -118,65 +123,82 @@ func validateToken(setting models.Settings, token string) bool {
 	return setting.APIToken != "" && secureconfig.ConstantTimeEqual(setting.APIToken, token)
 }
 
-func AdminOnlyMiddleware() gin.HandlerFunc {
+// 细粒度权限校验中间件
+func RequirePermission(requiredCode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取用户ID
-		userRole := c.GetInt("user_role")
+		userInterface, exists := c.Get("current_user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户信息获取失败"})
+			c.Abort()
+			return
+		}
 
-		if userRole != 1 {
+		user, ok := userInterface.(*models.User)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, AuthResponse{Code: 500, Message: "上下文类型错误"})
+			c.Abort()
+			return
+		}
+		if user.ID == models.SuperAdminID {
+			c.Next()
+			return
+		}
+		for _, code := range user.Permission.Codes {
+			if code == "*" {
+				c.Next()
+				return
+			}
+		}
+
+		if !user.Permission.HasPermission(requiredCode) {
+			permName := models.GetPermissionName(requiredCode)
 			c.JSON(http.StatusForbidden, AuthResponse{
 				Code:    403,
-				Message: "无权访问",
+				Message: "无操作权限，需要权限: [" + permName + "]",
 			})
 			c.Abort()
 			return
 		}
 
-		// 继续处理请求
 		c.Next()
 	}
 }
 
-// OptionalAuthMiddleware 可选认证中间件（不强制要求认证）
+func AdminOnlyMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userRole := c.GetInt("user_role")
+		if userRole != 1 {
+			c.JSON(http.StatusForbidden, AuthResponse{Code: 403, Message: "无权访问"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// OptionalAuthMiddleware 可选认证中间件
 func OptionalAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取session
 		session := sessions.Default(c)
-
-		// 检查是否已登录
 		loggedIn := session.Get("logged_in")
 		if loggedIn != nil && loggedIn == true {
-			// 获取用户信息
 			userID := session.Get("user_id")
 			username := session.Get("username")
-
 			if userID != nil && username != nil {
-				// 将用户信息存储到上下文中
 				c.Set("user_id", userID)
 				c.Set("username", username)
 			}
 		}
-
-		// 继续处理请求（无论是否登录）
 		c.Next()
 	}
 }
 
-// GetCurrentUser 从上下文中获取当前用户信息
-func GetCurrentUser(c *gin.Context) (userID int, username string, exists bool) {
-	userIDInterface, userIDExists := c.Get("user_id")
-	usernameInterface, usernameExists := c.Get("username")
-
-	if !userIDExists || !usernameExists {
-		return 0, "", false
+// 从上下文中获取当前用户完整信息
+func GetCurrentUser(c *gin.Context) (*models.User, bool) {
+	userInterface, exists := c.Get("current_user")
+	if !exists {
+		return nil, false
 	}
-
-	userID, ok1 := userIDInterface.(int)
-	username, ok2 := usernameInterface.(string)
-
-	if !ok1 || !ok2 {
-		return 0, "", false
-	}
-
-	return userID, username, true
+	user, ok := userInterface.(*models.User)
+	return user, ok
 }

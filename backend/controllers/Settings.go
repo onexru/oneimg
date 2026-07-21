@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"oneimg/backend/database"
+	"oneimg/backend/middlewares"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/result"
@@ -40,11 +41,20 @@ var hexColorRegex = regexp.MustCompile(`^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 func GetSettings(c *gin.Context) {
 	var req GetSettingsRequest
+	_ = c.ShouldBindJSON(&req)
+
+	user, exists := middlewares.GetCurrentUser(c)
+	isAdmin := false
+	if exists && (user.ID == models.SuperAdminID || user.Role == models.RoleAdmin) {
+		isAdmin = true
+	}
+
 	settingModel, err := settings.GetSettings()
 	if err != nil {
 		c.JSON(500, result.Error(500, "获取设置失败"))
 		return
 	}
+
 	responseSettings := secureconfig.SanitizeSettingsForResponse(settingModel)
 	if effectiveURL, effectiveErr := oidcCallbackURL(settingModel); effectiveErr == nil {
 		responseSettings["oidc_redirect_url_effective"] = effectiveURL
@@ -52,9 +62,48 @@ func GetSettings(c *gin.Context) {
 	if effectiveURL, effectiveErr := casCallbackURL(settingModel); effectiveErr == nil {
 		responseSettings["cas_service_url_effective"] = effectiveURL
 	}
+
 	filtered := filterSettings(responseSettings, req.Keys)
 
-	c.JSON(200, result.Success("ok", filtered))
+	permList := make([]string, 0)
+
+	if !isAdmin {
+		if len(req.Keys) > 0 {
+			for _, key := range req.Keys {
+				requiredPerm := getSettingRequiredPerm(key)
+				if requiredPerm != "" && !user.Permission.HasPermission(requiredPerm) {
+					delete(filtered, key)
+				}
+			}
+		} else {
+			for key := range filtered {
+				requiredPerm := getSettingRequiredPerm(key)
+				if requiredPerm != "" && !user.Permission.HasPermission(requiredPerm) {
+					delete(filtered, key)
+				}
+			}
+		}
+
+		if exists {
+			for _, code := range user.Permission.Codes {
+				if strings.HasPrefix(code, "setting:") {
+					permList = append(permList, code)
+				}
+			}
+		}
+	} else {
+		permList = []string{
+			"setting:upload", "setting:image", "setting:security",
+			"setting:notification", "setting:api", "setting:seo",
+		}
+	}
+
+	c.JSON(200, gin.H{
+		"code":                200,
+		"message":             "ok",
+		"data":                filtered,
+		"setting_permissions": permList,
+	})
 }
 
 // 返回登录配置
@@ -108,6 +157,24 @@ func UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, result.Error(400, "设置值不能为空"))
 		return
 	}
+	user, exists := middlewares.GetCurrentUser(c)
+	if !exists {
+		c.JSON(401, result.Error(401, "未登录"))
+		return
+	}
+	if user.ID != models.SuperAdminID {
+		requiredPerm := getSettingRequiredPerm(req.Key)
+		if requiredPerm == "" {
+			c.JSON(400, result.Error(400, "未知的设置项"))
+			return
+		}
+		requiredPermName := models.GetPermissionName(requiredPerm)
+		if !user.Permission.HasPermission(requiredPerm) {
+			c.JSON(403, result.Error(403, "无权修改该设置项，需要权限: "+requiredPermName))
+			return
+		}
+	}
+
 	// 查询是否有该设置项
 	settingModel, err := settings.GetSettings()
 	if err != nil {
@@ -690,4 +757,78 @@ func settingValueToInt(value any) (int, error) {
 	default:
 		return 0, fmt.Errorf("类型错误：%T", value)
 	}
+}
+
+// SettingKeyPermissionMap 设置项key对应的权限码映射
+var SettingKeyPermissionMap = map[string]string{
+	// --- 上传与存储 ---
+	"default_storage":     "setting:upload",
+	"public_image_domain": "setting:upload",
+	"default_path":        "setting:upload",
+	"file_name":           "setting:upload",
+	"max_file_size":       "setting:upload",
+	"allowed_types":       "setting:upload",
+	"multi_storage_sync":  "setting:upload",
+	"encrypted_storage":   "setting:upload",
+	"save_original_name":  "setting:upload",
+
+	// --- 图片处理 ---
+	"watermark_enable": "setting:image",
+	"watermark_text":   "setting:image",
+	"watermark_size":   "setting:image",
+	"watermark_color":  "setting:image",
+	"watermark_opac":   "setting:image",
+	"watermark_pos":    "setting:image",
+	"compress_image":   "setting:image",
+	"save_webp":        "setting:image",
+	"thumbnail":        "setting:image",
+
+	// --- 安全与登录 ---
+	"pow_verify":                "setting:security",
+	"tourist":                   "setting:security",
+	"start_register":            "setting:security",
+	"referer_white_enable":      "setting:security",
+	"referer_white_list":        "setting:security",
+	"oidc_enable":               "setting:security",
+	"oidc_issuer":               "setting:security",
+	"oidc_client_id":            "setting:security",
+	"oidc_client_secret":        "setting:security",
+	"oidc_auto_provision":       "setting:security",
+	"oidc_super_admin_username": "setting:security",
+	"oidc_redirect_url":         "setting:security",
+	"oidc_scopes":               "setting:security",
+	"oidc_username_claim":       "setting:security",
+	"oidc_display_name":         "setting:security",
+	"cas_enable":                "setting:security",
+	"cas_server_url":            "setting:security",
+	"cas_auto_provision":        "setting:security",
+	"cas_super_admin_username":  "setting:security",
+	"cas_service_url":           "setting:security",
+	"cas_display_name":          "setting:security",
+
+	// --- 通知 ---
+	"tg_notice":      "setting:notification",
+	"tg_bot_token":   "setting:notification",
+	"tg_receivers":   "setting:notification",
+	"tg_notice_text": "setting:notification",
+
+	// --- API ---
+	"start_api": "setting:api",
+	"api_token": "setting:api",
+
+	// --- 站点SEO ---
+	"seo_title":       "setting:seo",
+	"seo_description": "setting:seo",
+	"seo_keywords":    "setting:seo",
+	"seo_icp":         "setting:seo",
+	"public_security": "setting:seo",
+	"seo_icon":        "setting:seo",
+}
+
+// getSettingRequiredPerm
+func getSettingRequiredPerm(key string) string {
+	if perm, ok := SettingKeyPermissionMap[key]; ok {
+		return perm
+	}
+	return ""
 }

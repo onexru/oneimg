@@ -57,10 +57,13 @@
                     </div>
 
                     <!-- 标签项 -->
-                    <div v-for="(tag, index) in tagList" :key="index" class="flex items-center px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm">
+                    <div v-for="(tag, index) in tagList"
+                    :key="index"
+                    @click="handleUpdateTag(tag)"
+                    class="flex items-center px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm cursor-pointer hover:bg-primary/20">
                         <span>{{ tag?.name || '未知'}}</span>
                         <button class="ml-2 text-primary/70 hover:text-red-500 transition-colors" 
-                                @click="handleDeleteTag(tag.id, index)"
+                                @click.stop="handleDeleteTag(tag.id, index)"
                                 :disabled="isDeleting">
                             <i class="ri-close-line"></i>
                         </button>
@@ -167,6 +170,10 @@ const handleAddTag = async () => {
 
 // 处理删除标签
 const handleDeleteTag = async (tagId, index) => {
+    if (tagId === 0) {
+        Message.error('默认标签不能删除');
+        return;
+    }
     // 确认删除
     const modal = new PopupModal({
         title: '确认删除',
@@ -198,6 +205,72 @@ const handleDeleteTag = async (tagId, index) => {
     })
     modal.open()
 };
+
+// 编辑标签
+const handleUpdateTag = (tag) => {
+    // 确认修改
+    const modal = new PopupModal({
+        title: '修改标签',
+        type: 'form',
+        formFields: [
+            {
+                label: '标签名称',
+                type: 'text',
+                name: 'name',
+                defaultValue: tag.name,
+                required: true
+            }
+        ],
+        formSubmit: async (modal, formData) => {
+            const tagName = formData.name;
+            await updateTag(tag, tagName)
+            modal.close()
+        },
+        buttons: [
+            {
+                text: '取消',
+                type: 'default',
+                callback: (modal) => modal.close()
+            },
+            {
+                text: '确认修改',
+                type: 'primary',
+                callback: (modal) => {
+                    modal.content.querySelector('form').dispatchEvent(
+                        new Event('submit', { bubbles: true })
+                    );
+                }
+            }
+        ],
+    });
+    modal.open();
+}
+
+const updateTag = async (tag, name) => {
+    try {
+        isAdding.value = true;
+        
+        const response = await fetch(`/api/tags/${tag.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: name })
+        });
+        const result = await response.json();
+        if (response.ok && result.code === 200) {
+            tag.name = name;
+            Message.success('标签修改成功');
+        } else {
+            throw new Error(result.message || '修改标签失败');
+        }
+    } catch (error) {
+        console.error('修改标签失败:', error);
+        Message.error(error.message || '修改标签失败');
+    } finally {
+        isAdding.value = false;
+    }
+}
 
 const deleteAsync = async (tagId, index) => {
     try {

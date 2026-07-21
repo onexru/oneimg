@@ -120,3 +120,74 @@ func DeleteTag(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result.Success("ok", nil))
 }
+
+func UpdateTag(c *gin.Context) {
+	idStr := c.Param("id")
+
+	if idStr == "" {
+		c.JSON(http.StatusBadRequest, result.Error(400, "标签ID不能为空"))
+		return
+	}
+
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, "标签ID无效"))
+		return
+	}
+
+	if id == 0 {
+		c.JSON(http.StatusForbidden, result.Error(403, "默认标签不能更新"))
+		return
+	}
+
+	type UpdateTagRequest struct {
+		Name string `json:"name"`
+	}
+
+	var req UpdateTagRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, "参数错误"))
+		return
+	}
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称不能为空"))
+		return
+	}
+	if utf8.RuneCountInString(req.Name) > 10 {
+		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称过长"))
+		return
+	}
+
+	db := database.GetDB().DB
+	var tag models.Tags
+
+	// 查询标签是否存在
+	var count int64
+	if err := db.Model(&models.Tags{}).Where("name = ?", req.Name).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "查询标签失败"))
+		return
+	}
+
+	// 标签已存在
+	if count > 0 {
+		c.JSON(http.StatusConflict, result.Error(409, "标签已存在"))
+		return
+	}
+
+	// 查询标签信息
+	if err := db.First(&tag, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, result.Error(404, "标签不存在"))
+		return
+	}
+
+	// 更新标签名称
+	tag.Name = req.Name
+
+	// 保存更新
+	if err := db.Save(&tag).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "更新标签失败"))
+		return
+	}
+
+	c.JSON(http.StatusOK, result.Success("ok", tag))
+}
