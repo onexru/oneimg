@@ -150,6 +150,15 @@ func RequirePermission(requiredCode string) gin.HandlerFunc {
 			}
 		}
 
+		if user.Role == models.RoleUser {
+			c.JSON(http.StatusForbidden, AuthResponse{
+				Code:    403,
+				Message: "无权访问",
+			})
+			c.Abort()
+			return
+		}
+
 		if !user.Permission.HasPermission(requiredCode) {
 			permName := models.GetPermissionName(requiredCode)
 			c.JSON(http.StatusForbidden, AuthResponse{

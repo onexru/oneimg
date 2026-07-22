@@ -106,12 +106,16 @@ func DeleteImage(c *gin.Context) {
 // 规则：超管图片仅超管可动；本人或超管放行；否则需 requiredPerm；游客用 UUID+MD5。
 func CheckImageAccessPermission(c *gin.Context, image models.Image, requiredPerm string) bool {
 	userId := c.GetInt("user_id")
+	userRole := c.GetInt("user_role")
 
 	if image.UserId == models.SuperAdminID && userId != models.SuperAdminID {
 		return false
 	}
 	if (userId > 0 && userId == image.UserId) || userId == models.SuperAdminID {
 		return true
+	}
+	if userId != image.UserId && userRole != models.RoleAdmin {
+		return false
 	}
 
 	user, exists := middlewares.GetCurrentUser(c)
