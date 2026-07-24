@@ -63,7 +63,7 @@ func GetImageList(c *gin.Context) {
 	}
 	dbSortField, ok := fieldMapping[sortBy]
 	if !ok {
-		dbSortField = "created_at"
+		dbSortField = "images.created_at"
 	}
 	if sortOrder != "asc" && sortOrder != "desc" {
 		sortOrder = "desc"
@@ -97,7 +97,7 @@ func GetImageList(c *gin.Context) {
 	}
 
 	db := database.GetDB().DB
-	idQuery := db.Model(&models.Image{}).Select("images.id")
+	idQuery := db.Model(&models.Image{}).Select("images.id", dbSortField)
 
 	// 存储桶筛选
 	bucket := c.Query("bucket")
@@ -156,14 +156,14 @@ func GetImageList(c *gin.Context) {
 	}
 
 	var imageIds []int
-	if err := idQuery.Order(orderClause).Offset(offset).Limit(limit).Find(&imageIds).Error; err != nil {
+	if err := idQuery.Order(orderClause).Offset(offset).Limit(limit).Pluck("images.id", &imageIds).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "筛选图片失败："+err.Error()))
 		return
 	}
 
 	var total int64
 	countQuery := idQuery.Session(&gorm.Session{})
-	countQuery.Offset(-1).Limit(-1)
+	countQuery = countQuery.Offset(-1).Limit(-1)
 	if hasZeroTag || len(filterTagIds) > 0 {
 		countQuery.Distinct("images.id").Count(&total)
 	} else {
