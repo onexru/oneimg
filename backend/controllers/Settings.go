@@ -814,8 +814,9 @@ var SettingKeyPermissionMap = map[string]string{
 	"tg_notice_text": "setting:notification",
 
 	// --- API ---
-	"start_api": "setting:api",
-	"api_token": "setting:api",
+	"start_api":    "setting:api",
+	"api_token":    "setting:api",
+	"random_graph": "setting:api",
 
 	// --- 站点SEO ---
 	"seo_title":       "setting:seo",

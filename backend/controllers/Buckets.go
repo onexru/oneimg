@@ -406,8 +406,35 @@ func UpdateBuckets(c *gin.Context) {
 
 	mergedConfig, err := mergeBucketConfig(bucket.Config, bucketConfig)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "敏感配置处理失败"))
-		return
+		var requiredSensitiveKeys []string
+		switch type_ {
+		case "s3":
+			requiredSensitiveKeys = []string{"s3_access_key", "s3_secret_key"}
+		case "r2":
+			requiredSensitiveKeys = []string{"r2_access_key", "r2_secret_key"}
+		case "ftp":
+			requiredSensitiveKeys = []string{"ftp_user", "ftp_pass"}
+		case "webdav":
+			requiredSensitiveKeys = []string{"webdav_user", "webdav_pass"}
+		case "telegram":
+			requiredSensitiveKeys = []string{"tg_bot_token"}
+		}
+
+		canOverride := true
+		for _, key := range requiredSensitiveKeys {
+			val, exists := bucketConfig[key]
+			if !exists || strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+				canOverride = false
+				break
+			}
+		}
+
+		if canOverride {
+			mergedConfig = bucketConfig
+		} else {
+			c.JSON(http.StatusBadRequest, result.Error(400, "原有敏感配置解密失败，请重新填写完整的认证信息以覆盖"))
+			return
+		}
 	}
 
 	encryptedConfig, err := secureconfig.EncryptBucketConfigValues(mergedConfig)

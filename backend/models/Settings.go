@@ -19,6 +19,7 @@ type Settings struct {
 	TGNoticeText     string `gorm:"column:tg_notice_text;default:''" json:"tg_notice_text"`            // TG通知文本
 	StartAPI         bool   `gorm:"column:start_api;default:false" json:"start_api"`                   // 是否启用API（默认关闭）
 	APIToken         string `gorm:"column:api_token;default:''" json:"api_token"`                      // 兼容旧字段
+	RandomGraph      bool   `gorm:"column:random_graph;default:false" json:"random_graph"`             // 是否启用随机图（默认关闭）
 	APITokenHash     string `gorm:"column:api_token_hash;default:''" json:"-"`                         // API Token哈希
 	SaveOriginalName bool   `gorm:"column:save_original_name;default:false" json:"save_original_name"` // 是否保存原文件名（默认不保存）
 	StartRegister    bool   `gorm:"column:start_register;default:false" json:"start_register"`         // 是否启用注册（默认关闭）

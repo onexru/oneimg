@@ -180,6 +180,18 @@
                                 </div>
                                 <div class="field-hint">1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}；<br>2. 仅在首次设置时显示，刷新后将再不显示，请注意保存；<br>3. {{ systemSettings.api_token_configured ? '当前已配置' : '当前未配置' }}</div>
                             </div>
+
+                            <div v-show="activeSettingsTab === 'api'" class="setting-group">
+                                <label class="field-label" for="api_token">配置随机图</label>
+                                <button type="button" class="h-10 w-full rounded-xl bg-slate-900 px-3.5 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" @click="generateRandomGraph">配置随机图</button>
+                                <div class="field-hint">
+                                    随机图API接口：<a class="text-blue-600 dark:text-blue-400" href="/api/images/random" target="_blank">/api/images/random</a><br>
+                                    随机图参数：<br>
+                                    1.tag text 标签分类<br>
+                                    2.model json/image 返回数据类型（json、图片流）<br>
+                                    3.limit int 返回数量（默认1,最大20,仅在model为json时生效）<br>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -297,6 +309,10 @@
                             <div v-show="activeSettingsTab === 'api'" class="setting-row">
                                 <div><p class="setting-row-title">启用 API</p><p class="setting-row-hint">开启后，允许通过 API Token 调用上传等接口。</p></div>
                                 <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.start_api" class="sr-only peer" @change="handleSwitchChange('start_api', systemSettings.start_api)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
+                            </div>
+                            <div v-show="activeSettingsTab === 'api'" class="setting-row">
+                                <div><p class="setting-row-title">启用 随机图</p><p class="setting-row-hint">开启后，默认返回系统内全部随机图，可在 “配置随机图” 中设置随机图范围。</p></div>
+                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.random_graph" class="sr-only peer" @change="handleSwitchChange('random_graph', systemSettings.random_graph)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
                             </div>
                             <div v-show="activeSettingsTab === 'storage'" class="setting-row">
                                 <div>
@@ -501,6 +517,190 @@ const generateApiToken = () => {
     }
     systemSettings.value.api_token = result
     handleFieldBlur('api_token', result)
+}
+
+// 配置随机图
+const generateRandomGraph = async () => {
+    // 获取随机图配置
+    try {
+        const randomGraph = await getRandomGraph();
+        // 打开配置弹窗
+        RandomGraphModal(randomGraph);
+    } catch (err) {
+        Message.error(err.message || '获取随机图配置失败')
+    }
+}
+
+const RandomGraphModal = (randomGraph) => {
+    const random_graph = randomGraph.random_graph || []
+    const user_ids = randomGraph.user_ids || []
+    const tag_ids = randomGraph.tag_ids || []
+    
+    // 添加默认标签选项
+    tag_ids.unshift({
+        id: 0,
+        name: '默认标签',
+    })
+
+    // 选中标签
+    const selectedTags = random_graph.tag_ids || []
+    // 选中用户
+    const selectedUsers = random_graph.user_ids || []
+
+    // 渲染标签
+    const renderTags = tag_ids.map(tag => `
+        <div class="mb-4 last:mb-0">
+            <div data-id="${tag.id}" data-type="tag" class="card-item flex items-center gap-1.5 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-all duration-200 select-none ${selectedTags.includes(tag.id) ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">
+                <i class="${selectedTags.includes(tag.id) ? 'ri-checkbox-circle-fill text-emerald-500' : 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600'} text-sm icon-node"></i>
+                <span class="text-xs">${tag.name}</span>
+            </div>
+        </div>
+    `).join('')
+    
+    // 渲染用户
+    const renderUsers = user_ids.map(user => `
+        <div class="mb-4 last:mb-0">
+            <div data-id="${user.id}" data-type="user" class="card-item flex items-center gap-1.5 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-all duration-200 select-none ${selectedUsers.includes(user.id) ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">
+                <i class="${selectedUsers.includes(user.id) ? 'ri-checkbox-circle-fill text-emerald-500' : 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600'} text-sm icon-node"></i>
+                <span class="text-xs">${user.username}</span>
+            </div>
+        </div>
+    `).join('')
+
+    const modalContent = `
+        <div id="rg-modal-wrap" class="py-1 space-y-6 custom-scrollbar pr-2">
+            <p class="text-sm text-slate-600 dark:text-slate-300">
+                选择允许访问随机图的用户与标签范围，未选择时默认不限制。
+            </p>
+            <div>
+                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                    <i class="ri-price-tag-3-line text-blue-500"></i> 随机图允许访问的标签范围
+                </h4>
+                <div id="tagCardWrap" class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-white/5">
+                    ${renderTags}
+                </div>
+            </div>
+            <div>
+                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                    <i class="ri-user-settings-line text-blue-500"></i> 随机图允许访问的用户范围
+                </h4>
+                <div id="userCardWrap" class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-white/5">
+                    ${renderUsers}
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modal = new PopupModal({
+        title: '配置随机图',
+        width: '680px',
+        content: modalContent,
+        buttons: [
+            {
+                text: '取消',
+                type: 'default',
+                callback: () => modal.close()
+            },
+            {
+                text: '确认保存',
+                type: 'primary',
+                callback: async () => {
+                    try {
+                        const res = await fetch(`/api/settings/randomGraph`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                id: random_graph.id ? 1 : 0,
+                                user_ids: selectedUsers,
+                                tag_ids: selectedTags,
+                            })
+                        })
+                        const data = await res.json()
+                        if (data.code === 200) {
+                            modal.close()
+                            Message.success('随机图配置更新成功')
+                        } else {
+                            Message.error(data.message || '随机图配置更新失败')
+                        }
+                    } catch (err) {
+                        Message.error('网络请求异常')
+                    }
+                }
+            }
+        ]
+    })
+    modal.open()
+
+    setTimeout(() => {
+        const wrap = document.getElementById('rg-modal-wrap');
+        if (!wrap) return;
+
+        wrap.addEventListener('click', (e) => {
+            const card = e.target.closest('.card-item');
+            if (!card) return;
+
+            const id = Number(card.dataset.id);
+            const type = card.dataset.type;
+            
+            const arr = type === 'tag' ? selectedTags : selectedUsers;
+            const idx = arr.indexOf(id);
+            const isSelected = idx > -1;
+
+            if (isSelected) {
+                arr.splice(idx, 1);
+            } else {
+                arr.push(id);
+            }
+
+            toggleCardUI(card, isSelected);
+        });
+    }, 80);
+
+    function toggleCardUI(card, isSelected) {
+        const icon = card.querySelector('.icon-node');
+        
+        const activeClasses = [
+            'border-emerald-500/50', 'bg-emerald-50', 'dark:bg-emerald-900/20', 
+            'text-emerald-700', 'dark:text-emerald-400'
+        ];
+        const inactiveClasses = [
+            'border-slate-200', 'dark:border-slate-700', 'bg-white', 
+            'dark:bg-slate-800', 'text-slate-600', 'dark:text-slate-300'
+        ];
+
+        if (isSelected) {
+            card.classList.remove(...activeClasses);
+            card.classList.add(...inactiveClasses);
+            icon.className = 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600 text-sm icon-node';
+        } else {
+            card.classList.remove(...inactiveClasses);
+            card.classList.add(...activeClasses);
+            icon.className = 'ri-checkbox-circle-fill text-emerald-500 text-sm icon-node';
+        }
+    }
+}
+
+const getRandomGraph = async () => {
+    try {
+        const response = await fetch('/api/settings/randomGraph', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        const res = await response.json()
+        if (response.ok && res.code === 200) {
+            return res.data || {
+                random_graph: [],
+                user_ids: [],
+                tag_ids: [],
+            }
+        } else {
+            throw new Error(res.message || '获取随机图配置失败')
+        }
+    } catch (err) {
+        throw err
+    }
 }
 
 // 6. 初始化

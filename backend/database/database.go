@@ -99,6 +99,7 @@ func InitDB(cfg *config.Config) {
 		&models.ImageTeleGram{},
 		&models.ImageToTags{},
 		&models.Buckets{},
+		&models.RandomGraph{},
 	)
 	if err != nil {
 		log.Fatalf("❌ 数据库表迁移失败: %v", err)

@@ -127,6 +127,8 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			// 系统设置
 			auth.Any("/settings/get", controllers.GetSettings)
 			auth.POST("/settings/update", controllers.UpdateSettings)
+			auth.GET("/settings/randomGraph", middlewares.RequirePermission("setting:api"), controllers.GetRandomGraph)
+			auth.POST("/settings/randomGraph", middlewares.RequirePermission("setting:api"), controllers.SetRandomGraph)
 		}
 	}
 
