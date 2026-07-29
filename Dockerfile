@@ -11,7 +11,7 @@ RUN pnpm run build
 
 
 # 阶段2：构建后端
-FROM golang:1.24-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 # 安装CGO编译依赖
 RUN apk add --no-cache gcc g++ musl-dev libwebp-dev
