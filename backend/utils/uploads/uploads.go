@@ -111,10 +111,7 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 		if err != nil {
 			return nil, fmt.Errorf("R2上传失败：%v", err)
 		}
-
-		if err == nil {
-			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
-		}
+		thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
 	}
 
 	url := "/" + PathJoin(subDir, uniqueFileName)
