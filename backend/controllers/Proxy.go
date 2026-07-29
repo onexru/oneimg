@@ -26,11 +26,8 @@ import (
 	"oneimg/backend/utils/watermark"
 	"oneimg/backend/utils/webdav"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
 
@@ -216,23 +213,26 @@ func ImageProxy(c *gin.Context) bool {
 	case "webdav":
 		proxyWebDAVFile(c, imageUrl, imageModel.MimeType, bucket, watermarkCfg)
 	case "r2":
-		// 初始化S3客户端
+		// 初始化S3兼容客户端
 		s3Client, err := s3.NewS3Client(setting, bucket)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("R2客户端初始化失败: %v", err)))
 			return true
 		}
-		proxyR2File(c, imageUrl, imageModel.MimeType, bucket, s3Client, watermarkCfg)
+		// 提取 R2 Bucket 名称
+		storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
+		proxyObjectStorageFile(c, imageUrl, imageModel.MimeType, storageConfig.R2Bucket, bucket, s3Client, watermarkCfg)
 
 	case "s3":
-		// 初始化S3客户端
+		// 初始化S3兼容客户端
 		s3Client, err := s3.NewS3Client(setting, bucket)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, result.Error(500, fmt.Sprintf("S3客户端初始化失败: %v", err)))
 			return true
 		}
-		// 代理S3/R2文件
-		proxyS3File(c, imageUrl, imageModel.MimeType, bucket, s3Client, watermarkCfg)
+		// 提取 S3 Bucket 名称
+		storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
+		proxyObjectStorageFile(c, imageUrl, imageModel.MimeType, storageConfig.S3Bucket, bucket, s3Client, watermarkCfg)
 
 	case "ftp":
 		proxyFTPFile(c, imageUrl, imageModel.MimeType, bucket, watermarkCfg)
@@ -286,120 +286,52 @@ func serveStoredImage(c *gin.Context, stored io.Reader, mimeType, storageType st
 	return nil
 }
 
-// proxyR2File R2文件代理
-func proxyR2File(c *gin.Context, objectKey, mimeType string, bucket models.Buckets, s3Client *awss3.Client, watermarkCfg watermark.WatermarkConfig) {
-	// 清理objectKey（去除开头的/，适配S3路径规则）
+// proxyObjectStorageFile 代理对象存储文件
+func proxyObjectStorageFile(c *gin.Context, objectKey, mimeType, bucketName string, bucket models.Buckets, s3Client *minio.Client, watermarkCfg watermark.WatermarkConfig) {
 	objectKey = strings.TrimPrefix(objectKey, "/")
 
-	// 获取存储配置
-	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
-
 	// 校验bucket和objectKey
-	if storageConfig.R2Bucket == "" || objectKey == "" {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "R2配置缺失（Bucket或ObjectKey为空）"))
+	if bucketName == "" || objectKey == "" {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "存储配置缺失"))
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 1. 获取R2文件对象
-	getInput := awss3.GetObjectInput{
-		Bucket: aws.String(storageConfig.R2Bucket),
-		Key:    aws.String(objectKey),
-	}
-
-	resp, err := s3Client.GetObject(ctx, &getInput)
+	obj, err := s3Client.GetObject(ctx, bucketName, objectKey, minio.GetObjectOptions{})
 	if err != nil {
-		// 区分不同错误类型
-		var noSuchKeyErr *types.NoSuchKey
-		if errors.As(err, &noSuchKeyErr) {
-			c.JSON(http.StatusNotFound, result.Error(404, "R2文件不存在"))
-			return
-		}
+		var minioErr minio.ErrorResponse
+		if errors.As(err, &minioErr) {
+			switch minioErr.Code {
+			case "NoSuchKey":
+				c.JSON(http.StatusNotFound, result.Error(404, "文件不存在"))
+				return
+			case "AccessDenied":
+				c.JSON(http.StatusForbidden, result.Error(403, "文件访问权限不足"))
+				return
+			}
 
-		var respErr *smithyhttp.ResponseError
-		if errors.As(err, &respErr) {
-			statusCode := respErr.HTTPStatusCode()
-			switch statusCode {
+			switch minioErr.StatusCode {
 			case http.StatusForbidden:
-				c.JSON(http.StatusForbidden, result.Error(403, "R2文件访问权限不足"))
+				c.JSON(http.StatusForbidden, result.Error(403, "文件访问权限不足"))
 				return
 			case http.StatusRequestTimeout:
-				c.JSON(http.StatusGatewayTimeout, result.Error(504, "R2请求超时"))
+				c.JSON(http.StatusGatewayTimeout, result.Error(504, "存储请求超时"))
 				return
 			}
 		}
 
-		log.Printf("R2获取文件失败 [key:%s, bucket:%s]: %v", objectKey, bucket.Name, err)
-		c.JSON(http.StatusBadGateway, result.Error(502, "R2文件获取失败"))
+		log.Printf("[%s]获取文件失败 [key:%s, bucket:%s]: %v", bucket.Type, objectKey, bucket.Name, err)
+		c.JSON(http.StatusBadGateway, result.Error(502, "文件获取失败"))
 		return
 	}
-	defer resp.Body.Close()
+	defer obj.Close()
 
-	if err := serveStoredImage(c, resp.Body, mimeType, bucket.Type, watermarkCfg); err != nil {
-		log.Printf("R2文件解密或传输失败 [key:%s]: %v", objectKey, err)
+	if err := serveStoredImage(c, obj, mimeType, bucket.Type, watermarkCfg); err != nil {
+		log.Printf("[%s]文件解密或传输失败 [key:%s]: %v", bucket.Type, objectKey, err)
 		if !c.Writer.Written() {
-			c.JSON(http.StatusInternalServerError, result.Error(500, "R2文件解密失败"))
-		}
-	}
-}
-
-// proxyS3File S3文件代理（添加水印支持）
-func proxyS3File(c *gin.Context, objectKey, mimeType string, bucket models.Buckets, s3Client *awss3.Client, watermarkCfg watermark.WatermarkConfig) {
-	// 清理objectKey（去除开头的/，适配S3路径规则）
-	objectKey = strings.TrimPrefix(objectKey, "/")
-
-	// 获取存储配置
-	storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
-
-	// 校验bucket和objectKey
-	if storageConfig.S3Bucket == "" || objectKey == "" {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "S3配置缺失（Bucket或ObjectKey为空）"))
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// 1. 获取S3文件对象
-	getInput := awss3.GetObjectInput{
-		Bucket: aws.String(storageConfig.S3Bucket),
-		Key:    aws.String(objectKey),
-	}
-
-	resp, err := s3Client.GetObject(ctx, &getInput)
-	if err != nil {
-		// 区分不同错误类型
-		var noSuchKeyErr *types.NoSuchKey
-		if errors.As(err, &noSuchKeyErr) {
-			c.JSON(http.StatusNotFound, result.Error(404, "S3文件不存在"))
-			return
-		}
-
-		var respErr *smithyhttp.ResponseError
-		if errors.As(err, &respErr) {
-			statusCode := respErr.HTTPStatusCode()
-			switch statusCode {
-			case http.StatusForbidden:
-				c.JSON(http.StatusForbidden, result.Error(403, "S3文件访问权限不足"))
-				return
-			case http.StatusRequestTimeout:
-				c.JSON(http.StatusGatewayTimeout, result.Error(504, "S3请求超时"))
-				return
-			}
-		}
-
-		log.Printf("S3获取文件失败 [key:%s, bucket:%s]: %v", objectKey, bucket.Name, err)
-		c.JSON(http.StatusBadGateway, result.Error(502, "S3文件获取失败"))
-		return
-	}
-	defer resp.Body.Close()
-
-	if err := serveStoredImage(c, resp.Body, mimeType, bucket.Type, watermarkCfg); err != nil {
-		log.Printf("S3文件解密或传输失败 [key:%s]: %v", objectKey, err)
-		if !c.Writer.Written() {
-			c.JSON(http.StatusInternalServerError, result.Error(500, "S3文件解密失败"))
+			c.JSON(http.StatusInternalServerError, result.Error(500, "文件解密失败"))
 		}
 	}
 }

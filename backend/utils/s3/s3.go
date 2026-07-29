@@ -1,26 +1,28 @@
 package s3
 
 import (
-	"context"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"oneimg/backend/models"
 	utilsBuckets "oneimg/backend/utils/buckets"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// 创建S3客户端
-func NewS3Client(setting models.Settings, buckets models.Buckets) (*s3.Client, error) {
+// 创建S3/R2兼容客户端
+func NewS3Client(setting models.Settings, buckets models.Buckets) (*minio.Client, error) {
 	var (
 		endpoint  string
 		bucket    string
 		accessKey string
 		secretKey string
-		region    = "auto" // R2使用auto区域
+		region    = "us-east-1"
+		useSSL    = true
+		host      string
+		lookup    minio.BucketLookupType
 	)
 
 	switch buckets.Type {
@@ -31,12 +33,16 @@ func NewS3Client(setting models.Settings, buckets models.Buckets) (*s3.Client, e
 		accessKey = storageConfig.S3AccessKey
 		secretKey = storageConfig.S3SecretKey
 		region = "us-east-1"
+		lookup = minio.BucketLookupDNS
+
 	case "r2":
 		storageConfig := utilsBuckets.ConvertToR2Bucket(buckets.Config)
 		endpoint = storageConfig.R2Endpoint
 		bucket = storageConfig.R2Bucket
 		accessKey = storageConfig.R2AccessKey
 		secretKey = storageConfig.R2SecretKey
+		region = "auto"
+		lookup = minio.BucketLookupPath
 	}
 
 	if accessKey == "" || secretKey == "" {
@@ -45,39 +51,45 @@ func NewS3Client(setting models.Settings, buckets models.Buckets) (*s3.Client, e
 	if bucket == "" || endpoint == "" {
 		return nil, fmt.Errorf("S3/R2配置缺失 [bucket:%s, endpoint:%s]", bucket, endpoint)
 	}
-
-	// 创建AWS配置
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.TODO(),
-		awsconfig.WithRegion(region),
-		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:               endpoint,
-					HostnameImmutable: true,
-				}, nil
-			},
-		)),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			accessKey,
-			secretKey,
-			"", // Token
-		)),
-	)
-
+	parsedURL, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("加载 AWS 配置失败: %w", err)
+		return nil, fmt.Errorf("解析 Endpoint 失败: %w", err)
 	}
 
-	// 创建S3客户端
-	client := s3.NewFromConfig(awsCfg)
+	host = parsedURL.Host
+	if host == "" {
+		path := parsedURL.Path
+		if idx := strings.Index(path, "/"); idx != -1 {
+			host = path[:idx]
+		} else {
+			host = path
+		}
+	}
 
-	return client, err
-}
+	switch parsedURL.Scheme {
+	case "http":
+		useSSL = false
+	case "https":
+		useSSL = true
+	}
 
-func GetObject(client s3.Client, ctx context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
-	return client.GetObject(ctx, input)
-}
+	if buckets.Type == "s3" && bucket != "" {
+		prefix := strings.ToLower(bucket) + "."
+		if strings.HasPrefix(strings.ToLower(host), prefix) {
+			host = host[len(bucket)+1:]
+		}
+	}
 
-func DeleteObject(client s3.Client, ctx context.Context, input *s3.DeleteObjectInput) (*s3.DeleteObjectOutput, error) {
-	return client.DeleteObject(ctx, input)
+	client, err := minio.New(host, &minio.Options{
+		Creds:        credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure:       useSSL,
+		Region:       region,
+		BucketLookup: lookup,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("初始化 S3 客户端失败: %w", err)
+	}
+
+	return client, nil
 }

@@ -23,9 +23,8 @@ import (
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
 
@@ -151,16 +150,12 @@ func DeleteDefaultStorageImage(image models.Image) bool {
 }
 
 // deleteS3Object 删除 S3/R2 单个对象。
-func deleteS3Object(ctx context.Context, client *awss3.Client, bucketName, fileUrl string) error {
+func deleteS3Object(ctx context.Context, client *minio.Client, bucketName, fileUrl string) error {
 	if fileUrl == "" {
 		return nil
 	}
 	objectKey := strings.TrimPrefix(fileUrl, "/")
-	_, err := client.DeleteObject(ctx, &awss3.DeleteObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(objectKey),
-	})
-	return err
+	return client.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
 }
 
 // DeleteR2StorageImage 删除 R2 上的原图与缩略图。
@@ -183,9 +178,11 @@ func DeleteR2StorageImage(image models.Image, bucket models.Buckets) bool {
 		return false
 	}
 
-	if err := deleteS3Object(ctx, s3Client, storageConfig.R2Bucket, image.Thumbnail); err != nil {
-		log.Printf("[R2] 删除缩略图失败 bucket=%s key=%s err=%v", storageConfig.R2Bucket, image.Thumbnail, err)
-		return false
+	if image.Thumbnail != "" {
+		if err := deleteS3Object(ctx, s3Client, storageConfig.R2Bucket, image.Thumbnail); err != nil {
+			log.Printf("[R2] 删除缩略图失败 bucket=%s key=%s err=%v", storageConfig.R2Bucket, image.Thumbnail, err)
+			return false
+		}
 	}
 	return true
 }
@@ -212,9 +209,11 @@ func DeleteS3StorageImage(image models.Image, bucket models.Buckets) bool {
 		return false
 	}
 
-	if err := deleteS3Object(ctx, s3Client, storageConfig.S3Bucket, image.Thumbnail); err != nil {
-		log.Printf("[S3] 删除缩略图失败 bucket=%s key=%s err=%v", storageConfig.S3Bucket, image.Thumbnail, err)
-		return false
+	if image.Thumbnail != "" {
+		if err := deleteS3Object(ctx, s3Client, storageConfig.S3Bucket, image.Thumbnail); err != nil {
+			log.Printf("[S3] 删除缩略图失败 bucket=%s key=%s err=%v", storageConfig.S3Bucket, image.Thumbnail, err)
+			return false
+		}
 	}
 	return true
 }

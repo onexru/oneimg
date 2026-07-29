@@ -13,10 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 
 	"oneimg/backend/database"
@@ -289,19 +288,12 @@ func testS3CompatibleStorage(ctx context.Context, bucket models.Buckets) (string
 	}
 	key := ".oneimg-connection-test/" + uuid.NewString() + ".txt"
 	content := []byte("oneimg storage connection test")
-	if _, err := client.PutObject(ctx, &awss3.PutObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
-		Body:   bytes.NewReader(content),
-	}); err != nil {
-		return "", fmt.Errorf("测试对象写入失败: %w", err)
+	if _, err := client.PutObject(ctx, bucketName, key, bytes.NewReader(content), int64(len(content)), minio.PutObjectOptions{}); err != nil {
+		return "", fmt.Errorf("测试对象写入失败: %s", translateS3Error(err))
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := client.DeleteObject(cleanupCtx, &awss3.DeleteObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
-	}); err != nil {
+	if err := client.RemoveObject(cleanupCtx, bucketName, key, minio.RemoveObjectOptions{}); err != nil {
 		return "", fmt.Errorf("写入成功，但测试对象清理失败: %w", err)
 	}
 	return "已验证对象写入与删除权限", nil
@@ -400,4 +392,36 @@ func sanitizeBucketTestError(err error, config map[string]any) string {
 		message = string(runes[:500]) + "..."
 	}
 	return message
+}
+
+func translateS3Error(err error) string {
+	var minioErr minio.ErrorResponse
+	if errors.As(err, &minioErr) {
+		switch minioErr.StatusCode {
+		case 401:
+			return "认证失败：Access Key 或 Secret Key 错误"
+		case 403:
+			if strings.Contains(minioErr.Code, "AccessDenied") {
+				return "权限不足：该密钥没有读写此存储桶的权限"
+			}
+			return "认证失败：密钥错误或签名不匹配"
+		case 400:
+			if strings.Contains(minioErr.Code, "InvalidAccessKeyId") {
+				return "认证失败：Access Key ID 无效"
+			}
+			return fmt.Sprintf("请求错误(400): %s", minioErr.Message)
+		case 404:
+			if minioErr.Code == "NoSuchBucket" {
+				return "存储桶不存在，请检查名称拼写或区域是否正确"
+			}
+			return "网络错误：找不到指定的存储节点"
+		case 502, 503, 504:
+			return "存储服务网络异常或超时，请检查 Endpoint 地址是否可达"
+		}
+		// 如果有具体的错误码，一并返回
+		if minioErr.Code != "" {
+			return fmt.Sprintf("%s (错误码: %s)", minioErr.Message, minioErr.Code)
+		}
+	}
+	return err.Error()
 }

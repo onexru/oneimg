@@ -23,8 +23,7 @@ import (
 	"oneimg/backend/utils/telegram"
 	"oneimg/backend/utils/webdav"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -367,11 +366,8 @@ func uploadArtifactToS3(ctx context.Context, bucket models.Buckets, artifact loc
 		mainFile.Close()
 		return err
 	}
-	_, uploadErr := client.PutObject(ctx, &awss3.PutObjectInput{
-		Bucket:      aws.String(remoteBucket),
-		Key:         aws.String(remoteObjectKey(artifact.URL)),
-		Body:        mainFile,
-		ContentType: aws.String(synchronizedContentType(artifact.MimeType, mainEncrypted)),
+	_, uploadErr := client.PutObject(ctx, remoteBucket, remoteObjectKey(artifact.URL), mainFile, artifact.FileSize, minio.PutObjectOptions{
+		ContentType: synchronizedContentType(artifact.MimeType, mainEncrypted),
 	})
 	closeErr := mainFile.Close()
 	if uploadErr != nil {
@@ -393,11 +389,8 @@ func uploadArtifactToS3(ctx context.Context, bucket models.Buckets, artifact loc
 		thumbnailFile.Close()
 		return err
 	}
-	_, uploadErr = client.PutObject(ctx, &awss3.PutObjectInput{
-		Bucket:      aws.String(remoteBucket),
-		Key:         aws.String(remoteObjectKey(artifact.Thumbnail)),
-		Body:        thumbnailFile,
-		ContentType: aws.String(synchronizedContentType("image/webp", thumbnailEncrypted)),
+	_, uploadErr = client.PutObject(ctx, remoteBucket, remoteObjectKey(artifact.Thumbnail), thumbnailFile, artifact.ThumbnailSize, minio.PutObjectOptions{
+		ContentType: synchronizedContentType("image/webp", thumbnailEncrypted),
 	})
 	closeErr = thumbnailFile.Close()
 	if uploadErr != nil {
@@ -941,10 +934,7 @@ func deleteS3Replica(ctx context.Context, bucket models.Buckets, mainPath, thumb
 		if path == "" {
 			continue
 		}
-		_, err := client.DeleteObject(ctx, &awss3.DeleteObjectInput{
-			Bucket: aws.String(remoteBucket),
-			Key:    aws.String(remoteObjectKey(path)),
-		})
+		err := client.RemoveObject(ctx, remoteBucket, remoteObjectKey(path), minio.RemoveObjectOptions{})
 		if err != nil {
 			deleteErrors = append(deleteErrors, err)
 		}

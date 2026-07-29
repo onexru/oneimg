@@ -3,6 +3,8 @@ package uploads
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"mime/multipart"
@@ -11,9 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
 
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
@@ -89,11 +90,8 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 
 	// 获取Bucket
 	storageConfig := buckets.ConvertToR2Bucket(bucket.Config)
-	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket:      aws.String(storageConfig.R2Bucket),
-		Key:         aws.String(objectKey),
-		Body:        bytes.NewReader(storedImageBytes),
-		ContentType: aws.String(storageContentType(contentType, setting.EncryptedStorage)),
+	_, err = client.PutObject(context.TODO(), storageConfig.R2Bucket, objectKey, bytes.NewReader(storedImageBytes), int64(len(storedImageBytes)), minio.PutObjectOptions{
+		ContentType: storageContentType(contentType, setting.EncryptedStorage),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("R2上传失败：%v", err)
@@ -106,12 +104,14 @@ func (u *R2Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 		if encryptErr != nil {
 			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
 		}
-		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-			Bucket:      aws.String(storageConfig.R2Bucket),
-			Key:         aws.String(PathJoin(subDir, "thumbnails", uniqueFileName)), // 缩略图存放路径
-			Body:        bytes.NewReader(storedThumbnailBytes),
-			ContentType: aws.String(storageContentType("image/webp", setting.EncryptedStorage)),
+		thumbKey := PathJoin(subDir, "thumbnails", uniqueFileName)
+		_, err = client.PutObject(context.TODO(), storageConfig.R2Bucket, thumbKey, bytes.NewReader(storedThumbnailBytes), int64(len(storedThumbnailBytes)), minio.PutObjectOptions{
+			ContentType: storageContentType("image/webp", setting.EncryptedStorage),
 		})
+		if err != nil {
+			return nil, fmt.Errorf("R2上传失败：%v", err)
+		}
+
 		if err == nil {
 			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
 		}
@@ -188,14 +188,11 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 
 	// 获取Bucket
 	storageConfig := buckets.ConvertToS3Bucket(bucket.Config)
-	_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket:      aws.String(storageConfig.S3Bucket),
-		Key:         aws.String(objectKey),
-		Body:        bytes.NewReader(storedImageBytes),
-		ContentType: aws.String(storageContentType(contentType, setting.EncryptedStorage)),
+	_, err = client.PutObject(context.TODO(), storageConfig.S3Bucket, objectKey, bytes.NewReader(storedImageBytes), int64(len(storedImageBytes)), minio.PutObjectOptions{
+		ContentType: storageContentType(contentType, setting.EncryptedStorage),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("S3/R2上传失败：%v", err)
+		return nil, fmt.Errorf("S3上传失败：%v", err)
 	}
 
 	thumbnailURL := ""
@@ -205,11 +202,9 @@ func (u *S3Uploader) Upload(c *gin.Context, setting *models.Settings, bucket *mo
 		if encryptErr != nil {
 			return nil, fmt.Errorf("加密缩略图失败：%v", encryptErr)
 		}
-		_, err = client.PutObject(context.TODO(), &awss3.PutObjectInput{
-			Bucket:      aws.String(storageConfig.S3Bucket),
-			Key:         aws.String(PathJoin(subDir, "thumbnails", uniqueFileName)), // 缩略图存放路径
-			Body:        bytes.NewReader(storedThumbnailBytes),
-			ContentType: aws.String(storageContentType("image/webp", setting.EncryptedStorage)),
+		thumbKey := PathJoin(subDir, "thumbnails", uniqueFileName)
+		_, err = client.PutObject(context.TODO(), storageConfig.S3Bucket, thumbKey, bytes.NewReader(storedThumbnailBytes), int64(len(storedThumbnailBytes)), minio.PutObjectOptions{
+			ContentType: storageContentType("image/webp", setting.EncryptedStorage),
 		})
 		if err == nil {
 			thumbnailURL = "/" + PathJoin(subDir, "thumbnails", uniqueFileName)
@@ -663,4 +658,9 @@ func uploadTelegramBytes(client *telegram.Config, chatID string, data []byte, fi
 // 辅助函数
 func PathJoin(parts ...string) string {
 	return strings.Join(parts, "/")
+}
+
+func calculateContentMD5(data []byte) string {
+	hash := md5.Sum(data)
+	return base64.StdEncoding.EncodeToString(hash[:])
 }

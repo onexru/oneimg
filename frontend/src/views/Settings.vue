@@ -421,10 +421,12 @@ const activeSettingsTabLabel = computed(() => {
 const publicDomainStorageTypes = ['s3', 'r2']
 
 const currentDefaultBucket = computed(() => {
-    return presetBuckets.value.find(bucket => String(bucket.id) === String(systemSettings.default_storage))
+    return presetBuckets.value.find(bucket => String(bucket.id) === String(systemSettings.value?.default_storage))
 })
 
 const supportsPublicImageDomain = computed(() => {
+    console.log(currentDefaultBucket.value?.type);
+    
     return publicDomainStorageTypes.includes(currentDefaultBucket.value?.type)
 })
 
@@ -433,10 +435,10 @@ const publicImageDomainUnavailable = computed(() => {
     return !supportsPublicImageDomain.value
 })
 const publicImageDomainInputDisabled = computed(() => {
-    return (systemSettings.encrypted_storage || publicImageDomainUnavailable.value) && !hasPublicImageDomain.value
+    return (systemSettings.value.encrypted_storage || publicImageDomainUnavailable.value) && !hasPublicImageDomain.value
 })
 const publicImageDomainHint = computed(() => {
-    if (systemSettings.encrypted_storage) {
+    if (systemSettings.value.encrypted_storage) {
         return '加密存储已开启，图片必须通过程序解密后访问，不能使用存储服务直链域名。'
     }
     if (!supportsPublicImageDomain.value) {
@@ -497,7 +499,9 @@ const handleFieldBlur = async (key, value) => {
         Message.error('保存失败')
     }
 }
-const handleSelectChange = (key, value) => handleFieldBlur(key, value)
+const handleSelectChange = (key, value) => {
+    handleFieldBlur(key, value)
+}
 const handleSwitchChange = (key, value) => handleFieldBlur(key, value)
 
 const handleSettingsTabKeydown = (event, index) => {
@@ -706,7 +710,13 @@ const getRandomGraph = async () => {
 // 6. 初始化
 onMounted(() => {
     fetchSystemSettings()
-    fetch('/api/buckets/list').then(res => res.json()).then(res => { if(res.code === 200) presetBuckets.value = res.data })
+    fetch('/api/buckets/list')
+        .then(res => res.json())
+        .then(res => {
+            if(res.code === 200) {
+                presetBuckets.value = res.data
+            }
+        })
 })
 </script>
 
