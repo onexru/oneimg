@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.ip6s.com">在线演示</a> ·
+  <a href="https://demo.eta.im">在线演示</a> ·
   <a href="https://www.tr0.cn/oneimgapi/">API 文档</a> ·
   <a href="https://www.tr0.cn">作者主页</a> ·
   <a href="https://www.cv0.cn/donate">赞助支持</a> ·
