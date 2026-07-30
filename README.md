@@ -8,7 +8,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Vue-3-42b883?style=for-the-badge&logo=vue.js&logoColor=white" />
   <img src="https://img.shields.io/badge/Go-Gin-00ADD8?style=for-the-badge&logo=go&logoColor=white" />
-  <img src="https://img.shields.io/badge/SQLite-Lightweight-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/SQLite-✔-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/MySQL-✔-4479A1?style=for-the-badge&logo=mysql&logoColor=white" />
+  <img src="https://img.shields.io/badge/PostgreSQL-✔-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/Multi_Storage-S3%20%7C%20R2%20%7C%20FTP%20%7C%20WebDAV%20%7C%20Telegram-6f42c1?style=for-the-badge" />
 </p>
@@ -188,6 +190,13 @@ docker run -d \
 |------|------|
 | `./data` | 数据库与系统配置 |
 | `./uploads` | 本地上传文件 |
+
+支持三种数据库：
+1. sqlite （默认）
+2. mysql
+3. postgres
+
+> 修改数据库在`.env`内`DB_TYPE`配置
 
 ### Telegram 存储配置
 
