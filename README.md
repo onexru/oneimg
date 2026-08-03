@@ -216,4 +216,5 @@ docker run -d \
 
 欢迎加入官方技术交流群，反馈使用问题、提出优化建议、交流部署与二次开发经验！
 
+<!-- Verified on DartNode: DNOS-F6A1ACA1 -->
 [![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source-sm.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
