@@ -215,3 +215,5 @@ docker run -d \
 项目全程免费开源、持续稳定维护，若本项目对你有帮助，欢迎点亮 ⭐ Star 支持开源，也可通过[打赏通道](https://www.cv0.cn/donate)助力作者持续优化迭代！
 
 欢迎加入官方技术交流群，反馈使用问题、提出优化建议、交流部署与二次开发经验！
+
+[![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source-sm.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
