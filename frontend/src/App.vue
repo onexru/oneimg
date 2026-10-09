@@ -14,7 +14,7 @@
           <div>
             © {{ year }}
             <a href="/" class="font-medium text-slate-700 transition hover:text-primary dark:text-slate-200 dark:hover:text-primary">
-              {{ seoSetting.seo_title || '初春图床' }}
+              {{ seoSetting.seo_title || 'OneImg' }}
             </a>
           </div>
           <div class="flex flex-wrap items-center justify-center gap-2 md:justify-end md:gap-2.5">
@@ -50,7 +50,7 @@ import icpImg from '@/assets/images/icp.svg'
 import securityImg from '@/assets/images/gongan.png'
 
 const seoSetting = ref({
-  seo_title: '初春图床',
+  seo_title: 'OneImg',
   seo_description: '',
   seo_keywords: '',
   seo_icp: '',

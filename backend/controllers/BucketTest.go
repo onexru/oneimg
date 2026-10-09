@@ -24,6 +24,7 @@ import (
 	ftpclient "oneimg/backend/utils/ftp"
 	"oneimg/backend/utils/result"
 	s3client "oneimg/backend/utils/s3"
+	"oneimg/backend/utils/safefetch"
 	"oneimg/backend/utils/secureconfig"
 	webdavclient "oneimg/backend/utils/webdav"
 )
@@ -34,7 +35,7 @@ var bucketConnectionTestSlots = make(chan struct{}, 4)
 
 var bucketConfigKeys = map[string][]string{
 	"s3":       {"s3_endpoint", "s3_access_key", "s3_secret_key", "s3_bucket"},
-	"r2":       {"r2_endpoint", "r2_access_key", "r2_secret_key", "r2_bucket"},
+	"r2":       {"r2_endpoint", "r2_access_key", "r2_secret_key", "r2_bucket", "r2_cdn_domain", "r2_cdn_mode"},
 	"ftp":      {"ftp_host", "ftp_port", "ftp_user", "ftp_pass"},
 	"webdav":   {"webdav_url", "webdav_user", "webdav_pass"},
 	"telegram": {"tg_bot_token", "tg_receivers"},
@@ -225,6 +226,9 @@ func validateBucketTestConfig(bucketType string, config map[string]any) error {
 		return nil
 	}
 	for _, key := range bucketConfigKeys[bucketType] {
+		if key == "r2_cdn_domain" || key == "r2_cdn_mode" {
+			continue
+		}
 		if key == "ftp_port" {
 			if secureconfig.GetInt(config, key) < 1 {
 				return errors.New("ftp_port 为必填项")
@@ -235,7 +239,12 @@ func validateBucketTestConfig(bucketType string, config map[string]any) error {
 			return fmt.Errorf("%s 为必填项", key)
 		}
 	}
-	return nil
+	if bucketType == "r2" {
+		if _, _, err := utilsBuckets.R2CDNConfig(config); err != nil {
+			return err
+		}
+	}
+	return validateStorageProvider(bucketType, config)
 }
 
 func testBucketConnection(ctx context.Context, bucket models.Buckets) (string, error) {
@@ -275,7 +284,7 @@ func testLocalStorage() (string, error) {
 	return "本地目录可读写", nil
 }
 
-func testS3CompatibleStorage(ctx context.Context, bucket models.Buckets) (string, error) {
+func testS3CompatibleStorage(ctx context.Context, bucket models.Buckets) (detail string, resultErr error) {
 	client, err := s3client.NewS3Client(models.Settings{}, bucket)
 	if err != nil {
 		return "", err
@@ -287,14 +296,48 @@ func testS3CompatibleStorage(ctx context.Context, bucket models.Buckets) (string
 		bucketName = utilsBuckets.ConvertToR2Bucket(bucket.Config).R2Bucket
 	}
 	key := ".oneimg-connection-test/" + uuid.NewString() + ".txt"
-	content := []byte("oneimg storage connection test")
+	content := []byte("oneimg storage connection test " + uuid.NewString())
 	if _, err := client.PutObject(ctx, bucketName, key, bytes.NewReader(content), int64(len(content)), minio.PutObjectOptions{}); err != nil {
 		return "", fmt.Errorf("测试对象写入失败: %s", translateS3Error(err))
 	}
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := client.RemoveObject(cleanupCtx, bucketName, key, minio.RemoveObjectOptions{}); err != nil {
-		return "", fmt.Errorf("写入成功，但测试对象清理失败: %w", err)
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.RemoveObject(cleanupCtx, bucketName, key, minio.RemoveObjectOptions{}); err != nil {
+			resultErr = errors.Join(resultErr, errors.New("测试对象清理失败，请检查存储删除权限"))
+		}
+	}()
+	if bucket.Type == "r2" {
+		domain, mode, err := utilsBuckets.R2CDNConfig(bucket.Config)
+		if err != nil {
+			return "", err
+		}
+		if domain != "" {
+			target, err := utilsBuckets.R2CDNObjectURL(domain, key)
+			if mode == utilsBuckets.R2CDNSignedProxy {
+				signed, signErr := client.PresignedGetObject(ctx, bucketName, key, time.Minute, nil)
+				if signErr != nil {
+					return "", errors.New("CDN 测试签名生成失败")
+				}
+				target, err = utilsBuckets.R2CDNSignedURL(domain, signed)
+			}
+			if err != nil {
+				return "", err
+			}
+			response, err := safefetch.GetNoRedirect(ctx, target, 10*time.Second)
+			if err != nil {
+				return "", errors.New("存储可写，但 CDN 访问失败，请检查域名、证书及回源配置")
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				return "", fmt.Errorf("存储可写，但 CDN 返回 HTTP %d，请检查访问方式和回源配置", response.StatusCode)
+			}
+			body, err := safefetch.ReadLimited(response.Body, 4096)
+			if err != nil || !bytes.Equal(body, content) {
+				return "", errors.New("CDN 返回的内容与测试对象不一致，请检查路径前缀及回源桶")
+			}
+			return "已验证对象写入、CDN 读取与删除权限", nil
+		}
 	}
 	return "已验证对象写入与删除权限", nil
 }

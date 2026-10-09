@@ -96,7 +96,7 @@ const fetchTagList = async () => {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
             }
         });
         
@@ -145,7 +145,7 @@ const handleAddTag = async () => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify({ name: tagName })
         });
@@ -281,7 +281,7 @@ const deleteAsync = async (tagId, index) => {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
             }
         });
         

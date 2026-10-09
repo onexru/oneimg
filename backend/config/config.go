@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -21,16 +22,21 @@ type Config struct {
 	SqlitePath string
 
 	// 数据库配置
-	DbType           string
-	DbHost           string
-	DbPort           int
-	DbUser           string
-	DbPassword       string
-	DbName           string
-	DbCaCertPath     string
-	DbSkipCertVerify bool
+	DbType            string
+	DbHost            string
+	DbPort            int
+	DbUser            string
+	DbPassword        string
+	DbName            string
+	DbCaCertPath      string
+	DbSkipCertVerify  bool
+	DbMaxOpenConns    int
+	DbMaxIdleConns    int
+	DbConnMaxLifetime time.Duration
+	DbConnMaxIdleTime time.Duration
 
 	// 上传文件配置
+	UploadRoot   string
 	MaxFileSize  int64
 	AllowedTypes []string
 
@@ -92,17 +98,23 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=
 DB_NAME=oneimg
-# CA证书路径，如果不需要TLS加密连接则将其注释
+# CA证书路径。省略时使用系统 CA；证书验证默认开启，路径错误会拒绝启动。
 DB_CA_CERT_PATH=./ca/isrgrootx1.pem
 DB_SKIP_CERT_VERIFY=false
+DB_MAX_OPEN_CONNS=10
+DB_MAX_IDLE_CONNS=2
+DB_CONN_MAX_LIFETIME=30m
+DB_CONN_MAX_IDLE_TIME=5m
 
 # 文件上传配置
+UPLOAD_ROOT=./uploads
 MAX_FILE_SIZE=10485760
-ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp,image/svg+xml
+ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp
 
 # 默认用户配置
 DEFAULT_USER=admin
-DEFAULT_PASS=123456
+# 留空时仅在首次创建管理员时生成强密码，保存于 data/.initial_admin_password（0600）；不在日志输出
+DEFAULT_PASS=
 
 # Session配置
 SESSION_SECRET=
@@ -154,8 +166,14 @@ func loadOrCreatePersistentConfigSecret() string {
 	const secretPath = "./data/.config_secret"
 	if stored, err := os.ReadFile(secretPath); err == nil {
 		if secret := strings.TrimSpace(string(stored)); secret != "" {
+			if err := os.Chmod(secretPath, 0600); err != nil {
+				log.Fatalf("保护配置密钥权限失败: %v", err)
+			}
 			return secret
 		}
+		log.Fatal("持久化配置密钥文件为空，拒绝生成替代密钥")
+	} else if !os.IsNotExist(err) {
+		log.Fatalf("读取持久化配置密钥失败（拒绝替换现有密钥）: %v", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(secretPath), 0755); err != nil {
@@ -206,7 +224,7 @@ func NewConfig() {
 
 	// 默认用户配置
 	defaultUser := getEnv("DEFAULT_USER", "admin")
-	defaultPass := getEnv("DEFAULT_PASS", "123456")
+	defaultPass := getEnv("DEFAULT_PASS", "")
 
 	// JWT配置（默认生成随机密钥，避免硬编码）
 	jwtSecret := getEnv("JWT_SECRET", generateRandomSecret(32))
@@ -220,24 +238,29 @@ func NewConfig() {
 
 	// 初始化全局配置
 	App = &Config{
-		Port:             port,
-		AppURL:           appURL,
-		SqlitePath:       sqlitePath,
-		DbType:           dbType,
-		DbHost:           dbHost,
-		DbPort:           dbPort,
-		DbUser:           dbUser,
-		DbPassword:       dbPassword,
-		DbName:           dbName,
-		MaxFileSize:      maxFileSize,
-		AllowedTypes:     allowedTypes,
-		DefaultUser:      defaultUser,
-		DefaultPass:      defaultPass,
-		JWTSecret:        jwtSecret,
-		SessionSecret:    sessionSecret,
-		ConfigSecret:     configSecret,
-		DbCaCertPath:     dbCaCertPath,
-		DbSkipCertVerify: dbSkipCertVerify,
+		Port:              port,
+		AppURL:            appURL,
+		SqlitePath:        sqlitePath,
+		DbType:            dbType,
+		DbHost:            dbHost,
+		DbPort:            dbPort,
+		DbUser:            dbUser,
+		DbPassword:        dbPassword,
+		DbName:            dbName,
+		MaxFileSize:       maxFileSize,
+		AllowedTypes:      allowedTypes,
+		DefaultUser:       defaultUser,
+		DefaultPass:       defaultPass,
+		JWTSecret:         jwtSecret,
+		SessionSecret:     sessionSecret,
+		ConfigSecret:      configSecret,
+		DbCaCertPath:      dbCaCertPath,
+		DbSkipCertVerify:  dbSkipCertVerify,
+		DbMaxOpenConns:    positiveEnvInt("DB_MAX_OPEN_CONNS", 10),
+		DbMaxIdleConns:    nonnegativeEnvInt("DB_MAX_IDLE_CONNS", 2),
+		DbConnMaxLifetime: positiveEnvDuration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
+		DbConnMaxIdleTime: positiveEnvDuration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
+		UploadRoot:        getEnv("UPLOAD_ROOT", "./uploads"),
 	}
 
 	log.Println("✅ 配置初始化完成")

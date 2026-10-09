@@ -4,7 +4,7 @@
             <div>
                 <h1 class="page-title">系统设置</h1>
             </div>
-            <div class="grid w-full gap-2.5 sm:w-auto sm:grid-cols-2">
+            <div v-if="settingsState === 'ready' || settingsState === 'readonly'" class="grid w-full gap-2.5 sm:w-auto sm:grid-cols-2">
                 <div class="stat-tile min-w-0">
                     <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">默认存储</p>
                     <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ presetBuckets.find(bucket => bucket.id == systemSettings.default_storage)?.name || '未选择' }}</p>
@@ -16,7 +16,12 @@
             </div>
         </section>
 
-        <section class="section-card p-2 sm:p-2.5" aria-label="系统设置分类">
+        <section v-if="settingsNotice" class="section-card" role="status">
+            <p class="text-sm text-secondary">{{ settingsNotice }}</p>
+            <router-link v-if="settingsState === 'unauthenticated'" to="/login" class="soft-button mt-3">重新登录</router-link>
+            <button v-if="canReadSettings && settingsState !== 'loading'" type="button" class="soft-button mt-3" @click="fetchSystemSettings">重新加载</button>
+        </section>
+        <section v-if="settingsTabs.length" class="section-card p-2 sm:p-2.5" aria-label="系统设置分类">
             <div class="flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="设置分类">
                 <button
                     v-for="(tab, index) in settingsTabs"
@@ -41,384 +46,23 @@
         </section>
 
         <!-- 主要内容 -->
-        <div id="settings-tab-content" class="pb-8 md:pb-10" role="tabpanel" :aria-labelledby="`settings-tab-${activeSettingsTab}`">
+        <div v-if="settingsTabs.length" id="settings-tab-content" class="pb-8 md:pb-10" role="tabpanel" :aria-labelledby="`settings-tab-${activeSettingsTab}`">
             <div class="grid gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
                 
                 <!-- 系统配置卡片 (左侧/右侧详情) -->
-                <div v-if="activeSettingsTab !== 'seo'" class="order-1 md:order-2 w-full p-0 mx-auto">
-                    <div class="section-card p-3.5 sm:p-4 md:p-6">
-                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
-                            <span class="panel-icon mr-2 text-2xl"><i class="ri-list-settings-line"></i></span>
-                            {{ activeSettingsTabLabel }}
-                        </h2>
-                        
-                        <div class="account-form space-y-4 md:space-y-5">
-                            <!-- ========== 上传与存储 ========== -->
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="default_storage">系统默认存储</label>
-                                <select id="default_storage" v-model="systemSettings.default_storage" class="input-modern" @change="handleSelectChange('default_storage', systemSettings.default_storage)">
-                                    <option v-for="bucket in presetBuckets" :key="bucket.id" :value="bucket.id">{{ bucket.name }} ({{ bucket.type }})</option>
-                                </select>
-                                <div class="field-hint">选择后系统将使用该存储作为默认存储，游客仅能使用该存储</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="public_image_domain">
-                                    图片直链域名
-                                </label>
-                                <input
-                                    id="public_image_domain"
-                                    v-model="systemSettings.public_image_domain"
-                                    type="text"
-                                    class="input-modern"
-                                    :class="{ 'cursor-not-allowed opacity-60': publicImageDomainInputDisabled }"
-                                    :disabled="publicImageDomainInputDisabled"
-                                    placeholder="例如 https://img.example.com"
-                                    @blur="handleFieldBlur('public_image_domain', systemSettings.public_image_domain)"
-                                />
-                                <div
-                                    class="field-hint"
-                                    :class="{ 'text-amber-600 dark:text-amber-300': publicImageDomainUnavailable || hasPublicImageDomain }"
-                                >
-                                    {{ publicImageDomainHint }}
-                                </div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="default_path">默认存储路径</label>
-                                <input id="default_path" v-model="systemSettings.default_path" type="text" class="input-modern" placeholder="默认存储路径，默认 /uploads/{year}/{moon}" @blur="handleFieldBlur('default_path', systemSettings.default_path)" />
-                                <div class="field-hint">默认上传路径，魔法变量 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {random} 随机 {uuid} UUID</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="file_name">上传文件名称</label>
-                                <input id="file_name" v-model="systemSettings.file_name" type="text" class="input-modern" placeholder="上传文件名称，默认 {random}" @blur="handleFieldBlur('file_name', systemSettings.file_name)" />
-                                <div class="field-hint">上传文件名称，魔法变量 {random} 随机数 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {second} 秒</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="max_file_size">允许最大上传大小</label>
-                                <input id="max_file_size" v-model="systemSettings.max_file_size" type="number" class="input-modern" placeholder="允许最大上传大小" @blur="handleFieldBlur('max_file_size', systemSettings.max_file_size)" />
-                                <div class="field-hint">大小单位：字节，默认10mb</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-group">
-                                <label class="field-label" for="allowed_types">允许上传的图片类型</label>
-                                <input id="allowed_types" v-model="systemSettings.allowed_types" type="text" class="input-modern" placeholder="允许上传的图片类型" @blur="handleFieldBlur('allowed_types', systemSettings.allowed_types)" />
-                            </div>
-
-                            <!-- ========== 通知 ========== -->
-                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
-                                <label class="field-label" for="tg_bot_token">TG Bot Token</label>
-                                <input id="tg_bot_token" v-model="systemSettings.tg_bot_token" type="text" class="input-modern" :placeholder="systemSettings.tg_bot_token_configured ? '已配置，留空表示不修改' : '未配置，请输入 Bot Token'" @blur="handleFieldBlur('tg_bot_token', systemSettings.tg_bot_token)" />
-                                <div class="field-hint">{{ systemSettings.tg_bot_token_configured ? '已配置，留空表示不修改' : '发送Telegram通知时必填' }}</div>
-                            </div>
-                            
-                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
-                                <label class="field-label" for="tg_receivers">TG 通知接收者</label>
-                                <input id="tg_receivers" v-model="systemSettings.tg_receivers" type="text" class="input-modern" placeholder="接收通知的TG用户ID" @blur="handleFieldBlur('tg_receivers', systemSettings.tg_receivers)" />
-                                <div class="field-hint">发送Telegram通知时必填</div>
-                            </div>
-                            
-                            <div v-show="activeSettingsTab === 'notifications'" class="setting-group">
-                                <label class="field-label" for="tg_notice_text">TG 通知文本</label>
-                                <input id="tg_notice_text" v-model="systemSettings.tg_notice_text" type="text" class="input-modern" placeholder="自定义TG通知文本" @blur="handleFieldBlur('tg_notice_text', systemSettings.tg_notice_text)" />
-                                <div class="field-hint">默认模板：{username} {date} 上传了图片 {filename}，存储容器[{StorageType}]</div>
-                            </div>
-
-                            <!-- ========== 图片处理 ========== -->
-                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
-                                <label class="field-label" for="watermark_text">图片水印文本</label>
-                                <input id="watermark_text" v-model="systemSettings.watermark_text" type="text" class="input-modern" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" placeholder="图片水印文本" @blur="handleFieldBlur('watermark_text', systemSettings.watermark_text)" />
-                                <div v-if="hasPublicImageDomain" class="field-hint text-amber-600 dark:text-amber-300">已配置图片直链域名，图片水印文本不会生效，请先清空图片直链域名再修改。</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
-                                <label class="field-label" for="watermark_size">图片水印大小</label>
-                                <input id="watermark_size" v-model="systemSettings.watermark_size" type="text" class="input-modern" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" placeholder="图片水印大小" @blur="handleFieldBlur('watermark_size', systemSettings.watermark_size)" />
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
-                                <label class="field-label" for="watermark_color">图片水印字体颜色</label>
-                                <input id="watermark_color" v-model="systemSettings.watermark_color" type="text" class="input-modern" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" placeholder="图片水印字体颜色" @blur="handleFieldBlur('watermark_color', systemSettings.watermark_color)" />
-                                <div class="field-hint">默认值为 #000000 黑色</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
-                                <label class="field-label" for="watermark_opac">图片水印透明度</label>
-                                <input id="watermark_opac" v-model="systemSettings.watermark_opac" type="text" class="input-modern" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" placeholder="图片水印透明度" @blur="handleFieldBlur('watermark_opac', systemSettings.watermark_opac)" />
-                                <div class="field-hint">默认值：0.5</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'image'" class="setting-group">
-                                <label class="field-label" for="watermark_pos">图片水印位置</label>
-                                <select id="watermark_pos" v-model="systemSettings.watermark_pos" class="input-modern" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" @change="handleSelectChange('watermark_pos', systemSettings.watermark_pos)">
-                                    <option value="" disabled>请选择图片水印位置</option>
-                                    <option value="top-left">左上角</option>
-                                    <option value="top-right">右上角</option>
-                                    <option value="bottom-left">左下角</option>
-                                    <option value="bottom-right">右下角</option>
-                                    <option value="center">居中</option>
-                                </select>
-                                <div class="field-hint">系统默认右下角</div>
-                            </div>
-
-                            <!-- ========== 安全与登录 (表单部分) ========== -->
-                            <div v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="referer_white_list">Referer来源白名单</label>
-                                <textarea id="referer_white_list" v-model="systemSettings.referer_white_list" type="password" class="input-modern min-h-[112px] leading-6" :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }" :disabled="hasPublicImageDomain" placeholder="Referer来源白名单，多个以英文逗号分隔" @blur="handleFieldBlur('referer_white_list', systemSettings.referer_white_list)" rows="4"></textarea>
-                                <div class="field-hint">1. 仅需填写域名（支持主域名），多个以英文逗号分隔；<br>2. 无需填写协议，无需填写端口；<br>3. 如果开启了来源白名单，那么仅能从这些来源访问图片资源（直接打开不受限制）</div>
-                                <div v-if="hasPublicImageDomain" class="field-hint text-amber-600 dark:text-amber-300">已配置图片直链域名，直接访问不会经过系统代理，来源白名单不会生效。</div>
-                            </div>
-
-                            <!-- ========== API ========== -->
-                            <div v-show="activeSettingsTab === 'api'" class="setting-group">
-                                <label class="field-label" for="api_token">API Token</label>
-                                <div class="flex flex-col gap-2 sm:relative sm:block sm:w-full">
-                                    <input id="api_token" v-model="systemSettings.api_token" type="text" class="input-modern sm:pr-20" :placeholder="systemSettings.api_token_configured ? '已配置，留空表示不修改' : '未配置，请输入 API Token'" @blur="handleFieldBlur('api_token', systemSettings.api_token)" />
-                                    <button type="button" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-3.5 text-sm font-medium text-white transition hover:bg-slate-700 sm:absolute sm:right-1 sm:top-1 sm:h-[calc(100%-8px)] dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" @click="generateApiToken">生成</button>
-                                </div>
-                                <div class="field-hint">1. 用于调用 API 接口，在请求头 Authorization 字段中添加 oneimg_token={API Token}；<br>2. 仅在首次设置时显示，刷新后将再不显示，请注意保存；<br>3. {{ systemSettings.api_token_configured ? '当前已配置' : '当前未配置' }}</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'api'" class="setting-group">
-                                <label class="field-label" for="api_token">配置随机图</label>
-                                <button type="button" class="h-10 w-full rounded-xl bg-slate-900 px-3.5 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" @click="generateRandomGraph">配置随机图</button>
-                                <div class="field-hint">
-                                    随机图API接口：<a class="text-blue-600 dark:text-blue-400" href="/api/images/random" target="_blank">/api/images/random</a><br>
-                                    随机图参数：<br>
-                                    1.tag text 标签分类<br>
-                                    2.model json/image 返回数据类型（json、图片流）<br>
-                                    3.limit int 返回数量（默认1,最大20,仅在model为json时生效）<br>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <SettingsFieldsPanel />
 
                 <!-- 开关与特定面板 (右侧/左侧开关) -->
                 <div class="order-2 md:order-1 w-full p-0 mx-auto" :class="{ 'xl:col-span-2': activeSettingsTab === 'seo' }">
                     
                     <!-- SEO设置独立面板 -->
-                    <div v-show="activeSettingsTab === 'seo'" class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
-                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
-                            <span class="panel-icon mr-2 text-2xl"><i class="ri-seo-line"></i></span>SEO 设置
-                        </h2>
-                        <div class="setting-group"><label class="field-label" for="seo_title">网站标题</label><input id="seo_title" v-model="systemSettings.seo_title" type="text" class="input-modern" placeholder="请输入网站标题" @blur="handleFieldBlur('seo_title', systemSettings.seo_title)" /></div>
-                        <div class="setting-group"><label class="field-label" for="seo_description">网站描述</label><textarea id="seo_description" v-model="systemSettings.seo_description" type="text" class="input-modern min-h-[96px]" rows="3" placeholder="请输入网站描述" @blur="handleFieldBlur('seo_description', systemSettings.seo_description)"></textarea></div>
-                        <div class="setting-group"><label class="field-label" for="seo_keywords">网站关键词</label><textarea id="seo_keywords" v-model="systemSettings.seo_keywords" type="text" class="input-modern min-h-[96px]" rows="3" placeholder="请输入网站关键词" @blur="handleFieldBlur('seo_keywords', systemSettings.seo_keywords)"></textarea></div>
-                        <div class="setting-group"><label class="field-label" for="seo_icp">网站备案号</label><input id="seo_icp" v-model="systemSettings.seo_icp" type="text" class="input-modern" placeholder="请输入网站备案号" @blur="handleFieldBlur('seo_icp', systemSettings.seo_icp)" /><div class="field-hint">输入网站备案号会在页面底部显示备案信息</div></div>
-                        <div class="setting-group"><label class="field-label" for="public_security">网站公安备案号</label><input id="public_security" v-model="systemSettings.public_security" type="text" class="input-modern" placeholder="请输入网站公安备案号" @blur="handleFieldBlur('public_security', systemSettings.public_security)" /><div class="field-hint">输入网站公安备案号会在页面底部显示公安备案信息</div></div>
-                        <div class="setting-group"><label class="field-label" for="seo_icon">网站小图标</label><input id="seo_icon" v-model="systemSettings.seo_icon" type="text" class="input-modern" placeholder="请输入网站小图标" @blur="handleFieldBlur('seo_icon', systemSettings.seo_icon)" /><div class="field-hint">输入网站小图标URL会替换默认的小图标</div></div>
-                    </div>
+                    <SettingsSeoPanel />
 
                     <!-- 安全与登录面板 (OIDC/CAS) -->
-                    <div v-show="activeSettingsTab === 'security'" class="section-card mb-3.5 space-y-4 p-3.5 sm:p-4 md:space-y-5 md:p-6">
-                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
-                            <span class="panel-icon mr-2 text-2xl"><i class="ri-shield-user-line"></i></span>登录与单点登录
-                        </h2>
-                        <!-- OIDC 卡片 -->
-                        <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 p-3.5 dark:border-white/10 dark:bg-slate-950 sm:p-4">
-                            <div class="mb-4 flex flex-col items-start gap-3 border-b border-slate-200/80 pb-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-                                <div><p class="text-sm font-semibold text-slate-900 dark:text-white">OIDC 登录</p><p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">通过支持 OpenID Connect 的身份提供方登录。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end sm:self-center"><input type="checkbox" v-model="systemSettings.oidc_enable" class="sr-only peer" @change="handleSwitchChange('oidc_enable', systemSettings.oidc_enable)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="setting-group"><label class="field-label" for="oidc_issuer">Issuer URL</label><input id="oidc_issuer" v-model="systemSettings.oidc_issuer" type="url" class="input-modern" placeholder="https://id.example.com" @blur="handleFieldBlur('oidc_issuer', systemSettings.oidc_issuer)" /><div class="field-hint">OIDC 发行方地址，系统将通过该地址发现授权端点。</div></div>
-                                <div class="setting-group"><label class="field-label" for="oidc_client_id">Client ID</label><input id="oidc_client_id" v-model="systemSettings.oidc_client_id" type="text" class="input-modern" placeholder="请输入 OIDC Client ID" @blur="handleFieldBlur('oidc_client_id', systemSettings.oidc_client_id)" /></div>
-                                <div class="setting-group"><label class="field-label" for="oidc_client_secret">Client Secret</label><input id="oidc_client_secret" v-model="systemSettings.oidc_client_secret" type="password" class="input-modern" :placeholder="systemSettings.oidc_client_secret_configured ? '已配置，留空表示不修改' : '未配置，请输入 Client Secret'" autocomplete="new-password" @blur="handleFieldBlur('oidc_client_secret', systemSettings.oidc_client_secret)" /><div class="field-hint">{{ systemSettings.oidc_client_secret_configured ? '已配置，留空表示不修改' : '启用 OIDC 登录前必须配置' }}</div></div>
-                                <div class="setting-row"><div><p class="setting-row-title">首次登录自动创建用户</p><p class="setting-row-hint">关闭后，尚未绑定本地账户的 OIDC 用户无法登录。</p></div><label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.oidc_auto_provision" class="sr-only peer" @change="handleSwitchChange('oidc_auto_provision', systemSettings.oidc_auto_provision)"><div class="switch-track"></div><div class="switch-thumb"></div></label></div>
-                                <div class="setting-group"><label class="field-label" for="oidc_super_admin_username">映射超级管理员用户名</label><input id="oidc_super_admin_username" v-model="systemSettings.oidc_super_admin_username" type="text" maxlength="255" class="input-modern" placeholder="留空表示不映射" @blur="handleFieldBlur('oidc_super_admin_username', systemSettings.oidc_super_admin_username)" /><div class="field-hint">OIDC 校验成功后，最终用户名与此值完全一致时登录本地超级管理员账户（区分大小写）。</div></div>
-                                <div class="setting-group"><label class="field-label" for="oidc_redirect_url">回调 URL</label><input id="oidc_redirect_url" v-model="systemSettings.oidc_redirect_url" type="url" class="input-modern" placeholder="https://img.example.com/api/auth/oidc/callback" @blur="handleFieldBlur('oidc_redirect_url', systemSettings.oidc_redirect_url)" /><div class="field-hint">需与 OIDC 身份提供方中登记的回调地址完全一致。</div><div class="field-hint rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/5"><span class="font-medium text-slate-600 dark:text-slate-300">当前有效回调地址：</span><code class="break-all">{{ systemSettings.oidc_redirect_url_effective || '尚未生成' }}</code></div></div>
-                                <div class="grid gap-4 lg:grid-cols-2">
-                                    <div class="setting-group"><label class="field-label" for="oidc_scopes">Scopes</label><input id="oidc_scopes" v-model="systemSettings.oidc_scopes" type="text" class="input-modern" placeholder="openid profile email" @blur="handleFieldBlur('oidc_scopes', systemSettings.oidc_scopes)" /></div>
-                                    <div class="setting-group"><label class="field-label" for="oidc_username_claim">用户名 Claim</label><input id="oidc_username_claim" v-model="systemSettings.oidc_username_claim" type="text" class="input-modern" placeholder="preferred_username" @blur="handleFieldBlur('oidc_username_claim', systemSettings.oidc_username_claim)" /></div>
-                                </div>
-                                <div class="setting-group"><label class="field-label" for="oidc_display_name">登录按钮名称</label><input id="oidc_display_name" v-model="systemSettings.oidc_display_name" type="text" class="input-modern" placeholder="OIDC 登录" @blur="handleFieldBlur('oidc_display_name', systemSettings.oidc_display_name)" /></div>
-                            </div>
-                        </div>
-                        <!-- CAS 卡片 -->
-                        <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 p-3.5 dark:border-white/10 dark:bg-slate-950 sm:p-4">
-                            <div class="mb-4 flex flex-col items-start gap-3 border-b border-slate-200/80 pb-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-                                <div><p class="text-sm font-semibold text-slate-900 dark:text-white">CAS 登录</p><p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">CAS 3.0 协议，固定使用 <code>/p3/serviceValidate</code> 校验 XML 响应。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end sm:self-center"><input type="checkbox" v-model="systemSettings.cas_enable" class="sr-only peer" @change="handleSwitchChange('cas_enable', systemSettings.cas_enable)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="setting-group"><label class="field-label" for="cas_server_url">CAS Server URL</label><input id="cas_server_url" v-model="systemSettings.cas_server_url" type="url" class="input-modern" placeholder="https://cas.example.com/cas" @blur="handleFieldBlur('cas_server_url', systemSettings.cas_server_url)" /><div class="field-hint">填写 CAS 服务根地址，无需附加 <code>/login</code> 或 <code>/p3/serviceValidate</code>。</div></div>
-                                <div class="setting-row"><div><p class="setting-row-title">首次登录自动创建用户</p><p class="setting-row-hint">关闭后，尚未绑定本地账户的 CAS 用户无法登录。</p></div><label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.cas_auto_provision" class="sr-only peer" @change="handleSwitchChange('cas_auto_provision', systemSettings.cas_auto_provision)"><div class="switch-track"></div><div class="switch-thumb"></div></label></div>
-                                <div class="setting-group"><label class="field-label" for="cas_super_admin_username">映射超级管理员用户名</label><input id="cas_super_admin_username" v-model="systemSettings.cas_super_admin_username" type="text" maxlength="255" class="input-modern" placeholder="留空表示不映射" @blur="handleFieldBlur('cas_super_admin_username', systemSettings.cas_super_admin_username)" /><div class="field-hint">CAS3 XML 的 &lt;cas:user&gt; 与此值完全一致时登录本地超级管理员账户（区分大小写）。</div></div>
-                                <div class="setting-group"><label class="field-label" for="cas_service_url">Service URL</label><input id="cas_service_url" v-model="systemSettings.cas_service_url" type="url" class="input-modern" placeholder="https://img.example.com/api/auth/cas/callback" @blur="handleFieldBlur('cas_service_url', systemSettings.cas_service_url)" /><div class="field-hint">需在 CAS 服务端允许列表中登记该地址。</div><div class="field-hint rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/5"><span class="font-medium text-slate-600 dark:text-slate-300">当前有效 Service 地址：</span><code class="break-all">{{ systemSettings.cas_service_url_effective || '尚未生成' }}</code></div></div>
-                                <div class="setting-group"><label class="field-label" for="cas_display_name">登录按钮名称</label><input id="cas_display_name" v-model="systemSettings.cas_display_name" type="text" class="input-modern" placeholder="CAS 登录" @blur="handleFieldBlur('cas_display_name', systemSettings.cas_display_name)" /></div>
-                            </div>
-                        </div>
-                    </div>
+                    <SettingsIdentityPanel />
 
                     <!-- 通用开关面板 -->
-                    <div v-show="activeSettingsTab !== 'seo'" class="section-card p-3.5 sm:p-4 md:p-6">
-                        <h2 class="panel-title mb-4 flex items-center text-lg font-semibold sm:text-xl md:mb-5">
-                            <span class="panel-icon mr-2 text-2xl"><i class="ri-settings-2-line"></i></span>
-                            {{ activeSettingsTabLabel }}开关
-                        </h2>
-                        
-                        <div class="account-form space-y-4 md:space-y-5">
-                            <!-- 上传与存储开关 -->
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
-                                <div><p class="setting-row-title">多存储同步</p><p class="setting-row-hint">开启后文件先保存到本机，再由后台同步到用户配置的多个存储源；关闭时保持原有单存储上传方式。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.multi_storage_sync" class="sr-only peer" @change="handleSwitchChange('multi_storage_sync', systemSettings.multi_storage_sync)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
-                                <div><p class="setting-row-title">加密存储</p><p class="setting-row-hint">开启后，新上传的原图和缩略图会以 AES-256-GCM 密文保存到本地及所有远端存储，访问时由程序统一解密后返回明文图片。历史文件保持原格式；请勿更换 CONFIG_SECRET。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.encrypted_storage" class="sr-only peer" @change="handleSwitchChange('encrypted_storage', systemSettings.encrypted_storage)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <!-- 图片处理开关 -->
-                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
-                                <div><p class="setting-row-title">压缩图片</p><p class="setting-row-hint">开启后，上传的图片将自动进行无损或轻度有损压缩。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.compress_image" class="sr-only peer" @change="handleSwitchChange('compress_image', systemSettings.compress_image)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <!-- 安全与登录开关 -->
-                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
-                                <div><p class="setting-row-title">人机验证方式</p><p class="setting-row-hint">登录/注册时要求完成的人机验证。在线POW 使用外部 cha.eta.im 服务；Turnstile 使用 Cloudflare；cap-pow 为本地自托管验证。</p></div>
-                                <select id="verify_method" v-model="systemSettings.verify_method" class="input-modern w-auto self-end md:self-center" @change="handleSelectChange('verify_method', systemSettings.verify_method)">
-                                    <option value="none">无验证</option>
-                                    <option value="pow">在线POW</option>
-                                    <option value="turnstile">Cloudflare Turnstile</option>
-                                    <option value="cappow">cap-pow 本地</option>
-                                </select>
-                            </div>
-
-                            <!-- Turnstile 配置 -->
-                            <div v-if="systemSettings.verify_method === 'turnstile'" v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="cloudflare_api_token">Cloudflare API Token（Turnstile:Read）</label>
-                                <input id="cloudflare_api_token" v-model="systemSettings.cloudflare_api_token" type="password" class="input-modern" :placeholder="systemSettings.cloudflare_api_token_configured ? '已配置，留空表示不修改' : '未配置，请输入 API Token'" autocomplete="new-password" @blur="handleFieldBlur('cloudflare_api_token', systemSettings.cloudflare_api_token)" />
-                                <div class="field-hint">{{ systemSettings.cloudflare_api_token_configured ? '已配置，留空表示不修改' : '保存公钥时校验用。需在 Cloudflare 控制台创建，权限：Account → Turnstile → Read' }}</div>
-                            </div>
-                            <div v-if="systemSettings.verify_method === 'turnstile'" v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="cloudflare_account_id">Cloudflare 账号 ID</label>
-                                <input id="cloudflare_account_id" v-model="systemSettings.cloudflare_account_id" type="text" class="input-modern" placeholder="Cloudflare 仪表盘首页右下角" @blur="handleFieldBlur('cloudflare_account_id', systemSettings.cloudflare_account_id)" />
-                                <div class="field-hint">Cloudflare 控制台首页右下角可查看账号 ID。</div>
-                            </div>
-                            <div v-if="systemSettings.verify_method === 'turnstile'" v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="turnstile_site_key">Turnstile 站点公钥 (Site Key)</label>
-                                <input id="turnstile_site_key" v-model="systemSettings.turnstile_site_key" type="text" class="input-modern" placeholder="0x..." @blur="handleFieldBlur('turnstile_site_key', systemSettings.turnstile_site_key)" />
-                                <div class="field-hint">在 Cloudflare 控制台 → Turnstile 创建站点后获取。保存时通过 Cloudflare API 校验公钥是否真实存在。</div>
-                            </div>
-                            <div v-if="systemSettings.verify_method === 'turnstile'" v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="turnstile_secret_key">Turnstile 密钥 (Secret Key)</label>
-                                <input id="turnstile_secret_key" v-model="systemSettings.turnstile_secret_key" type="password" class="input-modern" :placeholder="systemSettings.turnstile_secret_key_configured ? '已配置，留空表示不修改' : '未配置，请输入 Secret Key'" autocomplete="new-password" @blur="handleFieldBlur('turnstile_secret_key', systemSettings.turnstile_secret_key)" />
-                                <div class="field-hint">{{ systemSettings.turnstile_secret_key_configured ? '已配置，留空表示不修改' : '保存时通过 Cloudflare siteverify 校验密钥有效性' }}</div>
-                            </div>
-
-                            <!-- cap-pow 配置 -->
-                            <div v-if="systemSettings.verify_method === 'cappow'" v-show="activeSettingsTab === 'security'" class="setting-group">
-                                <label class="field-label" for="cappow_difficulty">cap-pow 难度</label>
-                                <input id="cappow_difficulty" v-model="systemSettings.cappow_difficulty" type="number" min="1" max="8" class="input-modern" placeholder="4" @blur="handleFieldBlur('cappow_difficulty', systemSettings.cappow_difficulty)" />
-                                <div class="field-hint">目标哈希前缀长度（1-8），数值越大越难。默认 4，通常 1-3 秒完成。</div>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
-                                <div><p class="setting-row-title">允许游客访问</p><p class="setting-row-hint">关闭后，未登录的游客无法查看图床上的任何图片。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.tourist" class="sr-only peer" @change="handleSwitchChange('tourist', systemSettings.tourist)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
-                                <div><p class="setting-row-title">开放注册</p><p class="setting-row-hint">关闭后，将停止新用户自行注册。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.start_register" class="sr-only peer" @change="handleSwitchChange('start_register', systemSettings.start_register)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <div v-show="activeSettingsTab === 'security'" class="setting-row">
-                                <div><p class="setting-row-title">启用防盗链</p><p class="setting-row-hint">开启后，仅允许白名单内的域名引用图片资源。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.referer_white_enable" class="sr-only peer" @change="handleSwitchChange('referer_white_enable', systemSettings.referer_white_enable)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <!-- 通知开关 -->
-                            <div v-show="activeSettingsTab === 'notifications'" class="setting-row">
-                                <div><p class="setting-row-title">启用 TG 通知</p><p class="setting-row-hint">开启后，上传图片等操作会通过 Telegram Bot 发送通知。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.tg_notice" class="sr-only peer" @change="handleSwitchChange('tg_notice', systemSettings.tg_notice)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-
-                            <!-- API开关 -->
-                            <div v-show="activeSettingsTab === 'api'" class="setting-row">
-                                <div><p class="setting-row-title">启用 API</p><p class="setting-row-hint">开启后，允许通过 API Token 调用上传等接口。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.start_api" class="sr-only peer" @change="handleSwitchChange('start_api', systemSettings.start_api)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-                            <div v-show="activeSettingsTab === 'api'" class="setting-row">
-                                <div><p class="setting-row-title">启用 随机图</p><p class="setting-row-hint">开启后，默认返回系统内全部随机图，可在 “配置随机图” 中设置随机图范围。</p></div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center"><input type="checkbox" v-model="systemSettings.random_graph" class="sr-only peer" @change="handleSwitchChange('random_graph', systemSettings.random_graph)"><div class="switch-track"></div><div class="switch-thumb"></div></label>
-                            </div>
-                            <div v-show="activeSettingsTab === 'storage'" class="setting-row">
-                                <div>
-                                    <p class="setting-row-title">保存源文件名</p>
-                                    <p class="setting-row-hint">启用保存原图功能时将不自动重命名，”上传文件名称”设置也将失效。</p>
-                                </div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
-                                    <input 
-                                        type="checkbox" 
-                                        v-model="systemSettings.save_original_name"
-                                        class="sr-only peer"
-                                        @change="handleSwitchChange('save_original_name', systemSettings.save_original_name)"
-                                    >
-                                    <div class="switch-track"></div>
-                                    <div class="switch-thumb"></div>
-                                </label>
-                            </div>
-                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
-                                <div>
-                                    <p class="setting-row-title">保存 WEBP 格式</p>
-                                </div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
-                                    <input 
-                                        type="checkbox" 
-                                        v-model="systemSettings.save_webp"
-                                        class="sr-only peer"
-                                        @change="handleSwitchChange('save_webp', systemSettings.save_webp)"
-                                    >
-                                    <div class="switch-track"></div>
-                                    <div class="switch-thumb"></div>
-                                </label>
-                            </div>
-                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
-                                <div>
-                                    <p class="setting-row-title">生成缩略图</p>
-                                    <p class="setting-row-hint">生成缩略图，可提升后台预览速度，上传速度稍慢。</p>
-                                </div>
-                                <label class="relative inline-flex cursor-pointer items-center self-end md:self-center">
-                                    <input 
-                                        type="checkbox" 
-                                        v-model="systemSettings.thumbnail"
-                                        class="sr-only peer"
-                                        @change="handleSwitchChange('thumbnail', systemSettings.thumbnail)"
-                                    >
-                                    <div class="switch-track"></div>
-                                    <div class="switch-thumb"></div>
-                                </label>
-                            </div>
-                            <div v-show="activeSettingsTab === 'image'" class="setting-row">
-                                <div>
-                                    <p class="setting-row-title">开启图片水印</p>
-                                    <p class="setting-row-hint">
-                                        {{ hasPublicImageDomain ? '已配置图片直链域名，图片水印不会生效。' : '新上传的图片自动添加水印，历史图片不会补加。' }}
-                                    </p>
-                                </div>
-                                <label
-                                    class="relative inline-flex items-center self-end md:self-center"
-                                    :class="hasPublicImageDomain ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
-                                >
-                                    <input 
-                                        type="checkbox" 
-                                        v-model="systemSettings.watermark_enable"
-                                        class="sr-only peer"
-                                        :disabled="hasPublicImageDomain"
-                                        @change="handleSwitchChange('watermark_enable', systemSettings.watermark_enable)"
-                                    >
-                                    <div class="switch-track"></div>
-                                    <div class="switch-thumb"></div>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
+                    <SettingsSwitchPanel />
                 </div>
             </div>
         </div>
@@ -426,41 +70,44 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, provide } from 'vue'
+import { settingsContext, settingsAccess, visibleSettingsTabs } from '@/utils/settingsAccess.js'
+import { createRandomGraphSettings } from '@/utils/randomGraphSettings.js'
+import { readApiResponse } from '@/utils/apiFeedback.js'
+import Message from '@/utils/message.js'
+import { createDialogScope } from '@/utils/dialogScope.js'
+const { Dialog: PopupModal, dispose: disposeDialogs } = createDialogScope()
+import SettingsFieldsPanel from '@/components/settings/SettingsFieldsPanel.vue'
+import SettingsSeoPanel from '@/components/settings/SettingsSeoPanel.vue'
+import SettingsIdentityPanel from '@/components/settings/SettingsIdentityPanel.vue'
+import SettingsSwitchPanel from '@/components/settings/SettingsSwitchPanel.vue'
 
-const allSettingsTabs = [
-    { key: 'storage', label: '上传与存储', icon: 'ri-upload-cloud-2-line', perm: 'setting:upload' },
-    { key: 'image', label: '图片处理', icon: 'ri-image-line', perm: 'setting:image' },
-    { key: 'security', label: '安全与登录', icon: 'ri-shield-keyhole-line', perm: 'setting:security' },
-    { key: 'notifications', label: '通知', icon: 'ri-notification-3-line', perm: 'setting:notification' },
-    { key: 'api', label: 'API', icon: 'ri-code-s-slash-line', perm: 'setting:api' },
-    { key: 'seo', label: '站点SEO', icon: 'ri-seo-line', perm: 'setting:seo' },
-]
+
 const initialSettings = ref({})
 const activeSettingsTab = ref('storage')
 const systemSettings = ref({})
 const presetBuckets = ref([])
 const mySettingPerms = ref([])
+const settingsNotice = ref('正在加载设置…')
+// Permission authority is the Cookie-authenticated backend, never a stale localStorage snapshot.
+const settingsState = ref('loading')
+const canReadSettings = computed(() => !['denied', 'unauthenticated'].includes(settingsState.value))
+const generatedApiToken = ref('')
+const tokenGenerating = ref(false)
 
-const settingsTabs = computed(() => {
-    if (mySettingPerms.value.length === 0) return []
-    if (mySettingPerms.value.length === allSettingsTabs.length) return allSettingsTabs
-    return allSettingsTabs.filter(tab => mySettingPerms.value.includes(tab.perm))
-})
+const settingsTabs = computed(() => visibleSettingsTabs(mySettingPerms.value));
 
 const activeSettingsTabLabel = computed(() => {
     return settingsTabs.value.find(t => t.key === activeSettingsTab.value)?.label || ''
 })
 
-const publicDomainStorageTypes = ['s3', 'r2']
+const publicDomainStorageTypes = ['s3']
 
 const currentDefaultBucket = computed(() => {
     return presetBuckets.value.find(bucket => String(bucket.id) === String(systemSettings.value?.default_storage))
 })
 
 const supportsPublicImageDomain = computed(() => {
-    console.log(currentDefaultBucket.value?.type);
-    
     return publicDomainStorageTypes.includes(currentDefaultBucket.value?.type)
 })
 
@@ -476,15 +123,20 @@ const publicImageDomainHint = computed(() => {
         return '加密存储已开启，图片必须通过程序解密后访问，不能使用存储服务直链域名。'
     }
     if (!supportsPublicImageDomain.value) {
-        return '当前默认存储不支持图片直链域名，仅 S3/R2 存储可用。'
+        return '此项仅用于 S3；Cloudflare R2 请在对应存储源中填写自定义 CDN / 访问域名。'
     }
     if (hasPublicImageDomain.value) {
         return '启用后图片链接将直接使用该域名，图片水印文本、来源白名单等依赖系统代理的功能不会生效。'
     }
-    return '填写 S3/R2 绑定的直链域名后，返回给用户的图片链接会直接使用该域名。'
+    return '填写 S3 绑定的直链域名后，返回给用户的图片链接会直接使用该域名。'
 })
 
+let settingsRequestActive = false
 const fetchSystemSettings = async () => {
+    if (settingsRequestActive) return
+    settingsRequestActive = true
+    settingsState.value = 'loading'
+    settingsNotice.value = '正在加载设置…'
     try {
         const response = await fetch('/api/settings/get', {
             method: 'POST',
@@ -492,22 +144,31 @@ const fetchSystemSettings = async () => {
             body: JSON.stringify({}) 
         })
         const res = await response.json()
-        
+        const access = settingsAccess(response.status, res)
+        settingsState.value = access.state
+        settingsNotice.value = access.notice
         if (response.ok && res.code === 200) {
             mySettingPerms.value = res.setting_permissions || []
-            systemSettings.value = res.data || {}
+            settingsNotice.value = access.notice
+            systemSettings.value = { ...(res.data || {}), api_token: '' }
             initialSettings.value = JSON.parse(JSON.stringify(res.data || {}))
             if (settingsTabs.value.length > 0 && !settingsTabs.value.find(t => t.key === activeSettingsTab.value)) {
                 activeSettingsTab.value = settingsTabs.value[0].key
             }
         } else {
+            mySettingPerms.value = []
+            settingsNotice.value = access.notice
             console.error('获取设置失败:', res.message)
             Message.error(res.message || '获取设置失败')
         }
     } catch (err) {
+        mySettingPerms.value = []
+        systemSettings.value = {}
+        settingsState.value = 'error'
+        settingsNotice.value = '网络请求失败，请重新加载设置'
         console.error('请求错误:', err)
-        Message.error('请求失败')
-    }
+        Message.error('网络请求失败，请重新加载设置')
+    } finally { settingsRequestActive = false }
 }
 
 const handleFieldBlur = async (key, value) => {
@@ -548,209 +209,45 @@ const handleSettingsTabKeydown = (event, index) => {
 
 // 生成 API Token
 const generateApiToken = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    let result = ''
-    for (let i = 0; i < 32; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    systemSettings.value.api_token = result
-    handleFieldBlur('api_token', result)
-}
-
-// 配置随机图
-const generateRandomGraph = async () => {
-    // 获取随机图配置
-    try {
-        const randomGraph = await getRandomGraph();
-        // 打开配置弹窗
-        RandomGraphModal(randomGraph);
-    } catch (err) {
-        Message.error(err.message || '获取随机图配置失败')
-    }
-}
-
-const RandomGraphModal = (randomGraph) => {
-    const random_graph = randomGraph.random_graph || []
-    const user_ids = randomGraph.user_ids || []
-    const tag_ids = randomGraph.tag_ids || []
-    
-    // 添加默认标签选项
-    tag_ids.unshift({
-        id: 0,
-        name: '默认标签',
-    })
-
-    // 选中标签
-    const selectedTags = random_graph.tag_ids || []
-    // 选中用户
-    const selectedUsers = random_graph.user_ids || []
-
-    // 渲染标签
-    const renderTags = tag_ids.map(tag => `
-        <div class="mb-4 last:mb-0">
-            <div data-id="${tag.id}" data-type="tag" class="card-item flex items-center gap-1.5 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-all duration-200 select-none ${selectedTags.includes(tag.id) ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">
-                <i class="${selectedTags.includes(tag.id) ? 'ri-checkbox-circle-fill text-emerald-500' : 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600'} text-sm icon-node"></i>
-                <span class="text-xs">${tag.name}</span>
-            </div>
-        </div>
-    `).join('')
-    
-    // 渲染用户
-    const renderUsers = user_ids.map(user => `
-        <div class="mb-4 last:mb-0">
-            <div data-id="${user.id}" data-type="user" class="card-item flex items-center gap-1.5 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-all duration-200 select-none ${selectedUsers.includes(user.id) ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">
-                <i class="${selectedUsers.includes(user.id) ? 'ri-checkbox-circle-fill text-emerald-500' : 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600'} text-sm icon-node"></i>
-                <span class="text-xs">${user.username}</span>
-            </div>
-        </div>
-    `).join('')
-
-    const modalContent = `
-        <div id="rg-modal-wrap" class="py-1 space-y-6 custom-scrollbar pr-2">
-            <p class="text-sm text-slate-600 dark:text-slate-300">
-                选择允许访问随机图的用户与标签范围，未选择时默认不限制。
-            </p>
-            <div>
-                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-                    <i class="ri-price-tag-3-line text-blue-500"></i> 随机图允许访问的标签范围
-                </h4>
-                <div id="tagCardWrap" class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-white/5">
-                    ${renderTags}
-                </div>
-            </div>
-            <div>
-                <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-                    <i class="ri-user-settings-line text-blue-500"></i> 随机图允许访问的用户范围
-                </h4>
-                <div id="userCardWrap" class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-white/5">
-                    ${renderUsers}
-                </div>
-            </div>
-        </div>
-    `;
-
     const modal = new PopupModal({
-        title: '配置随机图',
-        width: '680px',
-        content: modalContent,
+        title: '重新生成 API 凭据',
+        content: '<p>此前 API 凭据将被撤销，新凭据仅显示一次。确定继续吗？</p>',
         buttons: [
-            {
-                text: '取消',
-                type: 'default',
-                callback: () => modal.close()
-            },
-            {
-                text: '确认保存',
-                type: 'primary',
-                callback: async () => {
-                    try {
-                        const res = await fetch(`/api/settings/randomGraph`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                id: random_graph.id ? 1 : 0,
-                                user_ids: selectedUsers,
-                                tag_ids: selectedTags,
-                            })
-                        })
-                        const data = await res.json()
-                        if (data.code === 200) {
-                            modal.close()
-                            Message.success('随机图配置更新成功')
-                        } else {
-                            Message.error(data.message || '随机图配置更新失败')
-                        }
-                    } catch (err) {
-                        Message.error('网络请求异常')
-                    }
-                }
-            }
-        ]
+            { text: '取消', callback: modal => modal.close() },
+            { text: '重新生成', type: 'primary', callback: async modal => {
+                if (tokenGenerating.value) return
+                tokenGenerating.value = true
+                try {
+                    const response = await fetch('/api/settings/regenerate', { method: 'POST' })
+                    const result = await response.json()
+                    if (!response.ok || result.code !== 200 || !result.data?.api_token) throw new Error(result.message || '生成失败')
+                    generatedApiToken.value = result.data.api_token
+                    systemSettings.value.api_credentials = [{ scopes: result.data.scopes, expires_at: result.data.expires_at, last_used_at: null }]
+                    systemSettings.value.api_token_configured = true
+                    Message.success(result.message || '新凭据仅显示一次，请立即保存')
+                    modal.close()
+                } catch (error) { Message.error(error.message || '生成失败') }
+                finally { tokenGenerating.value = false }
+            } },
+        ],
     })
     modal.open()
-
-    setTimeout(() => {
-        const wrap = document.getElementById('rg-modal-wrap');
-        if (!wrap) return;
-
-        wrap.addEventListener('click', (e) => {
-            const card = e.target.closest('.card-item');
-            if (!card) return;
-
-            const id = Number(card.dataset.id);
-            const type = card.dataset.type;
-            
-            const arr = type === 'tag' ? selectedTags : selectedUsers;
-            const idx = arr.indexOf(id);
-            const isSelected = idx > -1;
-
-            if (isSelected) {
-                arr.splice(idx, 1);
-            } else {
-                arr.push(id);
-            }
-
-            toggleCardUI(card, isSelected);
-        });
-    }, 80);
-
-    function toggleCardUI(card, isSelected) {
-        const icon = card.querySelector('.icon-node');
-        
-        const activeClasses = [
-            'border-emerald-500/50', 'bg-emerald-50', 'dark:bg-emerald-900/20', 
-            'text-emerald-700', 'dark:text-emerald-400'
-        ];
-        const inactiveClasses = [
-            'border-slate-200', 'dark:border-slate-700', 'bg-white', 
-            'dark:bg-slate-800', 'text-slate-600', 'dark:text-slate-300'
-        ];
-
-        if (isSelected) {
-            card.classList.remove(...activeClasses);
-            card.classList.add(...inactiveClasses);
-            icon.className = 'ri-checkbox-blank-circle-line text-slate-300 dark:text-slate-600 text-sm icon-node';
-        } else {
-            card.classList.remove(...inactiveClasses);
-            card.classList.add(...activeClasses);
-            icon.className = 'ri-checkbox-circle-fill text-emerald-500 text-sm icon-node';
-        }
-    }
 }
 
-const getRandomGraph = async () => {
-    try {
-        const response = await fetch('/api/settings/randomGraph', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        const res = await response.json()
-        if (response.ok && res.code === 200) {
-            return res.data || {
-                random_graph: [],
-                user_ids: [],
-                tag_ids: [],
-            }
-        } else {
-            throw new Error(res.message || '获取随机图配置失败')
-        }
-    } catch (err) {
-        throw err
-    }
-}
+const generateRandomGraph = createRandomGraphSettings();
+
+onBeforeUnmount(() => { disposeDialogs(); generateRandomGraph.dispose() })
 
 // 6. 初始化
-onMounted(() => {
-    fetchSystemSettings()
-    fetch('/api/buckets/list')
-        .then(res => res.json())
-        .then(res => {
-            if(res.code === 200) {
-                presetBuckets.value = res.data
-            }
-        })
+provide(settingsContext, { systemSettings, activeSettingsTab, activeSettingsTabLabel, presetBuckets, supportsPublicImageDomain, hasPublicImageDomain, publicImageDomainInputDisabled, publicImageDomainHint, handleFieldBlur, handleSelectChange, handleSwitchChange, generatedApiToken, tokenGenerating, generateApiToken, generateRandomGraph })
+onMounted(async () => {
+    await fetchSystemSettings()
+    if (!canReadSettings.value || settingsState.value === 'error') return
+    try {
+        const response = await fetch('/api/buckets/list', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        const result = await readApiResponse(response, '获取存储列表失败')
+        presetBuckets.value = Array.isArray(result.data) ? result.data : []
+    } catch (error) { console.error(error) }
 })
 </script>
 

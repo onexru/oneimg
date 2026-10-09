@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	"math/rand"
 	"net/http"
+	"oneimg/backend/utils/authsecurity"
 	"strconv"
 	"strings"
 	"time"
@@ -11,14 +11,17 @@ import (
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/storagepolicy"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GetUsers 分页查询用户列表（管理员）。
 func GetUsers(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	db := database.GetDB().DB
 
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -45,19 +48,39 @@ func GetUsers(c *gin.Context) {
 	}
 
 	if err := query.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "查询总数失败："+err.Error()))
+		internalFailure(c, "查询总数失败", err)
 		return
 	}
 
 	offset := (page - 1) * limit
 	if err := query.Order("id DESC").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "查询用户列表失败："+err.Error()))
+		internalFailure(c, "查询用户列表失败", err)
 		return
 	}
 
+	setting, err := settings.GetSettings()
+	if err != nil {
+		internalFailure(c, "读取用户权限摘要失败", err)
+		return
+	}
+	var buckets []models.Buckets
+	if err := db.Select("id", "type", "disabled", "capacity", "usage").Find(&buckets).Error; err != nil {
+		internalFailure(c, "读取存储可用状态失败", err)
+		return
+	}
+	policy, err := storagepolicy.Load(db)
+	if err != nil {
+		internalFailure(c, "读取角色存储策略失败", err)
+		return
+	}
+	list := make([]UserWithAccessSummary, 0, len(users))
+	for _, user := range users {
+		list = append(list, UserWithAccessSummary{User: user, AccessSummary: summarizeUserAccess(user, setting, buckets, policy)})
+	}
 	c.JSON(http.StatusOK, result.Success("查询成功", map[string]any{
-		"total": total,
-		"list":  users,
+		"total":              total,
+		"list":               list,
+		"multi_storage_sync": setting.MultiStorageSync,
 	}))
 }
 
@@ -65,7 +88,7 @@ func GetUsers(c *gin.Context) {
 func CreateUser(c *gin.Context) {
 	type CreateUserReq struct {
 		Username string `json:"username" binding:"required,min=3,max=50"`
-		Password string `json:"password" binding:"required,min=6,max=100"`
+		Password string `json:"password" binding:"required,min=8,max=72"`
 		Role     int    `json:"role" binding:"required,oneof=1 3"`
 	}
 	var req CreateUserReq
@@ -74,6 +97,10 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
+	if req.Username != strings.TrimSpace(req.Username) || isTouristUsername(req.Username) || len(req.Password) > 72 {
+		c.JSON(400, result.Error(400, "用户名为保留名称或密码长度无效"))
+		return
+	}
 	db := database.GetDB().DB
 
 	if db.Where("username = ?", req.Username).First(&models.User{}).Error == nil {
@@ -154,9 +181,18 @@ func DeleteUser(c *gin.Context) {
 		}).Error; err != nil {
 			return err
 		}
+		if err := authsecurity.RevokeUserSessions(tx, user.ID); err != nil {
+			return err
+		}
+		if err := tx.Model(&models.APICredential{}).Where("owner_id = ?", user.ID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", user.ID).Delete(&models.AuthLoginEvent{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&user).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "删除用户失败："+err.Error()))
+		internalFailure(c, "删除用户失败", err)
 		return
 	}
 
@@ -194,8 +230,13 @@ func UpdateUserRole(c *gin.Context) {
 		return
 	}
 
-	if err := db.Model(&user).Update("role", req.Role).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "更新角色失败："+err.Error()))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Update("role", req.Role).Error; err != nil {
+			return err
+		}
+		return authsecurity.RevokeUserSessions(tx, user.ID)
+	}); err != nil {
+		internalFailure(c, "更新角色失败", err)
 		return
 	}
 
@@ -231,15 +272,27 @@ func ResetPassword(c *gin.Context) {
 	}
 
 	// 生成12位友好随机密码
-	newPassword := generateRandomSecret(12)
+	newPassword, err := authsecurity.RandomSecret(18)
+	if err != nil {
+		c.JSON(500, result.Error(500, "随机密码生成失败"))
+		return
+	}
 	hashedPwd, err := hashPassword(newPassword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "密码加密失败"))
 		return
 	}
 
-	if err := db.Model(&user).Update("password", hashedPwd).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "重置密码失败："+err.Error()))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Update("password", hashedPwd).Error; err != nil {
+			return err
+		}
+		if err := authsecurity.RevokeUserSessions(tx, user.ID); err != nil {
+			return err
+		}
+		return tx.Model(&models.APICredential{}).Where("owner_id = ?", user.ID).Update("revoked", true).Error
+	}); err != nil {
+		internalFailure(c, "重置密码失败", err)
 		return
 	}
 
@@ -324,29 +377,39 @@ func UpdateUserPermission(c *gin.Context) {
 				return
 			}
 		}
-	} else {
-		uniquePermissions = user.Permission.Buckets
 	}
 
 	var validCodes []string
 	if req.Codes != nil {
 		validCodes = models.FilterValidPermissionCodes(req.Codes)
-	} else {
-		validCodes = user.Permission.Codes
 	}
 
-	if validCodes == nil {
-		validCodes = []string{}
-	}
-	if uniquePermissions == nil {
-		uniquePermissions = []int{}
-	}
-
-	if err := db.Model(&user).Update("permission", models.Permission{
-		Codes:   validCodes,
-		Buckets: uniquePermissions,
-	}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Fail(500, "更新权限失败："+err.Error()))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		// Reload under the row lock, then merge only supplied fields. Independent
+		// storage/ordinary-permission editors must preserve concurrent edits.
+		var current models.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, id).Error; err != nil {
+			return err
+		}
+		permission := current.Permission
+		if req.Permission != nil {
+			permission.Buckets = uniquePermissions
+		}
+		if req.Codes != nil {
+			permission.Codes = validCodes
+		}
+		if permission.Codes == nil {
+			permission.Codes = []string{}
+		}
+		if permission.Buckets == nil {
+			permission.Buckets = []int{}
+		}
+		if err := tx.Model(&current).Update("permission", permission).Error; err != nil {
+			return err
+		}
+		return authsecurity.RevokeUserSessions(tx, current.ID)
+	}); err != nil {
+		internalFailure(c, "更新权限失败", err)
 		return
 	}
 
@@ -361,14 +424,4 @@ func UpdateUserPermission(c *gin.Context) {
 func hashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(hash), err
-}
-
-// generateRandomSecret 生成指定长度的字母数字随机串。
-func generateRandomSecret(length int) string {
-	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
-	}
-	return string(b)
 }

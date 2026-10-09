@@ -1,213 +1,106 @@
 package middlewares
 
 import (
-	"net/http"
-	"strings"
-
-	"oneimg/backend/database"
-	"oneimg/backend/models"
-	"oneimg/backend/utils/secureconfig"
-	"oneimg/backend/utils/settings"
-
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-gonic/gin"
+ "net/http"
+ "strings"
+ "time"
+ "oneimg/backend/database"
+ "oneimg/backend/models"
+ "oneimg/backend/utils/authsecurity"
+ "oneimg/backend/utils/settings"
+ "github.com/gin-contrib/sessions"
+ "github.com/gin-gonic/gin"
+ "gorm.io/gorm"
 )
 
-// AuthResponse 认证失败时的统一响应体。
-type AuthResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+type AuthResponse struct { Code int `json:"code"`; Message string `json:"message"` }
+func rejectAuth(c *gin.Context,status int,message string) { c.AbortWithStatusJSON(status,AuthResponse{Code:status,Message:message}) }
+func setCurrentUser(c *gin.Context,u *models.User) {
+ c.Set("user_id",u.ID); c.Set("user_role",u.Role); c.Set("username",u.Username); c.Set("current_user",u)
 }
 
-// AuthMiddleware 校验 Session 或 API Token，并将当前用户写入上下文。
-// 上下文键：user_id、user_role、username、current_user。
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		setting, _ := settings.GetSettings()
-		apiToken := ""
-
-		if setting.StartAPI {
-			authHeader := c.Request.Header.Get("Authorization")
-			parts := strings.SplitN(authHeader, "=", 2)
-			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "oneimg_token" {
-				apiToken = strings.TrimSpace(parts[1])
-			}
-
-			if validateToken(setting, apiToken) {
-				// API Token 视为超级管理员（通配权限）
-				apiAdminUser := &models.User{
-					ID:       models.SuperAdminID,
-					Role:     models.RoleAdmin,
-					Username: "api_admin",
-					Permission: models.Permission{
-						Codes:   []string{"*"},
-						Buckets: []int{},
-					},
-				}
-				c.Set("user_id", models.SuperAdminID)
-				c.Set("user_role", models.RoleAdmin)
-				c.Set("username", "api_admin")
-				c.Set("current_user", apiAdminUser)
-				c.Next()
-				return
-			}
-		}
-
-		session := sessions.Default(c)
-		loggedIn := session.Get("logged_in")
-		if (loggedIn == nil || loggedIn != true) && apiToken == "" {
-			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户未登录"})
-			c.Abort()
-			return
-		}
-
-		userID := session.Get("user_id")
-		userRole := session.Get("user_role")
-		username := session.Get("username")
-		if userID == nil || username == nil {
-			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
-			c.Abort()
-			return
-		}
-
-		userIDValue, userIDOK := userID.(int)
-		userRoleValue, userRoleOK := userRole.(int)
-		usernameValue, usernameOK := username.(string)
-		if !userIDOK || !userRoleOK || !usernameOK {
-			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "会话信息无效"})
-			c.Abort()
-			return
-		}
-
-		var currentUser models.User
-		// 游客为虚拟账号；正式用户每次从库加载，使删除/改角色即时生效。
-		if userRoleValue != models.RoleGuest {
-			db := database.GetDB().DB
-			if db == nil || db.Select("id", "role", "username", "permission").First(&currentUser, userIDValue).Error != nil {
-				session.Clear()
-				_ = session.Save()
-				c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户不存在或已被禁用"})
-				c.Abort()
-				return
-			}
-			userRoleValue = currentUser.Role
-			usernameValue = currentUser.Username
-			session.Set("user_role", userRoleValue)
-			session.Set("username", usernameValue)
-		} else {
-			currentUser = models.User{
-				ID:       userIDValue,
-				Role:     models.RoleGuest,
-				Username: usernameValue,
-			}
-		}
-
-		session.Set("logged_in", true)
-		c.Set("user_id", userIDValue)
-		c.Set("user_role", userRoleValue)
-		c.Set("username", usernameValue)
-		c.Set("current_user", &currentUser)
-		c.Next()
-	}
+// Explicit Authorization is authoritative, including when API access is off.
+// An invalid credential MUST NOT silently fall back to an authenticated cookie.
+func AuthMiddleware() gin.HandlerFunc { return authenticate(false) }
+func OptionalAuthMiddleware() gin.HandlerFunc { return authenticate(true) }
+func authenticate(optional bool) gin.HandlerFunc {
+ return authenticateDB(optional,func() *gorm.DB { db:=database.GetDB(); if db==nil{return nil};return db.DB },settings.GetSettings)
 }
-
-// validateToken 校验 API Token（优先哈希比对，兼容明文遗留字段）。
-func validateToken(setting models.Settings, token string) bool {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return false
-	}
-	if secureconfig.CompareSecretHash(setting.APITokenHash, token) {
-		return true
-	}
-	return setting.APIToken != "" && secureconfig.ConstantTimeEqual(setting.APIToken, token)
+// Dependencies are injectable for isolated SQLite/httptest regressions without
+// mutating the production database singleton or global settings cache.
+func authenticateDB(optional bool, getDB func() *gorm.DB, getSettings func()(models.Settings,error)) gin.HandlerFunc {
+ return func(c *gin.Context) {
+  db:=getDB()
+  if db==nil { rejectAuth(c,503,"认证服务暂不可用"); return }
+  if headers,present:=c.Request.Header["Authorization"]; present {
+   if len(headers)!=1 { rejectAuth(c,401,"API 凭据无效"); return }
+   raw,ok:=parseAPIToken(headers[0]); if !ok { rejectAuth(c,401,"API 凭据无效"); return }
+   setting,err:=getSettings(); if err!=nil { rejectAuth(c,503,"认证配置暂不可用"); return }
+   token,err:=authsecurity.ValidateAPICredential(db,setting,raw)
+   if err!=nil { rejectAuth(c,401,"API 凭据无效、已过期或 API 未开启"); return }
+   scope:=tokenRouteScope(c.Request.Method,c.Request.URL.Path)
+   if scope=="" || !authsecurity.HasScope(token,scope) { rejectAuth(c,403,"API 凭据无此操作权限"); return }
+   var user models.User
+   if db.First(&user,token.OwnerID).Error!=nil { rejectAuth(c,401,"API 凭据所属用户不存在"); return }
+   // Controllers still enforce image ownership/bucket permissions. Tokens never
+   // gain the superadmin permission bypass or settings/user/storage endpoints.
+   user.Password=""; user.Role=models.RoleUser; user.Permission.Codes=[]string{"image:read","upload:write"}
+   setCurrentUser(c,&user); c.Set("auth_method","api_token"); c.Set("api_credential",token)
+   c.Next(); return
+  }
+  session:=sessions.Default(c)
+  if session.Get("logged_in")!=true {
+   if optional { c.Next(); return }; rejectAuth(c,401,"用户未登录或会话已过期"); return
+  }
+  id,ok:=session.Get("user_id").(int); if !ok || id==0 { rejectAuth(c,401,"会话信息无效"); return }
+  var user models.User
+  if id<0 {
+   setting,err:=getSettings(); if err!=nil { rejectAuth(c,503,"认证配置暂不可用"); return }
+   if !setting.Tourist { rejectAuth(c,401,"游客访问未开启"); return }
+   credential,_:=c.Cookie(authsecurity.GuestCookie)
+   var guest models.GuestIdentity
+   if len(credential)!=43 || db.Where("id = ? AND credential_hash = ? AND expires_at > ?",-id,authsecurity.Digest(credential),time.Now()).First(&guest).Error!=nil {
+    rejectAuth(c,401,"游客恢复凭据已失效，请重新进入游客模式"); return
+   }
+   user=models.User{ID:-guest.ID,Role:models.RoleGuest,Username:guest.OwnerKey}
+   c.Set("guest_identity_verified",true)
+   // OwnerKey is public. The durable HttpOnly bearer never enters context/JSON.
+   c.Set("guest_owner_key",guest.OwnerKey)
+  } else {
+   if err:=db.First(&user,id).Error; err!=nil { rejectAuth(c,401,"用户不存在或已被禁用"); return }
+   version,ok:=session.Get("auth_version").(uint64)
+   if !ok || version!=user.AuthVersion { rejectAuth(c,401,"会话已撤销，请重新登录"); return }
+  }
+  user.Password=""; setCurrentUser(c,&user); c.Set("auth_method","session"); c.Next()
+ }
 }
-
-// RequirePermission 要求当前用户具备指定权限码；超级管理员与 "*" 直接放行。
-func RequirePermission(requiredCode string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userInterface, exists := c.Get("current_user")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, AuthResponse{Code: 401, Message: "用户信息获取失败"})
-			c.Abort()
-			return
-		}
-
-		user, ok := userInterface.(*models.User)
-		if !ok {
-			c.JSON(http.StatusInternalServerError, AuthResponse{Code: 500, Message: "上下文类型错误"})
-			c.Abort()
-			return
-		}
-		if user.ID == models.SuperAdminID {
-			c.Next()
-			return
-		}
-		for _, code := range user.Permission.Codes {
-			if code == "*" {
-				c.Next()
-				return
-			}
-		}
-
-		if user.Role == models.RoleUser {
-			c.JSON(http.StatusForbidden, AuthResponse{
-				Code:    403,
-				Message: "无权访问",
-			})
-			c.Abort()
-			return
-		}
-
-		if !user.Permission.HasPermission(requiredCode) {
-			permName := models.GetPermissionName(requiredCode)
-			c.JSON(http.StatusForbidden, AuthResponse{
-				Code:    403,
-				Message: "无操作权限，需要权限: [" + permName + "]",
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
+func parseAPIToken(header string) (string,bool) {
+ // Preserve legacy header syntax and support standard Bearer without accepting
+ // duplicate/comma-combined headers or empty/oversized credentials.
+ var raw string
+ if strings.HasPrefix(header,"oneimg_token=") { raw=strings.TrimPrefix(header,"oneimg_token=")
+ } else if strings.HasPrefix(header,"Bearer ") { raw=strings.TrimPrefix(header,"Bearer ") } else { return "",false }
+ if raw=="" || len(raw)>256 || strings.ContainsAny(raw," ,\t\r\n") { return "",false }; return raw,true
 }
-
-// AdminOnlyMiddleware 仅允许管理员角色访问。
+func tokenRouteScope(method,path string) string {
+ if method==http.MethodGet {
+  switch path { case "/api/user/status","/api/uploadConfig","/api/buckets/list","/api/tags","/api/images":return "image:read" }
+  if strings.HasPrefix(path,"/api/images/") && !strings.Contains(strings.TrimPrefix(path,"/api/images/"),"/") { return "image:read" }
+ }
+ if method==http.MethodPost { switch path { case "/api/upload","/api/upload/images","/api/images/upload","/api/images/url":return "upload:write" } }
+ return ""
+}
+func RequirePermission(required string) gin.HandlerFunc {
+ return func(c *gin.Context) {
+  u,ok:=GetCurrentUser(c); if !ok { rejectAuth(c,401,"用户信息获取失败"); return }
+  if c.GetString("auth_method")=="api_token" {
+   if !u.Permission.HasPermission(required) { rejectAuth(c,403,"API 凭据无此操作权限"); return }
+  } else if u.ID==models.SuperAdminID || u.Permission.HasPermission("*") { c.Next(); return
+  } else if !u.Permission.HasPermission(required) { rejectAuth(c,403,"无操作权限，需要权限: ["+models.GetPermissionName(required)+"]"); return }
+  c.Next()
+ }
+}
 func AdminOnlyMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if c.GetInt("user_role") != models.RoleAdmin {
-			c.JSON(http.StatusForbidden, AuthResponse{Code: 403, Message: "无权访问"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
+ return func(c *gin.Context) { if c.GetString("auth_method")=="api_token" || c.GetInt("user_role")!=models.RoleAdmin { rejectAuth(c,403,"无权访问"); return }; c.Next() }
 }
-
-// OptionalAuthMiddleware 可选登录：已登录则注入 user_id/username，未登录不拦截。
-func OptionalAuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		session := sessions.Default(c)
-		loggedIn := session.Get("logged_in")
-		if loggedIn != nil && loggedIn == true {
-			userID := session.Get("user_id")
-			username := session.Get("username")
-			if userID != nil && username != nil {
-				c.Set("user_id", userID)
-				c.Set("username", username)
-			}
-		}
-		c.Next()
-	}
-}
-
-// GetCurrentUser 从上下文读取当前用户对象。
-func GetCurrentUser(c *gin.Context) (*models.User, bool) {
-	userInterface, exists := c.Get("current_user")
-	if !exists {
-		return nil, false
-	}
-	user, ok := userInterface.(*models.User)
-	return user, ok
-}
+func GetCurrentUser(c *gin.Context) (*models.User,bool) { v,ok:=c.Get("current_user"); if !ok { return nil,false }; u,ok:=v.(*models.User); return u,ok && u!=nil }

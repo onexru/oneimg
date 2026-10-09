@@ -93,3 +93,18 @@ func NewS3Client(setting models.Settings, buckets models.Buckets) (*minio.Client
 
 	return client, nil
 }
+
+// IsR2Endpoint recognizes Cloudflare's S3 API, including jurisdiction-specific
+// endpoints. Custom/public domains are deliberately not treated as signing APIs.
+func IsR2Endpoint(endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return strings.HasSuffix(host, ".r2.cloudflarestorage.com") && host != "r2.cloudflarestorage.com"
+}

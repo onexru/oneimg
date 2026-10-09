@@ -21,6 +21,7 @@
   }
 
   body {
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     @apply min-h-screen bg-slate-100 text-slate-900 antialiased transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100;
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 116, 139, 0.7) transparent;
@@ -431,11 +432,15 @@
   }
 
   .gallery-image-card-head {
-    @apply flex items-start justify-between gap-2 border-b border-slate-200/70 px-2.5 py-2 dark:border-white/10;
+    @apply flex items-center justify-between gap-2 border-b border-slate-200/70 px-2.5 py-2 dark:border-white/10;
   }
 
   .gallery-card-badges {
-    @apply flex min-w-0 flex-1 flex-wrap gap-1.5;
+    @apply flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden;
+  }
+
+  .gallery-card-badges .image-role {
+    @apply shrink-0;
   }
 
   .gallery-card-badge {

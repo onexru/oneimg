@@ -3,6 +3,7 @@ package publicurl
 import (
 	"fmt"
 	"net/url"
+	pathpkg "path"
 	"strings"
 
 	"oneimg/backend/models"
@@ -28,8 +29,8 @@ func NormalizeDomain(value string) (string, error) {
 	if parsed.Host == "" {
 		return "", fmt.Errorf("图片直链域名缺少域名")
 	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("图片直链域名不能包含查询参数或锚点")
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("图片直链域名不能包含用户信息、查询参数或锚点")
 	}
 
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
@@ -65,14 +66,25 @@ func Build(setting models.Settings, imagePath string) string {
 }
 
 func BuildForStorage(setting models.Settings, storage string, bucketID int, imagePath string) string {
-	if !SupportsStorage(storage) || bucketID != setting.DefaultStorage {
-		return imagePath
+	path := strings.TrimSpace(imagePath)
+	if path == "" {
+		return ""
 	}
-	return Build(setting, imagePath)
+	// Historical active documents must retain OneImg's sandbox response policy.
+	ext := strings.ToLower(pathpkg.Ext(strings.SplitN(path, "?", 2)[0]))
+	if ext == ".svg" || ext == ".svgz" {
+		return path
+	}
+	if !SupportsStorage(storage) || bucketID != setting.DefaultStorage {
+		return path
+	}
+	return Build(setting, path)
 }
 
 func SupportsStorage(storage string) bool {
-	return storage == "r2" || storage == "s3"
+	// R2 resolves the selected replica and per-bucket CDN at its stable URL.
+	// A global domain must not bypass private signatures or point at another bucket.
+	return storage == "s3"
 }
 
 func isAbsoluteURL(value string) bool {

@@ -24,6 +24,8 @@ func ConvertToR2Bucket(config map[string]any) models.R2Bucket {
 		R2AccessKey: secureconfig.GetString(config, "r2_access_key"),
 		R2SecretKey: secureconfig.GetString(config, "r2_secret_key"),
 		R2Bucket:    secureconfig.GetString(config, "r2_bucket"),
+		R2CDNDomain: secureconfig.GetString(config, "r2_cdn_domain"),
+		R2CDNMode:   secureconfig.GetString(config, "r2_cdn_mode"),
 	}
 }
 
@@ -68,11 +70,17 @@ func S3BucketToMap(s3 models.S3Bucket) map[string]any {
 
 // R2BucketToMap 将R2Bucket转换为map
 func R2BucketToMap(r2 models.R2Bucket) map[string]any {
+	domain, mode, err := NormalizeR2CDN(r2.R2CDNDomain, r2.R2CDNMode)
+	if err != nil {
+		domain, mode = r2.R2CDNDomain, r2.R2CDNMode
+	}
 	return map[string]any{
 		"r2_endpoint":   r2.R2Endpoint,
 		"r2_access_key": r2.R2AccessKey,
 		"r2_secret_key": r2.R2SecretKey,
 		"r2_bucket":     r2.R2Bucket,
+		"r2_cdn_domain": domain,
+		"r2_cdn_mode":   mode,
 	}
 }
 

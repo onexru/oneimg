@@ -1,9 +1,12 @@
 package controllers
 
 import (
+	"errors"
+	"gorm.io/gorm"
 	"net/http"
+	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/uploadpolicy"
 	"strconv"
-	"unicode/utf8"
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
@@ -24,8 +27,13 @@ func AddTag(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称不能为空"))
 		return
 	}
-	if utf8.RuneCountInString(tag.Name) > 10 {
-		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称过长"))
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(500, result.Error(500, "获取标签配置失败"))
+		return
+	}
+	if err := uploadpolicy.ValidateTag(setting, tag.Name); err != nil {
+		c.JSON(400, result.Error(400, err.Error()))
 		return
 	}
 
@@ -90,7 +98,11 @@ func DeleteTag(c *gin.Context) {
 	db := database.GetDB().DB
 	var tag models.Tags
 	if err := db.First(&tag, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, result.Error(404, "标签不存在"))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, result.Error(404, "标签不存在"))
+		} else {
+			internalFailure(c, "查询标签失败", err)
+		}
 		return
 	}
 	if err := db.Where("tag_id = ?", id).Delete(&models.ImageToTags{}).Error; err != nil {
@@ -134,15 +146,24 @@ func UpdateTag(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称不能为空"))
 		return
 	}
-	if utf8.RuneCountInString(req.Name) > 10 {
-		c.JSON(http.StatusBadRequest, result.Error(400, "标签名称过长"))
+	setting, err := settings.GetSettings()
+	if err != nil {
+		c.JSON(500, result.Error(500, "获取标签配置失败"))
+		return
+	}
+	if err := uploadpolicy.ValidateTag(setting, req.Name); err != nil {
+		c.JSON(400, result.Error(400, err.Error()))
 		return
 	}
 
 	db := database.GetDB().DB
 	var tag models.Tags
 	if err := db.First(&tag, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, result.Error(404, "标签不存在"))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, result.Error(404, "标签不存在"))
+		} else {
+			internalFailure(c, "查询标签失败", err)
+		}
 		return
 	}
 

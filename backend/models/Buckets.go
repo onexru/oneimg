@@ -26,6 +26,8 @@ type R2Bucket struct {
 	R2AccessKey string `json:"r2_access_key"`
 	R2SecretKey string `json:"r2_secret_key"`
 	R2Bucket    string `json:"r2_bucket"`
+	R2CDNDomain string `json:"r2_cdn_domain"`
+	R2CDNMode   string `json:"r2_cdn_mode"`
 }
 
 // FTP 存储

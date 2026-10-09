@@ -2,9 +2,10 @@
  * 前端路由：页面映射、登录守卫与 SEO 配置加载。
  */
 import { createRouter, createWebHistory } from 'vue-router'
+import Message from '@/utils/message.js'
 
 let seoStting = {
-  seo_title: '初春图床',
+  seo_title: 'OneImg',
   seo_description: '',
   seo_keywords: '',
   seo_icp: '',
@@ -50,10 +51,16 @@ const routes = [
   {
     path: '/gallery',
     name: 'Gallery',
-    component: () => import('@/views/Gallery.vue'),
-    meta: {
-      title: '图库'
-    }
+    component: () => import('@/components/gallery/GalleryRoute.vue'),
+    props: { management: false },
+    meta: { title: '我的图库' }
+  },
+  {
+    path: '/admin/gallery',
+    name: 'AdminGallery',
+    component: () => import('@/components/gallery/GalleryRoute.vue'),
+    props: { management: true },
+    meta: { title: '总图库', adminOnly: true }
   },
   {
     path: '/tags',
@@ -84,7 +91,7 @@ const routes = [
     name: 'Users',
     component: () => import('@/views/Users.vue'),
     meta: { 
-      title: '用户管理' 
+      title: '用户管理', adminOnly: true
     }
   },
   {
@@ -145,11 +152,11 @@ const getSeoSetting = async () => {
           favicon.href = seoStting.seo_icon;
         }
       } else {
-        ElMessage.error(result.message || '获取SEO设置失败：无数据');
+        Message.error(result.message || '获取SEO设置失败：无数据');
       }
     } catch (error) {
       console.error('获取SEO设置失败:', error);
-      ElMessage.error(error.message || '获取SEO设置失败：网络异常');
+      Message.error(error.message || '获取SEO设置失败：网络异常');
     } finally {
       resolve(seoStting);
     }
@@ -181,19 +188,7 @@ router.beforeEach(async (to, from, next) => {
       return next();
     }
 
-    // 验证本地用户信息
-    let userInfo = {};
-    try {
-      userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    } catch (error) {
-      localStorage.removeItem('userInfo');
-      userInfo = {};
-    }
-    if (!userInfo.username) {
-      window.refreshNavItems && window.refreshNavItems();
-      return next('/login');
-    }
-
+    // Browser metadata is only a cache; the cookie-authenticated status is authoritative.
     // 验证登录状态
     const response = await fetch('/api/user/status');
     if (!response.ok) {
@@ -210,11 +205,20 @@ router.beforeEach(async (to, from, next) => {
       return next('/login');
     }
 
-    // 验证用户名一致性
-    if (userInfo.username !== result.data.username) {
-      localStorage.removeItem('userInfo');
-      window.refreshNavItems && window.refreshNavItems();
-      return next('/login');
+    const userInfo = {
+      id: result.data.user_id ?? result.data.id,
+      username: result.data.username,
+      role: result.data.user_role ?? result.data.role,
+      isTourist: Number(result.data.user_role ?? result.data.role) === 2,
+      permission: { codes: result.data.permissions || result.data.permission?.codes || [] },
+    };
+    localStorage.setItem('userInfo', JSON.stringify(userInfo));
+    window.refreshNavItems?.();
+
+    // Role comes from this request, never from cached navigation metadata.
+    if (to.meta.adminOnly && Number(userInfo.role) !== 1) {
+      Message.error(to.name === 'Users' ? '用户管理仅管理员可访问' : '总图库仅管理员可访问');
+      return next('/gallery');
     }
 
     // 所有验证通过，放行

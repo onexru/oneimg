@@ -116,6 +116,7 @@ func SanitizeSettingsForResponse(setting models.Settings) map[string]any {
 		"api_token_configured":          strings.TrimSpace(setting.APITokenHash) != "",
 		"save_original_name":            setting.SaveOriginalName,
 		"default_storage":               setting.DefaultStorage,
+		"guest_storage":                 setting.GuestStorage,
 		"multi_storage_sync":            setting.MultiStorageSync,
 		"encrypted_storage":             setting.EncryptedStorage,
 		"oidc_enable":                   setting.OIDCEnable,
@@ -184,6 +185,19 @@ func CompareSecretHash(hashValue, rawValue string) bool {
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(hashValue), []byte(rawValue))
 	return err == nil
+}
+
+// HashSecret 使用 bcrypt 对明文密钥做单向哈希（用于 api_token 等敏感值的存储）
+func HashSecret(rawValue string) (string, error) {
+	trimmed := strings.TrimSpace(rawValue)
+	if trimmed == "" {
+		return "", nil
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(trimmed), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }
 
 func TryMigrateSettingsSecrets(setting *models.Settings) (bool, error) {

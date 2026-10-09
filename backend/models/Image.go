@@ -4,6 +4,7 @@ import "time"
 
 // 图片模型
 type Image struct {
+	Deleting  bool   `json:"deleting" gorm:"not null;default:false;index"`
 	Id        int    `json:"id" gorm:"type:integer;primaryKey;autoIncrement"`
 	Url       string `json:"url" gorm:"not null"`
 	Thumbnail string `json:"thumbnail"`
@@ -18,7 +19,8 @@ type Image struct {
 	// URL. Zero keeps the canonical/original bucket, which is the local bucket
 	// for images created in multi-storage mode.
 	AccessBucketId int       `json:"access_bucket_id" gorm:"column:access_bucket_id;not null;default:0;index"`
-	UserId         int       `json:"user_id" gorm:"not null;default:1"`
+	UserId         int       `json:"user_id" gorm:"not null;default:1;index:idx_images_owner_folder,priority:1"`
+	FolderId       int       `json:"folder_id" gorm:"not null;default:0;index;index:idx_images_owner_folder,priority:2"`
 	MD5            string    `json:"md5"`
 	UUID           string    `json:"uuid" gorm:"not null;default:'00000000-0000-0000-0000-000000000000'"`
 	CreatedAt      time.Time `json:"created_at"`

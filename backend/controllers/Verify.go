@@ -25,6 +25,9 @@ var cappowStore = cappow.NewStore()
 
 // cappowSecret 派生 cap-pow 的 HMAC 密钥（稳定、跨重启一致，无需后台配置）。
 func cappowSecret() []byte {
+	if config.App == nil {
+		return nil
+	}
 	return cappow.DeriveSecret(config.App.ConfigSecret)
 }
 
@@ -101,7 +104,7 @@ func validateTurnstileSiteKeyAPI(sitekey, token, accountID string) error {
 		return nil
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 
 	var apiResp struct {
 		Success bool `json:"success"`
@@ -145,6 +148,9 @@ func turnstileConfigured(s models.Settings) bool {
 // 时回退到 cap-pow 本地验证。
 func effectiveVerifyMethodWithFallback(s models.Settings) string {
 	method := models.EffectiveVerifyMethod(s)
+	if method == models.VerifyMethodPOW && s.PowLocalFallback {
+		return models.VerifyMethodCappow
+	}
 	if method == models.VerifyMethodTurnstile && !turnstileConfigured(s) {
 		return models.VerifyMethodCappow
 	}
@@ -178,6 +184,9 @@ func verifyHuman(c *gin.Context, setting models.Settings, powToken, turnstileTok
 		return true, "", ""
 	case models.VerifyMethodCappow:
 		if capToken == "" {
+			if models.EffectiveVerifyMethod(setting) == models.VerifyMethodPOW && setting.PowLocalFallback {
+				return false, "请完成本地人机验证", models.VerifyMethodCappow
+			}
 			return false, "请完成人机验证", ""
 		}
 		if !cappowStore.ConsumeToken(capToken) {
@@ -188,7 +197,7 @@ func verifyHuman(c *gin.Context, setting models.Settings, powToken, turnstileTok
 		if powToken == "" {
 			return false, "请输入pow token", ""
 		}
-		if !ValidatePowToken(powToken) {
+		if !ValidatePowTokenWithSettings(c.Request.Context(), setting, powToken) {
 			return false, "pow token验证失败", ""
 		}
 		return true, "", ""
@@ -238,7 +247,7 @@ func ValidateTurnstileToken(token, secret, remoteIP string) (bool, []string) {
 		return false, nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
 		return false, nil
 	}
@@ -281,20 +290,20 @@ func CapPowRedeem(c *gin.Context) {
 		Solutions []int  `json:"solutions"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "error": "invalid_body"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请求参数错误", "success": false, "error": "invalid_body"})
 		return
 	}
 
 	secret := cappowSecret()
 	ok, _ := cappow.ValidateChallenge(secret, req.Token, req.Solutions)
 	if !ok {
-		c.JSON(http.StatusOK, gin.H{"success": false})
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "人机验证失败，请重试", "success": false})
 		return
 	}
 
 	// 一次性挑战重放防护：消费失败说明该挑战已被兑换过。
 	if !cappowStore.ConsumeChallengeSig(cappow.JwtSigHex(req.Token), 0) {
-		c.JSON(http.StatusOK, gin.H{"success": false})
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "人机验证失败，请重试", "success": false})
 		return
 	}
 

@@ -170,10 +170,14 @@
                 </div>
             </div>
         </div>
+        <AccountSessions />
+        <AccountLoginHistory />
     </div>
 </template>
 
 <script setup>
+import AccountSessions from "@/components/account/AccountSessions.vue";
+import AccountLoginHistory from "@/components/account/AccountLoginHistory.vue";
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import message from '@/utils/message.js'
@@ -265,8 +269,8 @@ const updateAccount = async () => {
     
     // 验证密码（如果要修改）
     if (hasPasswordChange) {
-        if (newPassword.length < 6) {
-            message.error('新密码长度至少为6位')
+        if (newPassword.length < 8) {
+            message.error('新密码长度至少为8位')
             return
         }
         
@@ -289,7 +293,7 @@ const updateAccount = async () => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify({
                 new_username: newUsername,
@@ -300,12 +304,10 @@ const updateAccount = async () => {
         
         const result = await response.json()
         
-        if (!response.ok || !result.success) {
+        if (!response.ok || (result.code !== 200 && result.success !== true)) {
             // 未授权处理
             if (response.status === 401) {
-                localStorage.removeItem('authToken')
-                router.push('/login')
-                return message.error('登录已过期，请重新登录')
+                return message.error(result.message || '当前密码错误或登录已过期，请确认后重试')
             }
             // 权限处理
             if (response.status === 403) {
@@ -314,7 +316,9 @@ const updateAccount = async () => {
             throw new Error(result.message || '修改失败')
         }
         
-        message.success('修改成功，请重新登录')
+        localStorage.removeItem('userInfo')
+        localStorage.removeItem('authToken')
+        message.success(result.message || '修改成功，请重新登录')
 
         // 清空表单
         accountForm.value = {

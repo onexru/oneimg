@@ -1,13 +1,17 @@
 package database
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"oneimg/backend/config"
 	"oneimg/backend/models"
@@ -29,9 +33,10 @@ type Database struct {
 var db *Database
 
 // NewDB 使用给定 dialector 打开并校验数据库连接。
-func NewDB(dialector gorm.Dialector) (*Database, error) {
+func NewDB(dialector gorm.Dialector, configs ...*config.Config) (*Database, error) {
 	gormConfig := &gorm.Config{
 		SkipDefaultTransaction:                   true,
+		DisableAutomaticPing:                     true,
 		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
@@ -45,7 +50,15 @@ func NewDB(dialector gorm.Dialector) (*Database, error) {
 		return nil, fmt.Errorf("获取SQL连接失败: %w", err)
 	}
 
-	if err := sqlDB.Ping(); err != nil {
+	var cfg *config.Config
+	if len(configs) > 0 {
+		cfg = configs[0]
+	}
+	configurePool(sqlDB, cfg, dialector.Name())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("连接验证失败: %w", err)
 	}
 
@@ -94,7 +107,7 @@ func InitDB(cfg *config.Config) {
 	}
 
 	// 创建数据库实例
-	db, err = NewDB(dialector)
+	db, err = NewDB(dialector, cfg)
 	if err != nil {
 		log.Fatalf("❌ 数据库实例创建失败: %v", err)
 	}
@@ -103,26 +116,49 @@ func InitDB(cfg *config.Config) {
 	err = db.DB.AutoMigrate(
 		&models.Tags{},
 		&models.User{},
+		&models.AuthSession{},
+		&models.AuthLoginEvent{},
+		&models.AuthState{},
+		&models.GuestIdentity{},
+		&models.APICredential{},
+		&models.Folder{},
 		&models.Image{},
 		&models.ImageStorage{},
+		&models.DirectUploadTask{},
 		&models.Settings{},
 		&models.ExternalAuthFlow{},
 		&models.ExternalIdentity{},
 		&models.ImageTeleGram{},
 		&models.ImageToTags{},
 		&models.Buckets{},
+		&models.RoleStoragePolicy{},
 		&models.RandomGraph{},
 	)
 	if err != nil {
 		log.Fatalf("❌ 数据库表迁移失败: %v", err)
+	}
+	if err := EnsureSettingsSingleton(db.DB); err != nil {
+		log.Fatalf("❌ 系统配置单行迁移失败: %v", err)
+	}
+	if err := EnsureQueryIndexes(db.DB); err != nil {
+		log.Fatalf("❌ 查询索引迁移失败: %v", err)
 	}
 	log.Println("✅ 数据库表迁移完成")
 }
 
 // initMysqlWithTLS 初始化MySQL
 func initMysqlWithTLS(cfg *config.Config) (gorm.Dialector, error) {
-	dsnTemplate := "%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s"
-	dsn := fmt.Sprintf(dsnTemplate, cfg.DbUser, cfg.DbPassword, cfg.DbHost, cfg.DbPort, cfg.DbName)
+
+	mysqlConfig := sqlmysql.NewConfig()
+	mysqlConfig.User = cfg.DbUser
+	mysqlConfig.Passwd = cfg.DbPassword
+	mysqlConfig.Net = "tcp"
+	mysqlConfig.Addr = net.JoinHostPort(cfg.DbHost, fmt.Sprint(cfg.DbPort))
+	mysqlConfig.DBName = cfg.DbName
+	mysqlConfig.ParseTime = true
+	mysqlConfig.Loc = time.Local
+	mysqlConfig.Timeout = 10 * time.Second
+	mysqlConfig.Params = map[string]string{"charset": "utf8mb4"}
 
 	tlsName := "custom_tls"
 	tlsConfig, err := buildTLSConfig(cfg)
@@ -133,52 +169,45 @@ func initMysqlWithTLS(cfg *config.Config) (gorm.Dialector, error) {
 	if err := sqlmysql.RegisterTLSConfig(tlsName, tlsConfig); err != nil {
 		return nil, err
 	}
-	dsn += "&tls=" + tlsName
-
-	return mysql.New(mysql.Config{DSN: dsn}), nil
+	mysqlConfig.TLSConfig = tlsName
+	return mysql.New(mysql.Config{DSN: mysqlConfig.FormatDSN()}), nil
 }
 
 // initPostgreSQLWithTLS 初始化 PG 数据库
 func initPostgreSQLWithTLS(cfg *config.Config) (gorm.Dialector, error) {
-	// 对特殊字符进行编码
-	user := url.QueryEscape(cfg.DbUser)
-	pass := url.QueryEscape(cfg.DbPassword)
-
-	// 构建基础 DSN
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", user, pass, cfg.DbHost, cfg.DbPort, cfg.DbName)
-
-	// 处理 SSL/TLS 参数
-	queryParams := url.Values{}
-	queryParams.Add("timezone", "Asia/Shanghai")
-
-	if cfg.DbCaCertPath != "" && fileExists(cfg.DbCaCertPath) {
-		absPath, _ := filepath.Abs(cfg.DbCaCertPath)
-		if cfg.DbSkipCertVerify {
-			queryParams.Add("sslmode", "require")
-		} else {
-			queryParams.Add("sslmode", "verify-full")
-			queryParams.Add("sslrootcert", absPath)
-		}
-	} else {
-		queryParams.Add("sslmode", "require")
+	u := &url.URL{Scheme: "postgres", User: url.UserPassword(cfg.DbUser, cfg.DbPassword), Host: net.JoinHostPort(cfg.DbHost, fmt.Sprint(cfg.DbPort)), Path: "/" + cfg.DbName}
+	params := url.Values{"timezone": {"Asia/Shanghai"}, "connect_timeout": {"10"}, "sslmode": {"verify-full"}}
+	if cfg.DbSkipCertVerify {
+		params.Set("sslmode", "require")
 	}
-
-	dsn = dsn + "?" + queryParams.Encode()
-
-	return postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true, // 增加兼容性
-	}), nil
+	if cfg.DbCaCertPath != "" {
+		certPath, err := validateCAFile(cfg.DbCaCertPath)
+		if err != nil {
+			return nil, err
+		}
+		params.Set("sslrootcert", certPath)
+	}
+	// Missing configured CA is an error, never an implicit downgrade to require.
+	// GORM's timezone matcher reads the raw query before URL decoding. Keep
+	// the zone's slash literal (valid in a query), without unescaping secrets.
+	u.RawQuery = strings.Replace(params.Encode(), "timezone=Asia%2FShanghai", "timezone=Asia/Shanghai", 1)
+	return postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), nil
 }
 
 // buildTLSConfig 构建 TLS 配置
 func buildTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.DbSkipCertVerify,
+		ServerName:         cfg.DbHost,
+		MinVersion:         tls.VersionTLS12,
 	}
 
-	if cfg.DbCaCertPath != "" && fileExists(cfg.DbCaCertPath) {
-		caCert, err := os.ReadFile(cfg.DbCaCertPath)
+	if cfg.DbCaCertPath != "" {
+		certPath, err := validateCAFile(cfg.DbCaCertPath)
+		if err != nil {
+			return nil, err
+		}
+		caCert, err := os.ReadFile(certPath)
 		if err != nil {
 			return nil, fmt.Errorf("读取CA证书失败: %w", err)
 		}

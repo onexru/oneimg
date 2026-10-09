@@ -12,6 +12,7 @@ type ImageUploadResult struct {
 	Success       bool   `json:"success"`
 	Message       string `json:"message,omitempty"`
 	ID            int    `json:"id,omitempty"`
+	FolderID      int    `json:"folder_id"`
 	URL           string `json:"url,omitempty"`
 	ThumbnailURL  string `json:"thumbnail_url,omitempty"`
 	Storage       string `json:"storage,omitempty"`

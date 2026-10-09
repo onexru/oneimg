@@ -1,60 +1,31 @@
-# 阶段1：构建前端
-FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
-
-# 安装pnpm并构建前端
-RUN npm install -g pnpm
+# syntax=docker/dockerfile:1
+FROM node:22-alpine3.23 AS frontend-builder
+ENV NODE_OPTIONS=--max-old-space-size=768
+WORKDIR /src/frontend
+RUN npm install --global pnpm@10.17.1
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm run build
 
-
-# 阶段2：构建后端
-FROM golang:1.25-alpine AS backend-builder
-
-# 安装CGO编译依赖
+FROM golang:1.26-alpine3.23 AS backend-builder
+ENV GOMAXPROCS=2 GOMEMLIMIT=768MiB GOGC=50 CGO_ENABLED=1
 RUN apk add --no-cache gcc g++ musl-dev libwebp-dev
-
-# 设置工作目录
-WORKDIR /app
-
-# 复制Go依赖文件并下载
+WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-
-# 复制后端源代码
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY backend/ ./backend/
 COPY main.go ./
+COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /src/frontend/src/assets/fonts ./frontend/src/assets/fonts
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -p 1 -trimpath -ldflags="-s -w" -o /out/oneimg ./main.go
 
-# 复制前端构建结果到后端可访问的路径
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
-COPY --from=frontend-builder /app/frontend/src/assets/fonts/ ./frontend/src/assets/fonts/
-
-# 编译后端应用（启用CGO支持webp）
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o main ./main.go
-
-
-# 阶段3：最终运行环境
-FROM alpine:3.18
-
-# 安装运行时依赖
-RUN apk --no-cache add \
-    ca-certificates \
-    tzdata \
-    libwebp
-
-# 设置工作目录
+FROM alpine:3.23
+RUN apk add --no-cache ca-certificates tzdata libwebp
 WORKDIR /app
-
-# 从后端构建阶段复制二进制文件
-COPY --from=backend-builder /app/main ./
-
-# 复制前端构建产物
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
-
-# 暴露端口
+COPY --from=backend-builder /out/oneimg /app/oneimg
+COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
+COPY ca/ ./ca/
+RUN mkdir -p /app/data /app/uploads
 EXPOSE 8080
-
-# 运行应用
-CMD ["./main"]
+CMD ["/app/oneimg"]

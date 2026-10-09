@@ -23,6 +23,7 @@ var (
 	ErrInvalidFile  = errors.New("加密文件格式无效")
 	ErrKeyNotReady  = errors.New("CONFIG_SECRET 或 SESSION_SECRET 未配置，无法使用加密存储")
 	ErrNotEncrypted = errors.New("文件未加密")
+	ErrObjectTooLarge = errors.New("存储对象超过处理大小限制")
 )
 
 // Encode returns data unchanged when encryption is disabled, otherwise it
@@ -50,10 +51,17 @@ func Decode(data []byte) ([]byte, bool, error) {
 
 // ReadAll loads and transparently decodes one stored object.
 func ReadAll(reader io.Reader) ([]byte, bool, error) {
-	stored, err := io.ReadAll(reader)
+	return ReadAllLimited(reader, 32<<20+64)
+}
+
+// ReadAllLimited bounds ciphertext before AES-GCM authentication/allocation.
+func ReadAllLimited(reader io.Reader, limit int64) ([]byte, bool, error) {
+	if limit <= 0 { return nil, false, ErrObjectTooLarge }
+	stored, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
 		return nil, false, err
 	}
+	if int64(len(stored)) > limit { return nil, false, ErrObjectTooLarge }
 	return Decode(stored)
 }
 
@@ -141,11 +149,10 @@ func WriteFile(path string, data []byte, enabled bool) error {
 // The boolean result indicates whether the on-disk representation was
 // encrypted.
 func ReadFile(path string) ([]byte, bool, error) {
-	stored, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-	return Decode(stored)
+	file, err := os.Open(path)
+	if err != nil { return nil, false, err }
+	defer file.Close()
+	return ReadAll(file)
 }
 
 // IsEncryptedFile checks only the file header and does not load the full file.
