@@ -109,7 +109,7 @@ const loadStats = async () => {
     try {
         const response = await fetch('/api/stats/dashboard', {
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
             }
         })
         

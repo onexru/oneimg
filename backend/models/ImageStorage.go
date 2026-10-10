@@ -7,6 +7,7 @@ const (
 	ImageStorageStatusUploading = "uploading"
 	ImageStorageStatusSuccess   = "success"
 	ImageStorageStatusFailed    = "failed"
+	ImageStorageStatusDeleting = "deleting"
 )
 
 // ImageStorage records one physical copy of an image in a storage bucket.

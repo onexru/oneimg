@@ -5,7 +5,7 @@
         <button
           type="button"
           class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white lg:hidden"
-          @click="toggleSidebar"
+          @click="toggleSidebar" aria-label="打开导航" :aria-expanded="sidebarOpen"
         >
           <i class="ri-menu-3-line text-lg"></i>
         </button>
@@ -23,7 +23,7 @@
         <button
           type="button"
           class="inline-flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white md:h-9 md:w-auto md:gap-1.5 px-3 py-1.5"
-          @click="toggleTheme"
+          @click="toggleTheme" :aria-label="isDark ? '切换浅色主题' : '切换深色主题'"
         >
           <i :class="isDark ? 'ri-sun-line' : 'ri-moon-clear-line'"></i>
           <span class="hidden md:inline">{{ isDark ? '浅色' : '深色' }}</span>
@@ -33,7 +33,7 @@
           v-if="isLogin"
           type="button"
           class="inline-flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-red-200 bg-white text-sm font-medium text-red-600 transition hover:border-red-300 hover:text-red-900 dark:border-white/10 dark:bg-red-900 dark:text-red-200 dark:hover:border-red/20 dark:hover:text-red md:h-9 md:w-auto md:gap-1.5 px-3 py-1.5"
-          @click="handleLogout"
+          @click="handleLogout" aria-label="退出登录"
         >
           <i class="ri-logout-circle-r-line"></i>
         </button>
@@ -51,7 +51,7 @@
         <button
           type="button"
           class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white lg:hidden"
-          @click="closeSidebar"
+          @click="closeSidebar" aria-label="关闭导航"
         >
           <i class="ri-close-line"></i>
         </button>
@@ -88,11 +88,13 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Message from '@/utils/message.js'
+import { lockScroll, unlockScroll } from '@/utils/overlay.js'
+const sidebarScrollLock = {}
 
 const router = useRouter()
 const route = useRoute()
 
-const seoTitle = ref('初春图床')
+const seoTitle = ref('OneImg')
 const isLogin = ref(false)
 const isDark = ref(false)
 const sidebarOpen = ref(false)
@@ -112,10 +114,14 @@ const refreshNavItems = () => {
   // 基础菜单（所有已登录用户可见）
   navItems.value.push(
     { path: '/', icon: 'home-5-line', name: '控制台' },
-    { path: '/gallery', icon: 'gallery-view-2', name: '图库管理' },
+    { path: '/gallery', icon: 'gallery-view-2', name: '我的图库' },
     { path: '/tags', icon: 'price-tag-3-line', name: '标签管理' },
     { path: '/stats', icon: 'bar-chart-grouped-line', name: '数据统计' },
   )
+
+  if (Number(userInfo.role) === 1) {
+    navItems.value.splice(2, 0, { path: '/admin/gallery', icon: 'gallery-line', name: '总图库' })
+  }
 
   // 账户设置：仅非游客（管理员或普通用户）可见
   if (userInfo?.role != 2) {
@@ -124,12 +130,15 @@ const refreshNavItems = () => {
     )
   }
 
+  if (Number(userInfo.id) === 1 || userInfo.permission?.codes?.includes('setting:list')) {
+    navItems.value.push({ path: '/settings', icon: 'settings-4-line', name: '系统设置' })
+  }
+
   // 管理员专属菜单
   if (userInfo?.role == 1) {
     navItems.value.push(
       { path: '/buckets', icon: 'database-2-line', name: '存储管理' },
       { path: '/users', icon: 'user-line', name: '用户管理' },
-      { path: '/settings', icon: 'settings-4-line', name: '系统设置' }
     )
   }
 }
@@ -171,12 +180,12 @@ const toggleTheme = () => {
 
 const openSidebar = () => {
   sidebarOpen.value = true
-  document.body.style.overflow = 'hidden'
+  lockScroll(sidebarScrollLock)
 }
 
 const closeSidebar = () => {
   sidebarOpen.value = false
-  document.body.style.overflow = ''
+  unlockScroll(sidebarScrollLock)
 }
 
 const toggleSidebar = () => {
@@ -215,7 +224,7 @@ const handleSeoUpdate = (data) => {
 const handleResize = () => {
   if (window.innerWidth >= 1024) {
     sidebarOpen.value = false
-    document.body.style.overflow = ''
+    unlockScroll(sidebarScrollLock)
   }
 }
 
@@ -235,7 +244,7 @@ onUnmounted(() => {
     window.seoBus.callbacks = window.seoBus.callbacks.filter((cb) => cb !== handleSeoUpdate)
   }
   window.removeEventListener('resize', handleResize)
-  document.body.style.overflow = ''
+  unlockScroll(sidebarScrollLock)
   delete window.refreshNavItems
 })
 </script>

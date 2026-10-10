@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
+	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/utils/storagepolicy"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -31,9 +31,8 @@ type ImageStorageStatusResponse struct {
 }
 
 // resolveUploadBuckets returns the durable local source and the remote targets
-// assigned to the current user. In multi-storage mode every persisted user,
-// including administrators, has an explicit list; guests retain the system
-// default because they have no user record.
+// assigned by the shared role pool and any applicable per-user extra grants.
+// Guests never inherit per-user grants; the local canonical source stays fixed.
 func resolveUploadBuckets(c *gin.Context, setting models.Settings) (models.Buckets, []models.Buckets, error) {
 	db := database.GetDB()
 	if db == nil || db.DB == nil {
@@ -71,28 +70,14 @@ func resolveUploadBuckets(c *gin.Context, setting models.Settings) (models.Bucke
 		}
 	}
 
-	targets := make([]models.Buckets, 0, len(allBuckets))
-	for _, bucket := range allBuckets {
-		if bucket.Disabled {
-			continue
-		}
-		if bucket.Id == localBucket.Id || bucket.Type == "default" {
-			continue
-		}
-
-		allowed := models.IntSliceContains(permission.Buckets, bucket.Id)
-		if role == models.RoleGuest {
-			allowed = bucket.Id == setting.DefaultStorage
-		}
-		if allowed {
-			targets = append(targets, bucket)
-		}
+	policy, err := storagepolicy.Load(db.DB)
+	if err != nil {
+		return models.Buckets{}, nil, err
 	}
-
-	return localBucket, targets, nil
+	return localBucket, policy.Select(role, permission, setting, allBuckets), nil
 }
 
-// resolveLegacyUploadBuckets preserves the single-storage selector semantics.
+// resolveLegacyUploadBuckets selects request-time single-storage destinations.
 func resolveLegacyUploadBuckets(c *gin.Context, setting models.Settings) ([]models.Buckets, error) {
 	db := database.GetDB()
 	if db == nil || db.DB == nil {
@@ -117,25 +102,11 @@ func resolveLegacyUploadBuckets(c *gin.Context, setting models.Settings) ([]mode
 		}
 	}
 
-	result := make([]models.Buckets, 0, len(allBuckets))
-	for _, bucket := range allBuckets {
-		if bucket.Disabled {
-			continue
-		}
-		if bucket.Id != setting.DefaultStorage {
-			if bucket.Capacity > 0 && bucket.Usage >= bucket.Capacity {
-				continue
-			}
-			if role != models.RoleAdmin && !models.IntSliceContains(permission.Buckets, bucket.Id) {
-				continue
-			}
-		}
-		if role == models.RoleGuest && bucket.Id != setting.DefaultStorage {
-			continue
-		}
-		result = append(result, bucket)
+	policy, err := storagepolicy.Load(db.DB)
+	if err != nil {
+		return nil, err
 	}
-	return result, nil
+	return policy.Select(role, permission, setting, allBuckets), nil
 }
 
 func canUseLegacyUploadBucket(c *gin.Context, setting models.Settings, bucketID int) (bool, error) {
@@ -213,14 +184,10 @@ func loadImageStorageStatuses(imageIDs []int, setting models.Settings) (map[int]
 
 func cleanupLocalUpload(image models.Image) {
 	for _, publicPath := range []string{image.Url, image.Thumbnail} {
-		path := strings.TrimSpace(publicPath)
-		if path == "" || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		path, err := config.LocalUploadPath(publicPath)
+		if err != nil {
 			continue
 		}
-		cleanPath := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(path, "/")))
-		if cleanPath == "." || filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
-			continue
-		}
-		_ = os.Remove(cleanPath)
+		_ = os.Remove(path)
 	}
 }

@@ -1,330 +1,103 @@
 <template>
-  <div class="page-shell text-gray-800 dark:text-gray-200">
+  <div class="page-shell gallery-browser text-gray-800 dark:text-gray-200" :data-gallery-scope="management ? 'all' : 'mine'">
     <section class="page-header border-b border-slate-200/70 pb-3 dark:border-white/10">
       <div>
-        <p class="panel-label">Gallery Manager</p>
-        <h1 class="page-title">图库管理台</h1>
+        <h1 class="page-title">{{ management ? '总图库' : '我的图库' }}</h1>
+        <p v-if="management" class="page-subtitle">查看全站图片，包含管理员、用户和游客上传。</p>
+        <p v-else-if="isGuest" class="page-subtitle">游客图片归属由本浏览器的安全 Cookie 保持。清除 Cookie 或更换浏览器后无法恢复，请注册账户保存长期身份。</p>
       </div>
     </section>
-
-    <div class="space-y-2.5 lg:space-y-3">
-      <div class="content-panel gallery-panel-compact gallery-topbar-compact space-y-2">
-        <div class="gallery-topbar-minimal">
-          <div class="gallery-topbar-filters">
-            <div v-if="isAdmin" class="gallery-inline-control">
-              <span class="gallery-inline-label">角色</span>
-              <div class="role-buttons grid w-full grid-cols-2 overflow-hidden rounded-[16px] border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 sm:inline-flex sm:w-auto">
-            <button
-              @click="changeRole('all')"
-              class="px-3 py-1.5 text-sm transition-all"
-              :class="[
-                roleImage === 'all' 
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
-                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
-              ]"
-            >
-              全部
-            </button>
-            <button
-              @click="changeRole('admin')"
-              class="px-3 py-1.5 text-sm transition-all"
-              :class="[
-                roleImage === 'admin' 
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
-                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
-              ]"
-            >
-              管理员
-            </button>
-            <button
-              @click="changeRole('guest')"
-              class="px-3 py-1.5 text-sm transition-all"
-              :class="[
-                roleImage === 'guest' 
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
-                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
-              ]"
-            >
-              游客
-            </button>
-            <button
-              @click="changeRole('user')"
-              class="px-3 py-1.5 text-sm transition-all"
-              :class="[
-                roleImage === 'user' 
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' 
-                  : 'bg-transparent hover:bg-slate-100 dark:hover:bg-white/10'
-              ]"
-            >
-              用户
-            </button>
-          </div>
-            </div>
-
-            <div class="gallery-inline-control gallery-inline-control-select">
-              <span class="gallery-inline-label">存储</span>
-          <select 
-            class="input-modern gallery-inline-select"
-            v-model="selectedBucket"
-            @change="loadImages"
-          >
-            <option value="null">全部</option>
-            <option 
-              v-for="bucket in presetBuckets" 
-              :key="bucket.id"
-              :value="bucket.id"
-            >{{ bucket.name }}</option>
-          </select>
-            </div>
-
-            <div class="gallery-inline-control gallery-inline-control-tags">
-              <span class="gallery-inline-label">标签</span>
-          <div class="flex flex-wrap gap-1.5">
-            <div class="filter-chip"
-            :class="isTagSelected(0) ? 'filter-chip-active' : ''"
-            @click="handleTagSelection(0)">
-                <span>默认</span>
-            </div>
-            <div
-            v-if="presetTags.length > 0"
-            v-for="tag in presetTags"
-            class="filter-chip"
-            :class="isTagSelected(tag.id) ? 'filter-chip-active' : ''"
-            @click="handleTagSelection(tag.id)">
-                <span>{{tag.name}}</span>
-            </div>
-          </div>
-            </div>
-          </div>
-
-          <div class="gallery-topbar-actions">
-            <div class="gallery-topbar-stats">
-              <label v-if="images.length > 0" for="selectAll" class="gallery-topbar-stat gallery-topbar-stat-action">
-                <input
-                  type="checkbox"
-                  id="selectAll"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  v-model="selectAll"
-                  @change="handleSelectAll"
-                >
-                <span>全选</span>
-              </label>
-              <span class="gallery-topbar-stat">{{ ROLE_MAP[roleImage] }}</span>
-              <span class="gallery-topbar-stat">{{ images.length }} 张</span>
-              <span class="gallery-topbar-stat">已选 {{ selectedImages.length }}</span>
-            </div>
-          <div v-if="selectedImages.length > 0" class="batch-actions flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
-            <button
-              @click="handleBatchCopy"
-              class="soft-button">
-              <i class="ri-file-copy-line"></i>
-              批量复制
-            </button>
-            <button
-              @click="handleBatchSetAccessSource"
-              class="soft-button">
-              <i class="ri-route-line"></i>
-              批量设置访问源
-            </button>
-            <button
-            @click="handleBatchSetTag"
-            class="soft-button">
-                <i class="ri-bookmark-2-fill"></i>
-                批量设置Tag
-            </button>
-            <button
-              @click="handleBatchDelete"
-              class="danger-button"
-            >
-              <i class="ri-delete-bin-fill"></i>
-              删除 ({{ selectedImages.length }})
-            </button>
-          </div>
-          </div>
-          </div>
-      </div>
-
-      <section class="space-y-3">
-      <div v-if="loading" class="content-panel loading-container flex flex-col items-center justify-center py-12 sm:py-14">
-        <div class="spinner w-10 h-10 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mb-4"></div>
-        <p class="text-gray-600 dark:text-gray-400">加载中...</p>
-      </div>
-      
-      <div v-else-if="images.length > 0" class="content-panel gallery-panel-compact images-container">
-        <div v-if="viewMode === 'grid'" class="images-grid grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-          <div 
-            v-for="image in images" 
-            :key="image.id"
-            class="gallery-image-card gallery-image-card-compact"
-            :class="isImageSelected(image.id) ? 'border-slate-900 dark:border-white' : 'hover:border-slate-300 dark:hover:border-white/20'"
-          >
-            <div class="gallery-image-card-head">
-              <div class="gallery-card-badges">
-                <span 
-                  class="image-role gallery-card-badge"
-                  :class="getRoleTagClass(image.uploader_role)"
-                >
-                  {{ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }}
-                </span>
-                <span
-                  v-if="multiStorageSync"
-                  class="gallery-card-badge inline-flex items-center gap-1 border"
-                  :class="getStorageSyncSummary(image).badgeClass"
-                >
-                  <i :class="getStorageSyncSummary(image).icon"></i>
-                  {{ getStorageSyncSummary(image).label }}
-                </span>
-                <span v-else class="gallery-card-badge gallery-card-badge-dark">
-                  {{ presetBuckets.find(bucket => bucket.id == image.bucket_id)?.name }}
-                </span>
-              </div>
-              <label class="gallery-card-checkbox" :for="`image-${image.id}`" @click.stop>
-                <input
-                  type="checkbox"
-                  :id="`image-${image.id}`"
-                  class="h-4 w-4 rounded border-gray-300 bg-white text-primary focus:ring-primary dark:bg-gray-800"
-                  :checked="isImageSelected(image.id)"
-                  @change="(e) => handleImageSelection(image.id, e.target.checked)"
-                  @click.stop
-                >
-              </label>
-            </div>
-
-            <div class="image-wrapper relative aspect-square overflow-hidden bg-gray-100 dark:bg-gray-950" @click="openPreview(image)">
-              <div class="loading absolute inset-0 flex items-center justify-center z-0 text-slate-300">
-                <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </div>
-              <img 
-                :src="image.thumbnail || image.url" 
-                :alt="image.filename"
-                class="image-thumbnail h-full w-full object-cover opacity-0"
-                loading="lazy"
-                @load="handleImageLoad"
-                @error="handleImageError"
-              />
-            </div>
-            <div class="image-info gallery-image-info-compact p-3">
-              <p class="image-filename overflow-hidden truncate whitespace-nowrap text-sm font-medium">{{ image.filename }}</p>
-              <p class="gallery-image-card-meta gallery-image-card-meta-inline">
-                {{ formatFileSize(image.file_size) }} • 
-                {{ image.width }}×{{ image.height }}
-              </p>
-              <p class="gallery-image-card-meta">{{ formatDate(image.created_at) }}</p>
-              <div class="mt-2" @click.stop>
-                <label :for="`access-source-${image.id}`" class="mb-1 flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                  <i class="ri-route-line"></i>
-                  访问链接读取源
-                </label>
-                <select
-                  :id="`access-source-${image.id}`"
-                  class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/20 disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
-                  :value="getSelectedAccessBucketId(image)"
-                  :disabled="isAccessSourceUpdating(image.id) || getAccessSourceOptions(image).length === 0"
-                  @change="handleAccessSourceChange(image, $event)"
-                  @click.stop
-                >
-                  <option
-                    v-for="source in getAccessSourceOptions(image)"
-                    :key="`${image.id}-access-${source.bucket_id}`"
-                    :value="source.bucket_id"
-                    :disabled="source.bucket_disabled || source.access_unavailable"
-                  >
-                    {{ getAccessSourceOptionLabel(source) }}
-                  </option>
-                </select>
-              </div>
-              <div v-if="multiStorageSync" class="mt-2 space-y-1.5">
-                <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 dark:border-white/10 dark:bg-slate-950">
-                  <span class="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200">本机</span>
-                  <span class="inline-flex shrink-0 items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
-                </div>
-                <div
-                  v-for="storage in getStorageStatuses(image)"
-                  :key="`${image.id}-${storage.bucket_id}`"
-                  class="min-w-0 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 dark:border-white/10 dark:bg-slate-950"
-                >
-                  <div class="flex min-w-0 items-center justify-between gap-2">
-                    <span class="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200" :title="getStorageDisplayName(storage)">{{ getStorageDisplayName(storage) }}</span>
-                    <span class="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]" :class="getStorageStatusMeta(storage.status).badgeClass">
-                      <i :class="getStorageStatusMeta(storage.status).icon"></i>{{ getStorageStatusMeta(storage.status).label }}
-                    </span>
-                  </div>
-                  <p v-if="storage.status === 'failed' && storage.error" class="mt-1 truncate text-[10px] text-red-600 dark:text-red-300" :title="storage.error">{{ storage.error }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
+    <section class="content-panel gallery-panel-compact space-y-3" aria-label="图库工具栏">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div v-if="!management" class="flex flex-wrap items-center gap-2">
+          <button v-if="foldersAuthenticated && selectedFolder === '0'" id="gallery-new-folder" type="button" class="soft-button" :disabled="foldersLoading || !foldersLoaded || foldersAtLimit" @click="openFolderDialog('create')"><i class="ri-folder-add-line" aria-hidden="true"></i>新建文件夹</button>
+          <button v-if="activeFolder?.deleting" type="button" class="gallery-primary-button" disabled>上传到此文件夹</button>
+          <router-link v-else id="gallery-upload" class="gallery-primary-button" :to="{ path: '/', query: foldersAuthenticated ? { folder_id: selectedFolder || '0' } : {} }"><i class="ri-upload-2-line" aria-hidden="true"></i>{{ activeFolder ? '上传到此文件夹' : '上传' }}</router-link>
         </div>
-        
-        <div v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-4 sm:py-5">
-          <button 
-            @click="changePage(currentPage - 1)"
-            :disabled="currentPage <= 1"
-            class="soft-button"
-            :class="{ 'opacity-50 cursor-not-allowed': currentPage <= 1 }"
-          >
-            上一页
-          </button>
-          
-          <div class="page-numbers flex flex-wrap justify-center gap-1">
-            <button 
-              v-for="page in visiblePages"
-              :key="page"
-              @click="changePage(page)"
-              class="flex h-9 w-9 items-center justify-center rounded-[16px] border text-sm transition-all"
-              :class="[
-                page === currentPage 
-                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white' 
-                  : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
-              ]"
-            >
-              {{ page }}
-            </button>
-          </div>
-          
-          <button 
-            @click="changePage(currentPage + 1)"
-            :disabled="currentPage >= totalPages"
-            class="soft-button"
-            :class="{ 'opacity-50 cursor-not-allowed': currentPage >= totalPages }"
-          >
-            下一页
-          </button>
+        <span v-else class="text-sm text-slate-500 dark:text-slate-400">全部上传者 · {{ ROLE_MAP[roleImage] }}</span>
+        <div class="flex items-center gap-2">
+          <button id="gallery-filter-toggle" type="button" class="soft-button" :aria-expanded="filtersExpanded" aria-controls="gallery-filters" @click="filtersExpanded = !filtersExpanded"><i class="ri-filter-3-line" aria-hidden="true"></i>筛选<span v-if="activeFilterCount" class="text-blue-600 dark:text-blue-400">{{ activeFilterCount }}</span><i :class="filtersExpanded ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'" aria-hidden="true"></i></button>
+          <button id="gallery-refresh" type="button" class="soft-button" :disabled="loading" aria-label="刷新图库" @click="refreshGallery"><i class="ri-refresh-line" aria-hidden="true"></i><span class="hidden sm:inline">刷新</span></button>
         </div>
       </div>
-      
-      <div v-else class="content-panel empty-state flex flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300/80 bg-white/70 py-14 text-center dark:border-white/10 dark:bg-white/5">
-        <div class="empty-icon mb-3 text-5xl text-gray-400 dark:text-gray-600">
-          <i class="ri-image-ai-line"></i>
+      <div class="gallery-searchbar">
+        <form class="gallery-search" role="search" @submit.prevent="applySearch">
+          <label for="gallery-search" class="sr-only">按文件名搜索</label><i class="ri-search-line" aria-hidden="true"></i>
+          <input id="gallery-search" v-model="searchInput" type="search" placeholder="按文件名搜索" autocomplete="off" @input="queueSearch" /><button type="submit" aria-label="搜索图片">搜索</button>
+        </form>
+        <div class="gallery-sort-controls">
+          <label for="gallery-sort" class="sr-only">排序字段</label>
+          <select id="gallery-sort" class="input-modern" :value="sortBy" @change="setQueryFilter('sort_by', $event.target.value)"><option value="created_at">上传时间</option><option value="filename">文件名称</option><option value="file_size">文件大小</option></select>
+          <button id="gallery-sort-order" type="button" class="soft-button" :aria-label="sortOrder === 'desc' ? '当前降序，切换升序' : '当前升序，切换降序'" @click="setQueryFilter('sort_order', sortOrder === 'desc' ? 'asc' : 'desc')"><i :class="sortOrder === 'desc' ? 'ri-sort-desc' : 'ri-sort-asc'" aria-hidden="true"></i>{{ sortOrder === 'desc' ? '降序' : '升序' }}</button>
+          <div class="gallery-view-toggle" role="group" aria-label="显示方式"><button id="gallery-view-list" type="button" :aria-pressed="viewMode === 'list'" aria-label="列表视图" @click="setViewMode('list')"><i class="ri-list-check" aria-hidden="true"></i></button><button id="gallery-view-grid" type="button" :aria-pressed="viewMode === 'grid'" aria-label="网格视图" @click="setViewMode('grid')"><i class="ri-grid-line" aria-hidden="true"></i></button></div>
         </div>
-        <h3 class="mb-2 text-lg font-bold">暂无图片</h3>
-        <p class="mb-4 text-gray-600 dark:text-gray-400">
-          还没有上传任何图片，
-          <router-link to="/" class="text-primary hover:underline">去上传一些吧</router-link>
-        </p>
       </div>
-      </section>
-    </div>
+      <div v-show="filtersExpanded" id="gallery-filters" class="gallery-filters">
+        <div v-if="management" class="gallery-role-filter"><span class="field-label">上传者角色</span><div class="flex flex-wrap gap-1" role="group" aria-label="上传者角色"><button v-for="(label, role) in ROLE_MAP" :key="role" type="button" class="filter-chip" :class="roleImage === role ? 'filter-chip-active' : ''" :aria-pressed="roleImage === role" :data-gallery-role="role" @click="changeRole(role)">{{ label }}</button></div></div>
+        <div v-if="foldersAuthenticated"><label for="gallery-folder" class="field-label">文件夹</label><select id="gallery-folder" :value="selectedFolder" class="input-modern" @change="changeFolder($event.target.value)"><option value="0">根目录 · {{ unfiledCount }} 张未分类</option><option value="">所有图片 · {{ folderTotalImages }}</option><option v-for="folder in folders" :key="folder.id" :value="String(folder.id)">{{ folderLabel(folder) }} · {{ folder.image_count }}</option></select></div>
+        <div><label for="gallery-bucket" class="field-label">存储</label><select id="gallery-bucket" class="input-modern" :value="selectedBucket" @change="setQueryFilter('bucket', $event.target.value)"><option value="">全部存储</option><option v-for="bucket in presetBuckets" :key="bucket.id" :value="String(bucket.id)">{{ bucket.name }}</option></select></div>
+        <div><label class="field-label" for="deletion-filter">删除状态</label><select id="deletion-filter" :value="deletionFilter" class="input-modern" @change="setQueryFilter('deletion', $event.target.value)"><option value="all">全部记录</option><option value="active">正常图片</option><option value="deleting">删除未完成</option></select></div>
+        <div class="gallery-tags-filter"><span class="field-label">标签</span><div class="flex flex-wrap gap-1.5"><button type="button" class="filter-chip" :class="isTagSelected(0) ? 'filter-chip-active' : ''" :aria-pressed="isTagSelected(0)" @click="handleTagSelection(0)">默认</button><button v-for="tag in presetTags" :key="tag.id" type="button" class="filter-chip" :class="isTagSelected(tag.id) ? 'filter-chip-active' : ''" :aria-pressed="isTagSelected(tag.id)" @click="handleTagSelection(tag.id)">{{ tag.name }}</button></div></div>
+        <button type="button" class="soft-button justify-self-start" @click="clearFilters">清除筛选</button>
+      </div>
+    </section>
+    <section class="content-panel gallery-panel-compact images-container" aria-label="图库文件" :aria-busy="loading">
+      <div class="gallery-location">
+        <nav v-if="!management" id="gallery-breadcrumb" aria-label="文件夹路径" class="flex min-w-0 items-center gap-2 text-sm"><button type="button" class="gallery-breadcrumb-root" :aria-current="selectedFolder === '0' || !foldersAuthenticated ? 'page' : undefined" @click="changeFolder('0')"><i class="ri-home-4-line" aria-hidden="true"></i>根目录</button><template v-if="foldersAuthenticated && selectedFolder !== '0'"><i class="ri-arrow-right-s-line shrink-0" aria-hidden="true"></i><span class="min-w-0 truncate" aria-current="page">{{ selectedFolder === '' ? '所有图片' : activeFolder?.name || '文件夹' }}</span></template></nav>
+        <span v-else class="text-sm font-medium">所有用户图片</span><button v-if="foldersAuthenticated" id="gallery-all-images" type="button" class="text-sm text-blue-600 dark:text-blue-400" :aria-pressed="selectedFolder === ''" @click="changeFolder('')">所有图片</button>
+      </div>
+      <div v-if="activeFolder" class="pb-3 space-y-2"><p v-if="activeFolder.description" class="text-sm text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-words">{{ activeFolder.description }}</p><div class="flex flex-wrap gap-2"><button type="button" class="soft-button" :disabled="activeFolder.deleting" @click="openFolderDialog('rename')">编辑文件夹</button><button type="button" class="soft-button text-red-600 dark:text-red-400" @click="openFolderDialog('delete')">{{ activeFolder.deleting ? '重试删除文件夹' : '删除文件夹' }}</button></div><p v-if="activeFolder.deleting" role="status" class="text-sm text-amber-700 dark:text-amber-300">文件夹删除未完成，不能上传、重命名或移入/移出图片；可重新确认名称后继续删除。</p></div>
+      <p v-if="foldersAuthenticated && foldersError" role="alert" class="pb-3 text-sm text-red-600">{{ foldersError }} <button type="button" class="underline" @click="reloadFolders">重试</button></p>
+      <div class="gallery-selection-bar"><label v-if="images.length > 0" for="selectAll" class="inline-flex items-center gap-2"><input id="selectAll" v-model="selectAll" type="checkbox" :disabled="loading" @change="handleSelectAll" /><span>全选本页</span></label><span v-if="totalImages !== null">共 {{ totalImages }} 张 · 本页 {{ images.length }} 张<span v-if="showFolderBrowser"> · {{ visibleFolders.length }} 个文件夹</span></span><span v-if="selectedImages.length">已选 {{ selectedImages.length }} 张</span></div>
+      <div v-if="selectedImages.length > 0" class="batch-actions flex flex-wrap gap-2 pb-3"><button v-if="foldersAuthenticated" type="button" class="soft-button" :disabled="!canMoveSelection || !foldersLoaded || foldersLoading" @click="openFolderDialog('move')">移动图片 ({{ selectedImages.length }})</button><span v-if="foldersAuthenticated && !canMoveSelection" role="status" class="text-xs text-amber-700 dark:text-amber-300">只能移动本人且未在删除中的图片，请取消选择其他用户或删除中的项目。</span><button type="button" class="soft-button" @click="handleBatchCopy">批量复制</button><button type="button" class="soft-button" @click="handleBatchSetAccessSource">批量设置访问源</button><button type="button" class="soft-button" @click="handleBatchSetTag">批量设置Tag</button><button type="button" class="danger-button" @click="handleBatchDelete">删除 ({{ selectedImages.length }})</button></div>
+      <div v-if="viewMode === 'list' && (visibleFolders.length || images.length)" class="gallery-list-heading" aria-hidden="true"><span>名称</span><span>大小 / 上传时间</span><span>操作</span></div>
+      <div v-if="showFolderBrowser" class="gallery-folders" :class="viewMode === 'grid' ? 'gallery-grid-layout' : ''"><GalleryFolderItem v-for="folder in visibleFolders" :key="folder.id" :folder="folder" :view-mode="viewMode" @open="changeFolder(String($event))" @edit="openFolderDialog('rename', $event)" @delete="openFolderDialog('delete', $event)" /><p v-if="foldersLoading && !foldersLoaded" role="status" class="py-3 text-sm text-slate-500">正在加载文件夹…</p></div>
+      <div v-if="loading" class="loading-container flex items-center justify-center gap-2 py-12" role="status"><i class="ri-loader-4-line animate-spin" aria-hidden="true"></i>加载图片中…</div>
+      <div v-else-if="loadError" role="alert" class="py-10 text-center"><p class="mb-3 text-red-600 dark:text-red-400">{{ loadError }}</p><button type="button" class="soft-button" @click="loadImages">重试加载图片</button></div>
+      <template v-else-if="hasLoadedImages">
+        <div v-if="images.length" :class="viewMode === 'grid' ? 'images-grid gallery-grid-layout' : 'images-list'"><GalleryImageCard v-for="image in visibleImages" :key="image.id" v-bind="{ retryDelete: deleteAsync, image, viewMode, management, presetBuckets, isImageSelected, getRoleTagClass, handleImageSelection, openPreview, handleImageLoad, handleImageError, getFullUrl, formatFileSize, formatDate, multiStorageSync, getStorageDisplayName, getStorageStatuses, getStorageStatusMeta, getStorageSyncSummary, getSelectedAccessBucketId, getAccessSourceOptions, getAccessSourceOptionLabel, isAccessSourceUpdating, handleAccessSourceChange }" /></div>
+        <div v-else class="empty-state py-10 text-center"><i class="ri-image-line text-3xl text-slate-400" aria-hidden="true"></i><h2 class="mt-2 font-medium">{{ activeFilterCount || searchTerm ? '没有匹配的图片' : showFolderBrowser && visibleFolders.length ? '根目录暂无未分类图片' : '暂无图片' }}</h2><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ activeFilterCount || searchTerm ? '可以清除搜索与筛选，重新查看图片。' : management ? '全站暂未上传图片。' : '可以上传图片，或打开文件夹查看。' }}</p><button v-if="activeFilterCount || searchTerm" type="button" class="soft-button mt-3" @click="clearFilters">清除搜索与筛选</button><button v-else type="button" class="soft-button mt-3" @click="refreshGallery">重新加载</button></div>
+        <div v-if="hasHiddenImages" ref="sentinel" class="flex justify-center mt-4"><button class="soft-button" type="button" @click="revealImages">显示本页更多图片</button></div>
+        <nav v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-4" aria-label="图片分页"><button type="button" class="soft-button" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">上一页</button><button v-for="page in visiblePages" :key="page" type="button" class="gallery-page-button" :aria-current="page === currentPage ? 'page' : undefined" @click="changePage(page)">{{ page }}</button><button type="button" class="soft-button" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">下一页</button></nav>
+      </template>
+    </section>
+    <FolderDialog v-if="folderDialog && foldersAuthenticated" :mode="folderDialog.mode" :folder="folderDialog.folder" :folders="folders" :image-ids="folderDialog.imageIds" :move-allowed="canMoveSelection" :initial-destination="selectedFolder || '0'" :account-key="folderAccountKey" @close="folderDialog = null" @saved="onFolderSaved" @partial-failure="refreshAfterFolderFailure" />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, unref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import errorImg from '@/assets/images/error.webp';
-import {
-  getStorageDisplayName,
-  getStorageStatuses,
-  getStorageStatusMeta,
-  getStorageSyncSummary,
-  hasActiveStorageSync,
-  renderStorageStatusesHtml,
-} from '@/utils/storageStatus.js'
 
+import Message from '@/utils/message.js';
+import Loading from '@/utils/loading.js';
+import { createDialogScope } from '@/utils/dialogScope.js';
+const { Dialog: PopupModal, dispose: disposeViewDialogs } = createDialogScope();
+import GalleryImageCard from '@/components/gallery/GalleryImageCard.vue';
+import GalleryFolderItem from '@/components/gallery/GalleryFolderItem.vue';
+import { galleryFolderFromQuery, galleryQuery, galleryImageParams, galleryViewPreference, createGalleryRequests, parseGalleryPage } from '@/utils/galleryBrowser.js';
+import { createGalleryAccessActions } from '@/utils/galleryAccessActions.js';
+const showFormModal = function(options) { return new PopupModal({ type: 'form', ...options }); };
+
+import { settleDeletions } from '@/utils/batchResults.js';
+import { createGalleryBatchActions } from '@/utils/galleryBatchActions.js';
+import { createGalleryPreviewActions } from '@/utils/galleryPreviewActions.js';
+import { getSelectedAccessBucketId, getAccessSourceOptions as accessSourceOptions, getAccessSourceOptionLabel } from '@/utils/imageAccessSources.js';
+import { boundedPage, galleryPageNumbers, GALLERY_PAGE_SIZE } from '@/utils/renderBounds.js';
+import { useChunkedImages } from '@/composables/useChunkedImages.js';
+import { readApiResponse } from '@/utils/apiFeedback.js';
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import FolderDialog from '@/components/FolderDialog.vue';
+import { useFolders } from '@/composables/useFolders.js';
+import { folderFilter, ownImageIds, folderAccount, folderLabel } from '@/utils/folders.js';
+import errorImg from '@/assets/images/error.webp';
+
+import { getStorageDisplayName, getStorageStatuses, getStorageStatusMeta, getStorageSyncSummary, hasActiveStorageSync } from '@/utils/storageStatus.js'
+
+const props = defineProps({ management: { type: Boolean, default: false } });
+const management = props.management; // GalleryRoute keys this owner on scope changes.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const PAGE_SIZE = 20;
+const PAGE_SIZE = GALLERY_PAGE_SIZE;
+const isGuest = computed(() => Number(JSON.parse(localStorage.getItem('userInfo') || '{}').role) === 2);
 const ROLE_MAP = {
   all: '全部',
   admin: '管理员',
@@ -390,16 +163,41 @@ const serializeForm = (modal) => {
   }, {});
 };
 
+const handleImageLoad = (e) => {
+  e.target.classList.remove('opacity-0');
+  const loadingEl = e.target.parentElement.querySelector('.loading');
+  if (loadingEl) loadingEl.classList.add('hidden');
+};
+
+const handleImageError = (e) => {
+  if (e.target.dataset.fallbackApplied) return;
+  e.target.dataset.fallbackApplied = 'true';
+  e.target.src = errorImg;
+  const loadingEl = e.target.parentElement.querySelector('.loading');
+  if (loadingEl) loadingEl.classList.add('hidden');
+};
+
+
 const images = ref([]);
-const loading = ref(false);
-const viewMode = ref('grid');
+const { sentinel, visibleImages, hasHiddenImages, revealImages } = useChunkedImages(images);
+const loading = ref(true);
+const hasLoadedImages = ref(false);
+const totalImages = ref(null);
+const viewMode = ref(galleryViewPreference(localStorage, management));
+const filtersExpanded = ref(false);
+const loadError = ref('');
+const searchInput = ref(''), searchTerm = ref('');
+const sortBy = ref('created_at'), sortOrder = ref('desc');
+let searchTimer;
+const imageRequests = createGalleryRequests();
 const currentPage = ref(1);
 const totalPages = ref(1);
 const roleImage = ref("all");
 const isAdmin = ref(false);
 const presetTags = ref([]);
 const presetBuckets = ref([]);
-const selectedBucket = ref(null);
+const selectedBucket = ref('');
+const deletionFilter = ref("all");
 const selectedImages = ref([]);
 const selectedTags = ref([]);
 const selectAll = ref(false);
@@ -407,70 +205,125 @@ const currentPreviewImage = ref(null);
 const multiStorageSync = ref(false);
 const accessSourceUpdatingIds = ref([]);
 let syncPollTimer = null;
+let disposed = false;
 
 const router = useRouter();
-
-const visiblePages = computed(() => {
-  const pages = [];
-  const start = Math.max(1, currentPage.value - 2);
-  const end = Math.min(totalPages.value, currentPage.value + 2);
-  for (let i = start; i <= end; i++) {
-    pages.push(i);
-  }
-  return pages;
-});
-
-const getSelectedAccessBucketId = (image) => {
-  const selected = Number(image?.access_bucket_id || 0);
-  if (selected > 0) return selected;
-  const localSource = Array.isArray(image?.storage_statuses)
-    ? image.storage_statuses.find(source => source?.status === 'success' && source?.bucket_type === 'default' && !source?.bucket_disabled)
-    : null;
-  return Number(localSource?.bucket_id || image?.bucket_id || 0);
-};
-
-const getAccessSourceOptions = (image) => {
-  const statuses = Array.isArray(image?.storage_statuses) ? image.storage_statuses : [];
-  const options = statuses
-    .filter(source => source?.bucket_id && source.status === 'success')
-    .map(source => ({ ...source }));
-  const selectedBucketId = getSelectedAccessBucketId(image);
-
-  if (!options.some(source => Number(source.bucket_id) === selectedBucketId)) {
-    const selectedStatus = statuses.find(source => Number(source?.bucket_id) === selectedBucketId);
-    if (selectedStatus) {
-      options.push({ ...selectedStatus, access_unavailable: true });
-    }
-  }
-
-  if (options.length === 0 && image?.bucket_id) {
-    const bucket = presetBuckets.value.find(item => Number(item.id) === Number(image.bucket_id));
-    options.push({
-      bucket_id: Number(image.bucket_id),
-      bucket_name: bucket?.name || `存储源 #${image.bucket_id}`,
-      bucket_type: bucket?.type || image.storage,
-      bucket_disabled: bucket?.disabled === true,
-      status: 'success',
-    });
-  }
-
-  const unique = new Map();
-  options.forEach(source => unique.set(Number(source.bucket_id), source));
-  return Array.from(unique.values()).sort((left, right) => {
-    if (left.bucket_type === 'default' && right.bucket_type !== 'default') return -1;
-    if (left.bucket_type !== 'default' && right.bucket_type === 'default') return 1;
-    return Number(left.bucket_id) - Number(right.bucket_id);
+const route = useRoute();
+// Management never loads or exposes personal folders. Scope remount keeps this static.
+const folderState = management ? {
+  account: ref(''), authenticated: ref(false), folders: ref([]), unfiledCount: ref(0),
+  loading: ref(false), loaded: ref(false), error: ref(''), atLimit: ref(false),
+  totalImages: ref(0), reload: async () => {},
+} : useFolders(API_BASE_URL);
+const { account: folderAccountKey, authenticated: foldersAuthenticated, folders, unfiledCount,
+  loading: foldersLoading, loaded: foldersLoaded, error: foldersError, atLimit: foldersAtLimit,
+  totalImages: folderTotalImages, reload: reloadFolders } = folderState;
+const selectedFolder = ref(galleryFolderFromQuery(route.query, foldersAuthenticated.value));
+const folderDialog = ref(null);
+const activeFolder = computed(() => foldersAuthenticated.value ? folders.value.find(folder => String(folder.id) === selectedFolder.value) : undefined);
+const showFolderBrowser = computed(() => foldersAuthenticated.value && selectedFolder.value === '0');
+const visibleFolders = computed(() => {
+  if (!showFolderBrowser.value) return [];
+  const term = searchTerm.value.trim().toLocaleLowerCase();
+  const matches = folders.value.filter(folder => !term || folder.name.toLocaleLowerCase().includes(term));
+  return matches.sort((a, b) => {
+    const comparison = sortBy.value === 'created_at' ? String(a.created_at || '').localeCompare(String(b.created_at || '')) : a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+    return (comparison || a.name.localeCompare(b.name, 'zh-CN', { numeric: true })) * (sortOrder.value === 'asc' ? 1 : -1);
   });
-};
+});
+const activeFilterCount = computed(() => Number(!!selectedBucket.value) + Number(deletionFilter.value !== 'all') + selectedTags.value.length + Number(management && roleImage.value !== 'all'));
+const movableImageIds = computed(() => ownImageIds(images.value, selectedImages.value, folderAccountKey.value, folders.value));
+const canMoveSelection = computed(() => foldersAuthenticated.value && !activeFolder.value?.deleting && selectedImages.value.length > 0 && movableImageIds.value.length === selectedImages.value.length);
+let pendingQuery = null, queryRevision = 0;
+function syncQueryState(query = route.query) {
+  const state = galleryQuery(query, management);
+  selectedFolder.value = galleryFolderFromQuery(query, foldersAuthenticated.value);
+  searchInput.value = searchTerm.value = state.filename;
+  sortBy.value = state.sortBy; sortOrder.value = state.sortOrder;
+  roleImage.value = state.role; selectedBucket.value = state.bucket;
+  deletionFilter.value = state.deletion; selectedTags.value = state.tags;
+}
+syncQueryState();
+function resetListing() {
+  imageRequests.cancel();
+  if (syncPollTimer) clearTimeout(syncPollTimer);
+  syncPollTimer = null;
+  currentPage.value = 1; totalPages.value = 1; selectedImages.value = []; images.value = [];
+  totalImages.value = null; hasLoadedImages.value = false; loading.value = true;
+  selectAll.value = false; folderDialog.value = null;
+  currentPreviewImage.value = null;
+  cleanupPreview(); disposeAccessDialogs(); disposeBatchDialogs(); disposeViewDialogs();
+}
+function navigateQuery(query) {
+  const revision = ++queryRevision;
+  pendingQuery = query;
+  // Route guards are asynchronous: merge rapid controls against the latest intent,
+  // not the previous URL, and fence old responses immediately.
+  imageRequests.cancel(); syncQueryState(query); loading.value = true;
+  Promise.resolve(router.replace({ query })).finally(() => {
+    if (revision !== queryRevision || disposed) return;
+    pendingQuery = null; syncQueryState(); loadImages();
+  });
+}
+function setQueryFilter(key, value) {
+  const query = { ...(pendingQuery || route.query) };
+  if (value === '' && key !== 'folder_id') delete query[key];
+  else query[key] = value;
+  navigateQuery(query);
+}
+function changeFolder(value) {
+  if (!foldersAuthenticated.value) return;
+  // An explicit empty folder_id is All Images; an absent query is always root.
+  setQueryFilter('folder_id', value === '' ? '' : folderFilter(value, '0'));
+}
+function applySearch() {
+  clearTimeout(searchTimer);
+  setQueryFilter('search', searchInput.value.trim());
+}
+function queueSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 300); }
+function clearFilters() {
+  clearTimeout(searchTimer);
+  const query = { ...(pendingQuery || route.query) };
+  for (const key of ['role', 'bucket', 'deletion', 'tags', 'search']) delete query[key];
+  navigateQuery(query);
+}
+function setViewMode(mode) {
+  viewMode.value = mode === 'grid' ? 'grid' : 'list';
+  try { localStorage.setItem(`oneimg-gallery-view-${management ? 'all' : 'mine'}`, viewMode.value); } catch {}
+}
+async function refreshGallery() { await Promise.all([loadImages(), reloadFolders()]); }
+watch(() => route.query, () => {
+  clearTimeout(searchTimer); resetListing(); syncQueryState(pendingQuery || route.query);
+  if (!pendingQuery) loadImages();
+});
+watch(folderAccountKey, () => {
+  resetListing(); syncQueryState(); changeFolder('0'); loadImages();
+});
+function openFolderDialog(mode, folder = activeFolder.value) {
+  if (!foldersAuthenticated.value || folderAccount() !== folderAccountKey.value) return;
+  if (mode === 'create' && (selectedFolder.value !== '0' || !foldersLoaded.value || foldersAtLimit.value)) return;
+  if (mode === 'move' && !canMoveSelection.value) return;
+  if (mode === 'rename' && folder?.deleting) return;
+  if (['rename', 'delete'].includes(mode) && !folder) return;
+  folderDialog.value = { mode, folder: mode === 'create' ? {} : { ...(folder || {}) }, imageIds: [...movableImageIds.value] };
+}
+async function refreshAfterFolderFailure() {
+  selectedImages.value = [];
+  await Promise.all([reloadFolders(), loadImages()]);
+}
+async function onFolderSaved({ mode, deletedImages }) {
+  folderDialog.value = null;
+  selectedImages.value = []; currentPage.value = 1;
+  if (mode === 'delete') {
+    selectedFolder.value = '0';
+    await router.replace({ query: { ...route.query, folder_id: '0' } });
+  }
+  await Promise.all([reloadFolders(), loadImages()]);
+  if (!disposed) Message.success(({ create: '文件夹已创建', rename: '文件夹信息已更新', delete: deletedImages ? '文件夹及图片已删除' : '文件夹已删除，图片已返回未分类', move: '图片已移动' })[mode]);
+}
 
-const getAccessSourceOptionLabel = (source) => {
-  const name = source?.bucket_type === 'default'
-    ? `${source?.bucket_name || '本机'}（默认）`
-    : getStorageDisplayName(source);
-  if (source?.bucket_disabled) return `${name}（已停用，回退本机）`;
-  if (source?.access_unavailable) return `${name}（不可用，回退本机）`;
-  return name;
-};
+const visiblePages = computed(() => galleryPageNumbers(currentPage.value, totalPages.value));
+const getAccessSourceOptions = image => accessSourceOptions(image, presetBuckets.value);
 
 const isAccessSourceUpdating = imageId => accessSourceUpdatingIds.value.includes(Number(imageId));
 
@@ -497,10 +350,10 @@ const getTagsList = async () => {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    const result = await response.json();
+    const result = await readApiResponse(response, '请求失败');
     if (response.ok && result.code === 200) {
       presetTags.value = result.data?.list || [];
     } else {
@@ -518,12 +371,12 @@ const getBucketsList = async () => {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    const result = await response.json();
+    const result = await readApiResponse(response, '请求失败');
     if (response.ok && result.code === 200) {
-      presetBuckets.value = result.data || [];
+      presetBuckets.value = Array.isArray(result.data) ? result.data : [];
     } else {
       throw new Error(result.message || '获取存储列表失败');
     }
@@ -534,43 +387,47 @@ const getBucketsList = async () => {
 };
 
 const loadImages = async () => {
-  if (loading.value) return;
-  loading.value = true;
+  if (disposed) return;
+  const request = imageRequests.start();
+  loading.value = true; loadError.value = '';
   try {
-    const params = new URLSearchParams({
-      page: currentPage.value,
-      limit: PAGE_SIZE,
-      sort_by: 'created_at',
-      sort_order: 'desc',
-      role: isAdmin.value ? roleImage.value : '',
-      tags: selectedTags.value,
-      bucket: selectedBucket.value
+    const params = galleryImageParams({
+      management, authenticated: foldersAuthenticated.value, folder: selectedFolder.value,
+      page: currentPage.value, limit: PAGE_SIZE,
+      sortBy: sortBy.value, sortOrder: sortOrder.value, filename: searchTerm.value,
+      role: management ? roleImage.value : '', tags: selectedTags.value,
+      bucket: selectedBucket.value, deletion: deletionFilter.value,
     });
-    const response = await fetch(`${API_BASE_URL}/api/images?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      }
+    const endpoint = management ? '/api/admin/images' : '/api/images';
+    const response = await fetch(`${API_BASE_URL}${endpoint}?${params}`, {
+      signal: request.signal, credentials: 'same-origin', cache: 'no-store',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
-    if (response.ok) {
-      const result = await response.json();
-      images.value = result.data.images || [];
-      totalPages.value = result.data.total_pages || 1;
-      selectedImages.value = [];
-      scheduleSyncRefresh();
-    } else {
-      if (response.status === 401) {
-        localStorage.removeItem('authToken');
-        router.push('/login');
-        Message.error('登录已过期，请重新登录');
-        return;
-      }
-      throw new Error('加载图片失败');
+    if (disposed || !request.isCurrent()) return;
+    if (response.status === 401) {
+      localStorage.removeItem('authToken');
+      router.push('/login');
+      Message.error('登录已过期，请重新登录');
     }
+    const result = await readApiResponse(response, '加载图片失败');
+    if (disposed || !request.isCurrent()) return;
+    const page = parseGalleryPage(result.data);
+    images.value = boundedPage(page.images, PAGE_SIZE);
+    totalPages.value = page.totalPages;
+    totalImages.value = page.total;
+    hasLoadedImages.value = true;
+    // Preserve failed delete selections after refreshing successful removals.
+    selectedImages.value = selectedImages.value.filter(id => images.value.some(image => image.id === id));
+    selectAll.value = images.value.length > 0 && images.value.every(image => selectedImages.value.includes(image.id));
+    scheduleSyncRefresh();
   } catch (error) {
-    console.error('加载图片错误:', error);
-    Message.error(`加载图片失败: ${error.message}`);
+    if (disposed || !request.isCurrent() || error.name === 'AbortError') return;
+    images.value = []; selectedImages.value = []; totalPages.value = 1;
+    totalImages.value = null; hasLoadedImages.value = false;
+    loadError.value = error.message || '加载图片失败，请重试';
+    Message.error(`加载图片失败: ${loadError.value}`);
   } finally {
-    loading.value = false;
+    if (request.isCurrent()) loading.value = false;
   }
 };
 
@@ -578,11 +435,13 @@ const getStorageMode = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/uploadConfig`, {
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    const result = await response.json();
+    const result = await readApiResponse(response, '请求失败');
+    if (disposed) return;
     multiStorageSync.value = response.ok && result.code === 200 && result.data?.multi_storage_sync === true;
+    scheduleSyncRefresh();
   } catch (error) {
     console.error('获取多存储模式失败:', error);
     multiStorageSync.value = false;
@@ -590,7 +449,7 @@ const getStorageMode = async () => {
 };
 
 const scheduleSyncRefresh = () => {
-  if (!multiStorageSync.value) {
+  if (disposed || !multiStorageSync.value) {
     if (syncPollTimer) clearTimeout(syncPollTimer);
     syncPollTimer = null;
     return;
@@ -609,12 +468,15 @@ const scheduleSyncRefresh = () => {
 };
 
 const batchDeleteImages = async (deleteIds) => {
-  const promises = deleteIds.map(id => deleteAsync(id));
-  await Promise.allSettled(promises);
-  loadImages();
+  const { succeeded, failed } = await settleDeletions(deleteIds, id => deleteAsync(id, { batch: true }));
+  selectedImages.value = [...new Set([...selectedImages.value.filter(id => !succeeded.includes(id)), ...failed])];
+  if (failed.length) { deletionFilter.value = 'deleting'; currentPage.value = 1; }
+  await Promise.all([loadImages(), reloadFolders()]);
+  if (failed.length) Message.warning(`成功删除 ${succeeded.length} 张，失败 ${failed.length} 张。失败项已保留选中；部分存储源可能已删除，请重试删除。`, { duration: 7000, showClose: true });
+  else Message.success(`成功删除 ${succeeded.length} 张图片`);
 };
 
-const deleteAsync = async (id) => {
+const deleteAsync = async (id, { batch = false } = {}) => {
   const loadingInstance = Loading.show({
     text: '删除中...',
     color: '#ff4d4f',
@@ -624,99 +486,34 @@ const deleteAsync = async (id) => {
     const response = await fetch(`${API_BASE_URL}/api/images/${id}`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    if (response.ok) {
-      Message.success('图片删除成功');
+    const result = await readApiResponse(response, '请求失败');
+    if (response.ok && result.code === 200) {
+      if (!batch) Message.success('图片删除成功');
       selectedImages.value = selectedImages.value.filter(imageId => imageId !== id);
-      loadImages();
+      if (!batch) await Promise.all([loadImages(), reloadFolders()]);
       return true;
     } else {
-      const result = await response.json();
       throw new Error(result.message || '删除失败');
     }
   } catch (error) {
     console.error('删除图片错误:', error);
-    Message.error(`删除图片失败: ${error.message}`);
+    if (!batch) {
+      Message.error(`删除图片失败: ${error.message}；可从“删除未完成”继续删除`, { duration: 6000, showClose: true });
+      if ([500,502].includes(error.status)) { deletionFilter.value = 'deleting'; currentPage.value = 1; await loadImages(); }
+    }
     return false;
   } finally {
     await loadingInstance.hide();
   }
 };
 
-const pustImageTag = async (imageId, values) => {
-  const { tag } = values;
-  if (tag === '0') {
-    Message.warning('请选择Tag标签');
-    return;
-  }
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/tag`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({ id: imageId, tag })
-    });
-    const result = await response.json();
-    if (response.ok && result.code === 200) {
-      const image = images.value.find(item => item.id === imageId);
-      if (image) {
-        image.tags = image.tags.filter(item => item.id !== 0);
-        const newTag = presetTags.value.find(item => item.id === Number(tag));
-        if (newTag) image.tags.push(newTag);
-        currentPreviewImage.value = image;
-        if (image) openPreview(image);
-      }
-      Message.success(result.message || '添加成功');
-    } else {
-      openPreview(currentPreviewImage.value);
-      throw new Error(result.message || '添加失败');
-    }
-  } catch (err) {
-    Message.error(err.message || '添加失败，请稍后重试');
-  }
-};
-
-const deleteImageTagAsync = async (imageId, tagId) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/tag`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({ id: imageId, tag: tagId })
-    });
-    const result = await response.json();
-    if (response.ok && result.code === 200) {
-      Message.success(result.message || '删除成功');
-      return true;
-    } else {
-      Message.error(result.message || '删除失败');
-      return false;
-    }
-  } catch (err) {
-    Message.error(`出错了：${err.message}`);
-    console.warn(err);
-    return false;
-  }
-};
-
-const changeRole = (role) => {
-  if (roleImage.value !== role) {
-    roleImage.value = role;
-    currentPage.value = 1;
-    selectedImages.value = [];
-    selectAll.value = false;
-    loadImages();
-  }
-};
+const changeRole = role => { if (management) setQueryFilter('role', role); };
 
 const changePage = (page) => {
-  if (page >= 1 && page <= totalPages.value) {
+  if (page >= 1 && page <= totalPages.value && !loading.value) {
     currentPage.value = page;
     selectedImages.value = [];
     selectAll.value = false;
@@ -733,13 +530,9 @@ const isTagSelected = (tagId) => {
   return selectedTags.value.includes(tagId);
 };
 
-const handleTagSelection = (tagId) => {
-  if (!selectedTags.value.includes(tagId)) {
-    selectedTags.value.push(tagId);
-  } else {
-    selectedTags.value = selectedTags.value.filter(id => id !== tagId);
-  }
-  loadImages();
+const handleTagSelection = tagId => {
+  const next = selectedTags.value.includes(tagId) ? selectedTags.value.filter(id => id !== tagId) : [...selectedTags.value, tagId];
+  setQueryFilter('tags', next.join(','));
 };
 
 const handleImageSelection = (imageId, isChecked) => {
@@ -752,136 +545,9 @@ const handleImageSelection = (imageId, isChecked) => {
   }
 };
 
-const handleAccessSourceChange = async (image, event) => {
-  const previousBucketId = getSelectedAccessBucketId(image);
-  const bucketId = Number(event.target.value);
-  if (!bucketId || bucketId === previousBucketId) return;
-
-  const source = getAccessSourceOptions(image).find(item => Number(item.bucket_id) === bucketId);
-  if (!source || source.bucket_disabled || source.access_unavailable) {
-    event.target.value = String(previousBucketId);
-    Message.warning('该存储源当前不可用');
-    return;
-  }
-
-  setAccessSourceUpdating(image.id, true);
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/${image.id}/access-source`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({ bucket_id: bucketId })
-    });
-    const result = await response.json();
-    if (!response.ok || result.code !== 200) {
-      throw new Error(result.message || '设置访问源失败');
-    }
-    image.access_bucket_id = bucketId;
-    if (currentPreviewImage.value?.id === image.id) {
-      currentPreviewImage.value.access_bucket_id = bucketId;
-    }
-    Message.success(result.message || '图片访问源已更新');
-  } catch (error) {
-    event.target.value = String(previousBucketId);
-    console.error('设置图片访问源失败:', error);
-    Message.error(error.message || '设置图片访问源失败');
-  } finally {
-    setAccessSourceUpdating(image.id, false);
-  }
-};
-
-const getBatchAccessSourceOptions = () => {
-  const selected = images.value.filter(image => selectedImages.value.includes(image.id));
-  if (selected.length === 0) return [];
-  const candidates = getAccessSourceOptions(selected[0]).filter(
-    source => !source.bucket_disabled && !source.access_unavailable
-  );
-  return candidates.filter(candidate => selected.every(image =>
-    getAccessSourceOptions(image).some(source =>
-      Number(source.bucket_id) === Number(candidate.bucket_id) &&
-      !source.bucket_disabled &&
-      !source.access_unavailable
-    )
-  ));
-};
-
-const updateBatchAccessSource = async (bucketId) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/access-source`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({
-        image_ids: selectedImages.value,
-        bucket_id: Number(bucketId),
-      })
-    });
-    const result = await response.json();
-    if (!response.ok || result.code !== 200) {
-      throw new Error(result.message || '批量设置访问源失败');
-    }
-    images.value.forEach(image => {
-      if (selectedImages.value.includes(image.id)) image.access_bucket_id = Number(bucketId);
-    });
-    Message.success(result.message || '批量访问源已更新');
-    return true;
-  } catch (error) {
-    console.error('批量设置访问源失败:', error);
-    Message.error(error.message || '批量设置访问源失败');
-    return false;
-  }
-};
-
-const handleBatchSetAccessSource = () => {
-  if (selectedImages.value.length === 0) {
-    Message.warning('请选择要编辑的图片');
-    return;
-  }
-  const sources = getBatchAccessSourceOptions();
-  if (sources.length === 0) {
-    Message.warning('所选图片没有共同的、已同步成功的可用存储源');
-    return;
-  }
-  const localSource = sources.find(source => source.bucket_type === 'default');
-  const defaultBucketId = localSource?.bucket_id || sources[0].bucketId;
-  const modal = new showFormModal({
-    title: '批量设置访问源',
-    formFields: [
-      {
-        name: 'bucket_id',
-        label: '访问链接读取源',
-        type: 'select',
-        required: true,
-        defaultValue: String(defaultBucketId),
-        options: sources.map(source => ({
-          value: String(source.bucket_id),
-          label: getAccessSourceOptionLabel(source),
-        })),
-        tip: `仅显示这 ${selectedImages.value.length} 张图片都已同步成功的存储源`,
-      },
-    ],
-    buttons: [
-      {
-        text: '取消',
-        type: 'default',
-        callback: modalInstance => modalInstance.close(),
-      },
-      {
-        text: '确认设置',
-        type: 'primary',
-        callback: async modalInstance => {
-          const formData = serializeForm(modalInstance);
-          if (await updateBatchAccessSource(formData.bucket_id)) modalInstance.close();
-        },
-      },
-    ],
-  });
-  modal.open();
-};
+const { disposeDialogs: disposeAccessDialogs, handleAccessSourceChange, handleBatchSetAccessSource } = createGalleryAccessActions({
+  API_BASE_URL, images, selectedImages, currentPreviewImage, getAccessSourceOptions, setAccessSourceUpdating, serializeForm,
+});
 
 const handleSelectAll = (e) => {
   const isChecked = e.target.checked;
@@ -897,10 +563,10 @@ const handleBatchDelete = () => {
   }
   const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
   let filterIds = selectedImages.value;
-  if (!isAdmin.value && userInfo.id) {
+  if (!isAdmin.value && Number(userInfo.role) !== 2 && userInfo.id) {
     filterIds = selectedImages.value.filter(id => {
       const image = images.value.find(item => item.id === id);
-      return image && image.user_id === userInfo.id;
+      return image && String(image.user_id) === String(userInfo.id);
     });
   }
   if (filterIds.length === 0) {
@@ -938,665 +604,75 @@ const handleBatchDelete = () => {
   modal.open();
 };
 
-const handleBatchSetTag = () => {
-  if (selectedImages.value.length === 0) {
-    Message.warning('请选择要编辑的图片');
-    return;
-  }
-  const imageId = selectedImages.value;
-  const tagList = [
-    { value: "0", label: "请选择Tag", disabled: true }
-  ];
-  presetTags.value.forEach(tag => {
-    tagList.push({ value: tag.id, label: tag.name });
-  });
-  const modal = new showFormModal({
-    title: '批量编辑Tag',
-    formFields: [
-      {
-        name: 'tag',
-        label: 'Tag标签',
-        type: 'select',
-        required: true,
-        defaultValue: "0",
-        options: tagList,
-        tip: "已选择的图片：<br>" + images.value.filter(item => imageId.includes(item.id)).map(item => item.filename).join("<br>")
-      },
-    ],
-    buttons: [
-      {
-        text: '取消',
-        type: 'default',
-        callback: (modal) => {
-          modal.close();
-        }
-      },
-      {
-        text: '删除Tag',
-        type: 'danger',
-        callback: (modal) => {
-          const formData = serializeForm(modal);
-          batchDeleteTag(formData);
-          modal.close();
-        }
-      },
-      {
-        text: '添加Tag',
-        type: 'primary',
-        callback: (modal) => {
-          const formData = serializeForm(modal);
-          batchAddTag(formData);
-          modal.close();
-        }
-      }
-    ]
-  });
-  modal.open();
-}
+const { disposeDialogs: disposeBatchDialogs, handleBatchSetTag, handleBatchCopy } = createGalleryBatchActions({
+  selectedImages, images, presetTags, loadImages, getFullUrl, API_BASE_URL, showFormModal, serializeForm,
+});
 
-const batchDeleteTag = async (formData) => {
-  if (formData.tag === "0") {
-    Message.warning("请选择Tag");
-    return;
-  }
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/tags`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({
-        image_ids: selectedImages.value,
-        tag_id: formData.tag
-      })
-    });
-    const result = await response.json();
-    if (response.ok && result.code === 200) {
-      Message.success('删除Tag成功');
-      await loadImages();
-    } else {
-      throw new Error(result.message || '删除Tag失败');
-    }
-  } catch (error) {
-    console.error('删除Tag失败:', error);
-    Message.error(error.message || '删除Tag失败');
-  }
-}
-
-const batchAddTag = async (formData) => {
-  if (formData.tag === "0") {
-    Message.warning("请选择Tag");
-    return;
-  }
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/images/tags`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({
-        image_ids: selectedImages.value,
-        tag_id: formData.tag
-      })
-    });
-    const result = await response.json();
-    if (response.ok && result.code === 200) {
-      Message.success('添加Tag成功');
-      await loadImages();
-    } else {
-      throw new Error(result.message || '添加Tag失败');
-    }
-  } catch (error) {
-    console.error('添加Tag失败:', error);
-    Message.error(error.message || '添加Tag失败');
-  }
-}
-
-const copyToClipboard = (text) => {
-  return new Promise((resolve) => {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => resolve(true)).catch(() => resolve(fallbackCopy(text)));
-    } else {
-      resolve(fallbackCopy(text));
-    }
-  });
-};
-
-const fallbackCopy = (text) => {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.cssText = 'position:fixed;opacity:0;left:-9999px;top:-9999px';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  let ok = false;
-  try {
-    ok = document.execCommand('copy');
-  } catch (e) {
-    ok = false;
-  }
-  document.body.removeChild(ta);
-  return ok;
-};
-
-const handleBatchCopy = () => {
-  if (selectedImages.value.length === 0) {
-    Message.warning('请选择要复制的图片');
-    return;
-  }
-  const selectedImageList = images.value.filter(img => selectedImages.value.includes(img.id));
-  if (selectedImageList.length === 0) {
-    Message.warning('未找到选中的图片');
-    return;
-  }
-
-  const generateText = (format) => {
-    return selectedImageList.map(img => {
-      const url = getFullUrl(img.url);
-      switch (format) {
-        case 'url': return url;
-        case 'markdown': return `![${img.filename}](${url})`;
-        case 'html': return `<img src="${url}" alt="${img.filename}">`;
-        case 'bbcode': return `[img]${url}[/img]`;
-        default: return url;
-      }
-    }).join('\n');
-  };
-
-  const formatLabels = {
-    url: 'URL 链接',
-    markdown: 'Markdown',
-    html: 'HTML',
-    bbcode: 'BBCode'
-  };
-
-  window._batchCopyGenerate = generateText;
-
-  const modal = new PopupModal({
-    title: `批量复制（${selectedImageList.length} 张图片）`,
-    content: `
-      <div class="space-y-3">
-        <p class="text-sm text-secondary">选择要复制的格式：</p>
-        <div class="space-y-2" id="batchCopyFormatList">
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-primary bg-primary/5 dark:bg-primary/10 cursor-pointer transition-colors batch-copy-option" data-format="url">
-            <input type="radio" name="batchCopyFormat" value="url" checked class="h-4 w-4 text-primary shrink-0">
-            <div class="min-w-0">
-              <div class="text-sm font-medium">URL 链接</div>
-              <div class="text-xs text-secondary mt-0.5">每行一个图片直链地址</div>
-            </div>
-          </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-white/10 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-colors batch-copy-option" data-format="markdown">
-            <input type="radio" name="batchCopyFormat" value="markdown" class="h-4 w-4 text-primary shrink-0">
-            <div class="min-w-0">
-              <div class="text-sm font-medium">Markdown</div>
-              <div class="text-xs text-secondary mt-0.5">![filename](url) 格式，适用于 Markdown 编辑器</div>
-            </div>
-          </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-white/10 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-colors batch-copy-option" data-format="html">
-            <input type="radio" name="batchCopyFormat" value="html" class="h-4 w-4 text-primary shrink-0">
-            <div class="min-w-0">
-              <div class="text-sm font-medium">HTML</div>
-              <div class="text-xs text-secondary mt-0.5">&lt;img src="url" alt="filename"&gt; 格式</div>
-            </div>
-          </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-white/10 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-colors batch-copy-option" data-format="bbcode">
-            <input type="radio" name="batchCopyFormat" value="bbcode" class="h-4 w-4 text-primary shrink-0">
-            <div class="min-w-0">
-              <div class="text-sm font-medium">BBCode</div>
-              <div class="text-xs text-secondary mt-0.5">[img]url[/img] 格式，适用于论坛</div>
-            </div>
-          </label>
-        </div>
-        <div class="mt-3 p-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200/50 dark:border-white/5">
-          <label class="flex items-center gap-2 cursor-pointer mb-2">
-            <input type="checkbox" id="batchCopyPreview" class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary">
-            <span class="text-sm font-medium">预览内容</span>
-          </label>
-          <pre id="batchCopyPreviewContent" class="hidden text-xs text-secondary overflow-auto max-h-40 whitespace-pre-wrap break-all bg-white dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-white/10 font-mono"></pre>
-        </div>
-      </div>
-    `,
-    buttons: [
-      {
-        text: '取消',
-        type: 'default',
-        callback: (m) => {
-          m.close();
-          delete window._batchCopyGenerate;
-        }
-      },
-      {
-        text: '复制到剪贴板',
-        type: 'primary',
-        callback: (m) => {
-          const format = m.content?.querySelector('input[name="batchCopyFormat"]:checked')?.value || 'url';
-          const genFn = window._batchCopyGenerate;
-          if (typeof genFn !== 'function') {
-            Message.error('复制功能异常，请重试');
-            return;
-          }
-          const text = genFn(format);
-          copyToClipboard(text).then(ok => {
-            if (ok) {
-              Message.success(`已复制 ${selectedImageList.length} 张图片的${formatLabels[format]}格式`);
-              m.close();
-              delete window._batchCopyGenerate;
-            } else {
-              Message.error('复制失败，请手动复制');
-            }
-          });
-        }
-      }
-    ],
-    maskClose: true
-  });
-  modal.open();
-
-  requestAnimationFrame(() => {
-    const container = modal.content;
-    if (!container) return;
-
-    container.querySelectorAll('input[name="batchCopyFormat"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        const selected = container.querySelector('input[name="batchCopyFormat"]:checked')?.value || 'url';
-        container.querySelectorAll('.batch-copy-option').forEach(el => {
-          if (el.dataset.format === selected) {
-            el.classList.add('border-primary', 'bg-primary/5', 'dark:bg-primary/10');
-            el.classList.remove('border-slate-200', 'dark:border-white/10');
-          } else {
-            el.classList.remove('border-primary', 'bg-primary/5', 'dark:bg-primary/10');
-            el.classList.add('border-slate-200', 'dark:border-white/10');
-          }
-        });
-        const checkbox = container.querySelector('#batchCopyPreview');
-        const preview = container.querySelector('#batchCopyPreviewContent');
-        if (checkbox?.checked && preview && typeof window._batchCopyGenerate === 'function') {
-          preview.textContent = window._batchCopyGenerate(selected);
-        }
-      });
-    });
-
-    const checkbox = container.querySelector('#batchCopyPreview');
-    const preview = container.querySelector('#batchCopyPreviewContent');
-    checkbox?.addEventListener('change', () => {
-      if (checkbox.checked) {
-        const format = container.querySelector('input[name="batchCopyFormat"]:checked')?.value || 'url';
-        if (typeof window._batchCopyGenerate === 'function') {
-          preview.textContent = window._batchCopyGenerate(format);
-        }
-        preview.classList.remove('hidden');
-      } else {
-        preview.classList.add('hidden');
-      }
-    });
-  });
-};
-
-const handleImageLoad = (e) => {
-  e.target.classList.remove('opacity-0');
-  const loadingEl = e.target.parentElement.querySelector('.loading');
-  if (loadingEl) loadingEl.classList.add('hidden');
-};
-
-const handleImageError = (e) => {
-  e.target.src = errorImg;
-  const loadingEl = e.target.parentElement.querySelector('.loading');
-  if (loadingEl) loadingEl.classList.add('hidden');
-};
-
-const openPreview = (image) => {
-  currentPreviewImage.value = image;
-  const previewContent = generatePreviewContent(image);
-  const customModal = new PopupModal({
-    title: image.filename,
-    content: previewContent,
-    type: 'default',
-    buttons: [
-      {
-        text: '确定',
-        type: 'default',
-        callback: (modal) => {
-          modal.close();
-          cleanPreviewGlobalFunctions();
-        }
-      }
-    ],
-    maskClose: true,
-    zIndex: 10000,
-    maxHeight: '90vh'
-  });
-  registerPreviewGlobalFunctions(customModal, image.id);
-  customModal.open();
-};
-
-const generatePreviewContent = (image) => {
-  const roleClass = image.user_id == '1'
-    ? 'background-color: #e0f2fe; color: #0369a1; dark:background-color: #075985; dark:color: #bae6fd;'
-    : 'background-color: #dcfce7; color: #166534; dark:background-color: #14532d; dark:color: #bbf7d0;';
-  const syncSummary = getStorageSyncSummary(image);
-  const tagsHtml = image.tags?.map(tag => `
-    <div class="px-2 py-0.5 rounded bg-primary/10 dark:bg-primary/20 text-primary text-xs" data-tag-id="${tag.id}" data-image-id="${image.id}">
-      <span>${tag.name}</span>
-      <button
-        onclick="window.deleteImageTag(event, ${image.id}, ${tag.id})"
-        class="ml-1 text-primary/70 hover:text-primary/30">
-        <i class="ri-close-line text-xs"></i>
-      </button>
-    </div>
-  `).join('') || '';
-  const headerStorageHtml = multiStorageSync.value ? `
-    <span class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${syncSummary.badgeClass}">
-      <i class="${syncSummary.icon}"></i>${syncSummary.label}
-    </span>
-  ` : `
-    <span class="rounded bg-success px-2 py-0.5 text-xs text-white">
-      ${presetBuckets.value.find(bucket => bucket.id == image.bucket_id)?.name || '未知存储'}
-    </span>
-  `;
-  const syncStatusHtml = multiStorageSync.value ? `
-    <div class="mt-3 border-t border-slate-200/70 pt-3 dark:border-white/10">
-      <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
-        <i class="ri-cloud-line"></i>存储同步状态
-      </div>
-      <div class="grid gap-2 sm:grid-cols-2">
-        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-          <div class="flex items-center justify-between gap-2 text-xs">
-            <span class="font-medium text-emerald-800 dark:text-emerald-200">本机</span>
-            <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
-          </div>
-        </div>
-        ${renderStorageStatusesHtml(image)}
-      </div>
-    </div>
-  ` : '';
-  const legacyStorageHtml = !multiStorageSync.value ? `
-    <div class="flex items-center gap-1.5">
-      <i class="ri-hard-drive-3-line"></i>
-      存储: ${STORAGE_MAP[image.storage] || image.storage || '未知'}
-    </div>
-  ` : '';
-
-  return `
-    <div class="image-preview-popup w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden bg-white dark:bg-dark-200">
-      <div class="preview-header bg-light-50 pb-2 flex justify-between items-center">
-        <div class="flex items-center gap-2">
-          <span class="text-xs px-2 py-0.5 rounded" style="${roleClass}">
-            ${image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }
-          </span>
-          ${headerStorageHtml}
-        </div>
-        <div class="flex gap-1">
-          <button
-            class="px-3 py-1.5 text-xs bg-light-100 dark:bg-dark-300 hover:bg-light-200 whitespace-nowrap dark:hover:bg-dark-400 text-secondary rounded-md transition-colors duration-200 flex items-center gap-1"
-            onclick="event.stopPropagation(); window.downloadPreviewImage()"
-          >
-            <i class="ri-download-fill text-xs"></i>
-            下载
-          </button>
-          <button
-            class="px-3 py-1.5 text-xs bg-danger/10 hover:bg-danger/20 whitespace-nowrap text-danger rounded-md transition-colors duration-200 flex items-center gap-1"
-            onclick="event.stopPropagation(); window.deletePreviewImage(${image.id})"
-          >
-            <i class="ri-delete-bin-fill text-xs"></i>
-            删除
-          </button>
-        </div>
-      </div>
-      <div class="max-h-[360px] flex-1 overflow-auto flex items-center justify-center">
-        <a
-          class="spotlight min-w-full max-w-full min-h-[260px] block"
-          href="${getFullUrl(image.url)}"
-          data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客')}"
-        >
-          <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden animate-pulse flex items-center justify-center">
-            <div class="absolute inset-0 flex items-center justify-center">
-              <svg class="w-10 h-10 text-slate-300 animate-spin loading-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </div>
-            <img
-              src="${getFullUrl(image.url)}"
-              alt="${image.filename}"
-              class="max-w-full w-fill max-h-[360px] min-h-[260px] object-contain rounded-lg relative z-10 opacity-0 transition-opacity duration-300"
-              onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse'); this.parentElement.querySelector('.loading-svg').classList.add('hidden');"
-              onerror="this.parentElement.classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.src='${errorImg}';"
-            />
-          </div>
-        </a>
-      </div>
-      <div class="flex gap-1 flex-wrap items-center w-full mt-3 mb-3">
-        <p class="mr-1 text-xs text-secondary font-semibold">复制：</p>
-        <button
-          onclick="window.copyPreviewImageLink('url')"
-          class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-          <i class="ri-link text-xs w-4 text-center text-white"></i> URL
-        </button>
-        <button
-          onclick="window.copyPreviewImageLink('html')"
-          class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-          <i class="ri-code-fill text-xs w-4 text-center text-white"></i> HTML
-        </button>
-        <button
-          onclick="window.copyPreviewImageLink('markdown')"
-          class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-          <i class="ri-markdown-fill text-xs w-4 text-center text-white"></i> Markdown
-        </button>
-      </div>
-      <div class="pt-2 flex flex-wrap gap-2 items-center">
-        <p class="mr-1 text-xs text-secondary font-semibold">Tags：</p>
-        ${tagsHtml}
-        <button
-          onclick="window.addImageTag(${image.id})"
-          class="flex items-center px-2 py-1 bg-success/10 dark:bg-success/20 text-success rounded-full text-xs hover:text-success/30 transition-colors">
-          <i class="ri-add-line"></i>
-        </button>
-      </div>
-      ${syncStatusHtml}
-      <div class="pt-2 flex flex-wrap gap-2 text-xs text-secondary">
-        <div class="flex items-center gap-1.5">
-          <i class="ri-ruler-line w-3.5 text-center"></i>
-          尺寸: ${image.width || '未知'}×${image.height || '未知'}
-        </div>
-        <div class="flex items-center gap-1.5">
-          <i class="ri-image-line w-3.5 text-center"></i>
-          大小: ${formatFileSize(image.file_size || 0)}
-        </div>
-        ${legacyStorageHtml}
-        <div class="flex items-center gap-1.5">
-          <i class="ri-user-line"></i>
-          角色: ${image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客')}
-        </div>
-      </div>
-    </div>
-  `;
-};
-
-/**
- * 清理预览相关资源
- */
-const cleanupPreview = () => {
-  // 清理全局函数
-  window.copyPreviewImageLink = null;
-  window.downloadPreviewImage = null;
-  window.deletePreviewImage = null;
-  window.closePreviewModal = null;
-};
-const registerPreviewGlobalFunctions = (modal, imageId) => {
-  window.copyPreviewImageLink = (type) => {
-    if (!currentPreviewImage.value) return;
-    const image = currentPreviewImage.value;
-    const fullUrl = getFullUrl(image.url);
-    let copyText = '';
-    switch (type) {
-      case 'url': copyText = fullUrl; break;
-      case 'html': copyText = `<img src="${fullUrl}" alt="${image.filename}">`; break;
-      case 'markdown': copyText = `![${image.filename}](${fullUrl})`; break;
-      default: copyText = fullUrl;
-    }
-    copyToClipboard(copyText).then(ok => {
-      if (ok) {
-        Message.success('已复制到剪贴板');
-      } else {
-        Message.error('复制失败');
-      }
-    });
-  };
-
-  window.downloadPreviewImage = () => {
-    if (!currentPreviewImage.value) return;
-    const a = document.createElement('a');
-    a.href = getFullUrl(currentPreviewImage.value.url);
-    a.download = currentPreviewImage.value.filename || 'image';
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  window.deletePreviewImage = (id) => {
-    closePreviewModal();
-    const modal = new PopupModal({
-      title: '删除确认',
-      content: `
-        <div class="flex gap-3">
-          <i class="fa fa-exclamation-triangle text-warning text-xl mt-1"></i>
-          <div>
-            <p>确定要删除这张图片吗？</p>
-            <p class="mt-1 text-secondary text-sm">删除后无法恢复</p>
-          </div>
-        </div>
-      `,
-      buttons: [
-        {
-          text: '取消',
-          type: 'default',
-          callback: (m) => {
-            m.close();
-            const image = images.value.find(item => item.id === id);
-            openPreview(image);
-          }
-        },
-        {
-          text: '确认删除',
-          type: 'danger',
-          callback: async (m) => {
-            m.close();
-            await deleteAsync(id);
-          }
-        }
-      ],
-      maskClose: true
-    });
-    modal.open();
-  };
-
-  window.deleteImageTag = (event, imageId, tagId) => {
-    if (tagId == 0) {
-      Message.warning('默认标签不能删除');
-      return;
-    }
-    event.stopPropagation();
-    deleteImageTagAsync(imageId, tagId).then(success => {
-      if (success) {
-        const tagEl = event.target.closest(`[data-tag-id="${tagId}"]`);
-        const image = images.value.find(item => item.id === imageId);
-        if (image) {
-          image.tags = image.tags.filter(item => item.id !== tagId);
-          if (image.tags.length === 0) {
-            image.tags.push({ id: 0, name: '默认' });
-            if (tagEl){
-              tagEl.innerHTML = `
-                <span>默认</span>
-                <button onclick="window.deleteImageTag(event, ${imageId}, 0)" class="ml-1 text-primary/70 hover:text-primary/30">
-                  <i class="ri-close-line text-xs"></i>
-                </button>
-              `;
-              tagEl.setAttribute('data-tag-id', '0');
-            }
-          } else {
-            if (tagEl) tagEl.remove();
-          }
-          currentPreviewImage.value = image;
-        }
-      }
-    });
-  };
-
-  window.closePreviewModal = () => {
-    if (modal) {
-      modal.close();
-      cleanupPreview();
-    }
-  };
-
-  window.addImageTag = (imageId) => {
-    closePreviewModal();
-    const tagList = [{ value: "0", label: "请选择Tag", disabled: true }];
-    presetTags.value.forEach(tag => {
-      tagList.push({ value: tag.id, label: tag.name });
-    });
-    const modal = new showFormModal({
-      title: '添加Tag',
-      formFields: [
-        {
-          name: 'tag',
-          label: 'Tag标签',
-          type: 'select',
-          required: true,
-          defaultValue: "0",
-          options: tagList
-        },
-      ],
-      buttons: [
-        {
-          text: '取消',
-          type: 'default',
-          callback: (m) => {
-            m.close();
-            const image = images.value.find(item => item.id === imageId);
-            openPreview(image);
-          }
-        },
-        {
-          text: '添加',
-          type: 'primary',
-          callback: (m) => {
-            const formData = serializeForm(m);
-            pustImageTag(imageId, formData);
-            m.close();
-          }
-        }
-      ]
-    });
-    modal.open();
-  };
-};
-
-const cleanPreviewGlobalFunctions = () => {
-  delete window.copyPreviewImageLink;
-  delete window.downloadPreviewImage;
-  delete window.deletePreviewImage;
-  delete window.deleteImageTag;
-  delete window.addImageTag;
-};
+const { openPreview, cleanupPreview } = createGalleryPreviewActions({ API_BASE_URL, images, presetTags, presetBuckets,
+  currentPreviewImage, multiStorageSync, errorImg, formatFileSize, formatDate, getFullUrl, deleteAsync, serializeForm });
 
 onMounted(async () => {
   const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-  if (userInfo?.role === 1) {
+  if (Number(userInfo?.role) === 1) {
     isAdmin.value = true;
-  } else {
-    roleImage.value = userInfo?.role == 2 ? "guest" : (userInfo?.role == 3 ? "user": "guest");
   }
-  await Promise.all([getTagsList(), getBucketsList(), getStorageMode()]);
-  await loadImages();
+  // Listing is independent of upload/storage/tag metadata. A slow auxiliary
+  // request must never hold the gallery empty, especially on mobile networks.
+  void loadImages();
+  void Promise.allSettled([getTagsList(), getBucketsList(), getStorageMode()]);
 });
 
 onUnmounted(() => {
+  disposed = true;
+  imageRequests.dispose();
+  clearTimeout(searchTimer);
   if (syncPollTimer) {
     clearTimeout(syncPollTimer);
     syncPollTimer = null;
   }
-  cleanPreviewGlobalFunctions();
-  delete window._batchCopyGenerate;
+  cleanupPreview();
+  disposeAccessDialogs();
+  disposeBatchDialogs();
+  disposeViewDialogs();
 });
 </script>
+
+<style scoped>
+.gallery-browser { min-width:0; }
+.gallery-primary-button { display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:.55rem .85rem; border-radius:.55rem; font-size:.875rem; font-weight:500; color:white; background:#2563eb; }
+.gallery-primary-button:hover { background:#1d4ed8; }
+.gallery-primary-button:disabled { opacity:.45; cursor:not-allowed; }
+.gallery-searchbar { display:flex; flex-wrap:wrap; gap:.65rem; }
+.gallery-search { display:flex; align-items:center; gap:.5rem; min-width:0; flex:1 1 16rem; border:1px solid #e2e8f0; border-radius:.55rem; padding:0 .65rem; }
+.gallery-search input { width:100%; min-width:0; background:transparent; padding:.6rem 0; font-size:.875rem; outline:none; }
+.gallery-search:focus-within { outline:2px solid rgb(59 130 246 / .5); }
+.gallery-search button { font-size:.75rem; color:#2563eb; flex-shrink:0; }
+.gallery-sort-controls { display:flex; align-items:center; gap:.5rem; min-width:0; }
+.gallery-sort-controls select { width:auto; min-width:7rem; padding:.55rem .65rem; }
+.gallery-view-toggle { display:flex; padding:.15rem; border:1px solid #e2e8f0; border-radius:.5rem; }
+.gallery-view-toggle button { width:2.1rem; height:2.1rem; border-radius:.3rem; color:#64748b; }
+.gallery-view-toggle button[aria-pressed="true"] { background:rgb(59 130 246 / .1); color:#2563eb; }
+.gallery-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); align-items:start; gap:.8rem; border-top:1px solid rgb(148 163 184 / .2); padding-top:.85rem; }
+.gallery-tags-filter,.gallery-role-filter { grid-column:1 / -1; }
+.gallery-location { display:flex; justify-content:space-between; align-items:center; gap:1rem; border-bottom:1px solid rgb(148 163 184 / .2); padding:.3rem 0 .85rem; margin-bottom:.85rem; }
+.gallery-location > button { flex-shrink:0; }
+.gallery-breadcrumb-root { display:flex; align-items:center; gap:.4rem; color:#2563eb; white-space:nowrap; }
+.gallery-selection-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.85rem; font-size:.75rem; color:#64748b; padding:0 0 .85rem; }
+.gallery-list-heading { display:flex; gap:.75rem; padding:.65rem .75rem; border-radius:.4rem; background:rgb(148 163 184 / .08); font-size:.75rem; color:#64748b; }
+.gallery-list-heading > :first-child { flex:1; }
+.gallery-list-heading > :nth-child(2) { display:none; width:11rem; }
+.gallery-list-heading > :last-child { width:2.25rem; }
+.gallery-grid-layout { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; }
+.gallery-folders.gallery-grid-layout { padding-bottom:.65rem; }
+.gallery-page-button { display:grid; place-items:center; width:2.25rem; height:2.25rem; border:1px solid rgb(148 163 184 / .25); border-radius:.4rem; font-size:.875rem; }
+.gallery-page-button[aria-current="page"] { color:white; background:#2563eb; border-color:#2563eb; }
+button:focus-visible,a:focus-visible { outline:2px solid #3b82f6; outline-offset:2px; }
+:global(.dark) .gallery-search,:global(.dark) .gallery-view-toggle { border-color:rgb(255 255 255 / .1); }
+:global(.dark) .gallery-selection-bar,:global(.dark) .gallery-list-heading { color:#94a3b8; }
+:global(.dark) .gallery-breadcrumb-root,:global(.dark) .gallery-search button,:global(.dark) .gallery-view-toggle button[aria-pressed="true"] { color:#60a5fa; }
+@media (min-width:640px) { .gallery-grid-layout { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:768px) { .gallery-list-heading > :nth-child(2) { display:block; } }
+@media (min-width:1280px) { .gallery-grid-layout { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (min-width:1536px) { .gallery-grid-layout { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+@media (max-width:480px) { .gallery-sort-controls { width:100%; } .gallery-sort-controls select { flex:1; } .gallery-filters { grid-template-columns:minmax(0,1fr); } .gallery-location { gap:.5rem; } }
+</style>

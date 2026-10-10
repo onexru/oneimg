@@ -1,12 +1,15 @@
 package controllers
 
 import (
-	"crypto/rand"
-	"encoding/json"
-	"fmt"
-	"io"
+	"context"
+	"errors"
 	"net/http"
 	"oneimg/backend/config"
+	"oneimg/backend/middlewares"
+	"oneimg/backend/utils/authsecurity"
+	"oneimg/backend/utils/powverify"
+	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/uploadpolicy"
 	"strings"
 	"time"
 
@@ -17,12 +20,13 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // LoginRequest 登录请求体。
 type LoginRequest struct {
-	Username           string         `json:"username" binding:"required"`
-	Password           string         `json:"password" binding:"required"`
+	Username           string         `json:"username" binding:"required,max=64"`
+	Password           string         `json:"password" binding:"required,max=72"`
 	PowToken           string         `json:"powToken"`
 	TurnstileToken     string         `json:"turnstileToken"`
 	CapToken           string         `json:"capToken"`
@@ -31,28 +35,29 @@ type LoginRequest struct {
 	StableFeatures     map[string]any `json:"stableFeatures"`
 }
 
-// LoginResponse 登录响应体（兼容旧字段）。
+// LoginResponse contains no session bearer material.
 type LoginResponse struct {
-	Token string       `json:"token,omitempty"`
-	User  *models.User `json:"user,omitempty"`
+	User *models.User `json:"user,omitempty"`
 }
 
-// Login 处理账号密码登录；开启游客时支持指纹/UUID 游客会话。
+// Login uses cookie sessions; guest fingerprints are compatibility markers, never credentials.
 func Login(c *gin.Context) {
+	db := database.GetDB()
+	if db == nil || db.DB == nil {
+		c.JSON(503, result.Error(503, "数据库连接失败"))
+		return
+	}
+	loginDB(c, db.DB)
+}
+func loginDB(c *gin.Context, db *gorm.DB) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, "请求参数错误"))
 		return
 	}
 
-	db := database.GetDB()
-	if db == nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "数据库连接失败"))
-		return
-	}
-
 	var settings models.Settings
-	sqlResult := db.DB.First(&settings)
+	sqlResult := db.Where("id = ?", 1).First(&settings)
 	if sqlResult.Error != nil {
 		if strings.Contains(sqlResult.Error.Error(), "record not found") {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "系统配置未初始化"))
@@ -64,109 +69,76 @@ func Login(c *gin.Context) {
 
 	if ok, errMsg, fallback := verifyHuman(c, settings, req.PowToken, req.TurnstileToken, req.CapToken); !ok {
 		if fallback != "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    400,
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
 				"message": errMsg,
 				"data":    gin.H{"verify_fallback": fallback},
 			})
 			return
 		}
-		c.JSON(http.StatusBadRequest, result.Error(400, errMsg))
+		c.JSON(http.StatusForbidden, result.Error(403, errMsg))
 		return
 	}
 
-	// 游客：指纹 UUID / guest_ 前缀 / 固定 guest
-	if settings.Tourist {
-		isTourist := len(req.TouristFingerprint) == 36 ||
-			strings.HasPrefix(req.Username, "guest_") ||
-			req.Username == "guest"
-
-		if isTourist {
-			touristUUID := req.TouristFingerprint
-			if touristUUID == "" {
-				touristUUID = req.Username
-				if touristUUID == "guest" {
-					touristUUID = generateRandomUUID()
-				}
-			}
-
-			touristID := int(generateTouristID(touristUUID))
-			touristUser := &models.User{
-				ID:       touristID,
-				Role:     models.RoleGuest,
-				Username: touristUUID,
-			}
-
-			session, err := SetSession(c, touristUser)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, result.Error(500, "游客登录失败："+err.Error()))
-				return
-			}
-
-			c.JSON(http.StatusOK, result.Success("游客登录成功", map[string]any{
-				"token": session.ID(),
-				"user": &models.User{
-					ID:       touristUser.ID,
-					Role:     models.RoleGuest,
-					Username: touristUser.Username,
-				},
-			}))
+	// A guest request may retain the old frontend's marker fields, but none of
+	// those fields are accepted as proof of identity or as an ownership key.
+	isGuestRequest := req.Username == "guest" || strings.HasPrefix(req.Username, "guest_") || req.TouristFingerprint != ""
+	if isGuestRequest {
+		if !settings.Tourist {
+			c.JSON(403, result.Error(403, "游客模式未开启"))
 			return
 		}
+		credential, _ := c.Cookie(authsecurity.GuestCookie)
+		guest, raw, recovered, err := authsecurity.RecoverGuest(db, credential)
+		if err != nil || guest.ID <= 0 || guest.ID > 2147483647 {
+			c.JSON(500, result.Error(500, "游客身份创建失败"))
+			return
+		}
+		http.SetCookie(c.Writer, &http.Cookie{Name: authsecurity.GuestCookie, Value: raw, Path: "/", HttpOnly: true,
+			Secure:   config.App != nil && strings.HasPrefix(strings.ToLower(config.App.AppURL), "https://"),
+			SameSite: http.SameSiteLaxMode, MaxAge: int(authsecurity.GuestLifetime.Seconds()), Expires: time.Now().Add(authsecurity.GuestLifetime)})
+		guestUser := &models.User{ID: -guest.ID, Role: models.RoleGuest, Username: guest.OwnerKey}
+		if _, err := SetSession(c, guestUser); err != nil {
+			return
+		}
+		c.JSON(200, result.Success("游客登录成功", gin.H{"user": guestUser, "guest_recovered": recovered,
+			"guest_notice": "游客身份由本浏览器的安全 Cookie 保存；清除此 Cookie 将无法恢复历史图片。旧指纹不能用于认领图片。"}))
+		return
 	}
 
 	var user models.User
-	userInfo := db.DB.Where("username = ?", req.Username).First(&user)
+	userInfo := db.Where("username = ?", req.Username).First(&user)
 	if userInfo.Error != nil {
-		c.JSON(http.StatusBadRequest, result.Error(401, "用户名或密码错误"))
+		c.JSON(http.StatusUnauthorized, result.Error(401, "用户名或密码错误"))
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusBadRequest, result.Error(401, "用户名或密码错误"))
+		c.JSON(http.StatusUnauthorized, result.Error(401, "用户名或密码错误"))
 		return
 	}
 
-	session, err := SetSession(c, &user)
+	_, err := SetSession(c, &user)
 	if err != nil {
 		return
 	}
+	recordAccountLogin(c, db, user.ID, authsecurity.LoginMethodPassword)
 
 	user.Password = ""
 	c.JSON(http.StatusOK, result.Success("登录成功", map[string]any{
-		"token": session.ID(),
-		"user":  user,
+		"user": user,
 	}))
-}
-
-// generateTouristID 由 UUID 派生稳定游客数字 ID（避开 1 号超管）。
-func generateTouristID(uuid string) uint {
-	var id uint = 2
-	for _, c := range uuid {
-		id = id*31 + uint(c)
-	}
-	if id <= 2 {
-		id += 100000
-	}
-	return id
-}
-
-// generateRandomUUID 生成 UUID v4。
-func generateRandomUUID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "guest_" + time.Now().Format("20060102150405.000000000")
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // SetSession 写入用户会话并返回 session 对象。
 func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 	session, err := saveUserSession(c, user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "session保存失败："+err.Error()))
+		if errors.Is(err, middlewares.ErrSessionRevoked) {
+			c.JSON(401, result.Error(401, "会话已撤销，请重新登录"))
+			return nil, err
+		}
+		c.JSON(http.StatusInternalServerError, result.Error(500, "会话创建失败，请稍后重试"))
 		return nil, err
 	}
 	return session, nil
@@ -175,6 +147,15 @@ func SetSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 // saveUserSession 仅保存会话，由调用方决定 JSON 或重定向响应。
 func saveUserSession(c *gin.Context, user *models.User) (sessions.Session, error) {
 	session := sessions.Default(c)
+	epoch := session.Get("_epoch")
+	reissue := session.Get("_reissue")
+	session.Clear()
+	if reissue == true {
+		session.Set("_reissue", true)
+	}
+	session.Set("_epoch", epoch)
+	session.Set("_rotate", true)
+	session.Set("auth_version", user.AuthVersion)
 	session.Set("user_id", user.ID)
 	session.Set("user_role", user.Role)
 	session.Set("username", user.Username)
@@ -182,8 +163,8 @@ func saveUserSession(c *gin.Context, user *models.User) (sessions.Session, error
 	session.Options(sessions.Options{
 		MaxAge:   24 * 60 * 60,
 		HttpOnly: true,
-		Secure:   strings.HasPrefix(strings.ToLower(config.App.AppURL), "https://"),
-		SameSite: http.SameSiteStrictMode,
+		Secure:   config.App != nil && strings.HasPrefix(strings.ToLower(config.App.AppURL), "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 	if err := session.Save(); err != nil {
@@ -192,63 +173,26 @@ func saveUserSession(c *gin.Context, user *models.User) (sessions.Session, error
 	return session, nil
 }
 
-// ValidatePowToken 向 PoW 服务校验 token。
+// ValidatePowToken retains the legacy Go contract; HTTP request paths pass
+// their cancellation context and the already-loaded settings instead.
 func ValidatePowToken(token string) bool {
-	if token == "" {
-		return false
-	}
-
-	type reqBody struct {
-		Token string `json:"token"`
-	}
-	body, err := json.Marshal(reqBody{Token: token})
+	s, err := settings.GetSettings()
 	if err != nil {
 		return false
 	}
-
-	req, err := http.NewRequest("POST", "https://cha.eta.im/api/validate", strings.NewReader(string(body)))
-	if err != nil {
+	return ValidatePowTokenWithSettings(context.Background(), s, token)
+}
+func ValidatePowTokenWithSettings(ctx context.Context, s models.Settings, token string) bool {
+	if s.PowLocalFallback {
 		return false
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			DisableCompression: true,
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false
-	}
-	var validationResp struct {
-		Success bool `json:"success"`
-	}
-	if err := json.Unmarshal(respBody, &validationResp); err != nil {
-		return false
-	}
-	return validationResp.Success
+	return powverify.Validate(ctx, uploadpolicy.PowURL(s), token, time.Duration(uploadpolicy.PowTimeoutSeconds(s))*time.Second)
 }
 
 // Logout 清除当前会话。
 func Logout(c *gin.Context) {
-	session := sessions.Default(c)
-	session.Clear()
-	if err := session.Save(); err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "退出登录失败"))
+	if err := middlewares.DeleteCurrentSession(c); err != nil {
+		c.JSON(500, result.Error(500, "退出登录失败"))
 		return
 	}
 	c.JSON(http.StatusOK, result.Success("退出登录成功", nil))

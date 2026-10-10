@@ -20,12 +20,14 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	_ "golang.org/x/image/webp"
 	"github.com/golang/freetype"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/math/fixed"
 )
 
 var frontendFS fs.FS
+var processingSlots = make(chan struct{}, 2)
 
 // WatermarkConfig 水印配置（新增动态字体相关参数）
 type WatermarkConfig struct {
@@ -72,8 +74,8 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 	if watermark == "true" || watermark == "1" {
 		cfg.Enable = true
 
-		if text := c.Query("wm_text"); text != "" {
-			cfg.Text = text
+		if text := c.Query("wm_text"); text != "" && len([]rune(text)) <= 256 {
+			cfg.Text = string([]rune(text)[:min(len([]rune(text)), 256)])
 		}
 
 		if pos := c.Query("wm_pos"); pos != "" {
@@ -108,8 +110,8 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 		}
 
 		if minSizeStr := c.Query("wm_min_size"); minSizeStr != "" {
-			if minSize, err := strconv.Atoi(minSizeStr); err == nil && minSize > 0 {
-				cfg.MinFontSize = minSize
+			if minSize, err := strconv.Atoi(minSizeStr); err == nil && minSize > 0 && minSize <= 100 {
+				if minSize > 100 { minSize = 100 }; cfg.MinFontSize = minSize
 			}
 		}
 
@@ -137,9 +139,7 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 			}
 		}
 
-		if fontPath := c.Query("wm_font"); fontPath != "" {
-			cfg.FontPath = fontPath
-		}
+
 	}
 
 	return cfg
@@ -405,12 +405,17 @@ func ProcessImageWithWatermark(reader io.Reader, mimeType string, cfg WatermarkC
 		return reader, nil
 	}
 
-	buf, err := io.ReadAll(reader)
+	processingSlots <- struct{}{}
+	defer func(){ <-processingSlots }()
+	buf, err := io.ReadAll(io.LimitReader(reader, (32<<20)+1))
 	if err != nil {
 		log.Printf("读取图片数据失败: %v", err)
 		return nil, fmt.Errorf("读取图片数据失败: %v", err)
 	}
 
+	if len(buf) > 32<<20 { return nil, fmt.Errorf("图片超过水印处理限制") }
+	config, _, err := image.DecodeConfig(bytes.NewReader(buf))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 8192 || config.Height > 8192 || int64(config.Width)*int64(config.Height) > 16_000_000 { return nil, fmt.Errorf("图片尺寸超过水印处理限制") }
 	img, format, err := image.Decode(bytes.NewReader(buf))
 	if err != nil {
 		log.Printf("解码图片失败: %v", err)

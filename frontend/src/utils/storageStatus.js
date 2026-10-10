@@ -1,3 +1,5 @@
+import { escapeHtml } from './html.js'
+
 /**
  * 图片多存储同步状态展示工具。
  */
@@ -22,6 +24,10 @@ const STATUS_META = {
     label: '同步失败',
     icon: 'ri-error-warning-line',
     badgeClass: 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300',
+  },
+  deleting: {
+    label: '删除未完成', icon: 'ri-delete-bin-line',
+    badgeClass: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300',
   },
   unknown: {
     label: '状态未知',
@@ -50,7 +56,7 @@ const OVERALL_META = {
 export const getStorageStatuses = (image) => {
   if (!Array.isArray(image?.storage_statuses)) return []
   // 本机落盘在界面中单独展示，这里只返回需要跟踪的后台同步目标。
-  return image.storage_statuses.filter(item => item && item.bucket_type !== 'default')
+  return image.storage_statuses.filter(item => item && (image.deleting || item.bucket_type !== 'default'))
 }
 
 export const getStorageStatusMeta = (status) => {
@@ -68,6 +74,7 @@ export const hasActiveStorageSync = (image) => {
 }
 
 export const getStorageSyncSummary = (image) => {
+  if (image?.deleting) return { ...STATUS_META.deleting, status: 'deleting', total: getStorageStatuses(image).length, success: 0, failed: 0, active: 0 };
   const statuses = getStorageStatuses(image)
   if (statuses.length === 0) {
     return { ...OVERALL_META.local, status: 'local', total: 0, success: 0, failed: 0, active: 0 }
@@ -103,13 +110,6 @@ export const getStorageSyncSummary = (image) => {
   }
 }
 
-const escapeHtml = (value) => String(value ?? '')
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
-  .replaceAll("'", '&#039;')
-
 export const renderStorageStatusesHtml = (image, emptyText = '未配置远程同步源') => {
   const statuses = getStorageStatuses(image)
   if (statuses.length === 0) {
@@ -122,7 +122,7 @@ export const renderStorageStatusesHtml = (image, emptyText = '未配置远程同
 
   return statuses.map((storage) => {
     const meta = getStorageStatusMeta(storage.status)
-    const errorHtml = storage.status === 'failed' && storage.error
+    const errorHtml = (storage.status === 'failed' || storage.status === 'deleting') && storage.error
       ? `<p class="mt-1 break-words text-[11px] leading-4 text-red-600 dark:text-red-300" title="${escapeHtml(storage.error)}">${escapeHtml(storage.error)}</p>`
       : ''
 

@@ -2,31 +2,21 @@ package controllers
 
 import (
 	"errors"
-	"math/rand"
+	"fmt"
+	"gorm.io/gorm/clause"
 	"net/http"
+	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/uploadpolicy"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
-
-// 初始化随机数种子
-var randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-// randomOrderExpr 返回当前数据库方言的随机排序函数。
-// SQLite / PostgreSQL 使用 RANDOM()，MySQL 使用 RAND()。
-func randomOrderExpr(db *gorm.DB) string {
-	if db.Dialector.Name() == "mysql" {
-		return "RAND()"
-	}
-	return "RANDOM()"
-}
 
 // 定义返回的图片结构体
 type RandomImageResponse struct {
@@ -39,8 +29,8 @@ func GetRandomImages(c *gin.Context) {
 	model := c.DefaultQuery("model", "json")
 	limitStr := c.DefaultQuery("limit", "1")
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit < 1 || limit > 20 {
-		c.JSON(http.StatusBadRequest, result.Error(400, "limit参数错误，必须是1-20之间的整数"))
+	if err != nil || limit < 1 || limit > config.HardRandomImageLimit {
+		c.JSON(http.StatusBadRequest, result.Error(400, "limit参数错误，必须是1-100之间的整数"))
 		return
 	}
 
@@ -50,8 +40,22 @@ func GetRandomImages(c *gin.Context) {
 		return
 	}
 
+	if limit > uploadpolicy.RandomLimit(setting) {
+		c.JSON(400, result.Error(400, fmt.Sprintf("limit参数错误，必须是1-%d之间的整数", uploadpolicy.RandomLimit(setting))))
+		return
+	}
+	if model != "json" && model != "image" {
+		c.JSON(400, result.Error(400, "model参数错误，可选 json 或 image"))
+		return
+	}
+	if tag != "" {
+		if err := uploadpolicy.ValidateTag(setting, tag); err != nil {
+			c.JSON(400, result.Error(400, err.Error()))
+			return
+		}
+	}
 	if setting.RandomGraph == false {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "随机图功能未开启"))
+		c.JSON(http.StatusNotFound, result.Error(404, "随机图功能未开启"))
 		return
 	}
 
@@ -61,14 +65,13 @@ func GetRandomImages(c *gin.Context) {
 	if err = db.Model(&models.RandomGraph{}).Where("id = ?", 1).Take(&randomGraph).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			randomGraph = models.RandomGraph{ID: 1, UserIds: []int{}, TagIds: []int{}}
-		} else if strings.Contains(err.Error(), "cannot unmarshal") {
-			randomGraph = models.RandomGraph{ID: 1, UserIds: []int{}, TagIds: []int{}}
+
 		} else {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "获取随机图配置失败"))
 			return
 		}
 	}
-	query := db.Model(&models.Image{})
+	query := db.Model(&models.Image{}).Where("images.deleting = ?", false)
 	if len(randomGraph.UserIds) > 0 {
 		query = query.Where("images.user_id IN ?", randomGraph.UserIds)
 	}
@@ -100,8 +103,8 @@ func GetRandomImages(c *gin.Context) {
 		return
 	}
 
-	var images []models.Image
-	if err := query.Order(randomOrderExpr(db)).Limit(limit).Find(&images).Error; err != nil {
+	images, err := sampleRandomImages(query, total, limit)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "获取图片失败"))
 		return
 	}
@@ -113,7 +116,7 @@ func GetRandomImages(c *gin.Context) {
 
 	if model == "image" {
 		publicURL := images[0].Url
-		if images[0].AccessBucketId == 0 {
+		if images[0].AccessBucketId == 0 && !isHistoricalSVG(images[0], images[0].Url) {
 			publicURL = applyPublicImageURL(setting, images[0].Storage, images[0].BucketId, images[0].Url)
 		}
 		if strings.HasPrefix(publicURL, "http://") || strings.HasPrefix(publicURL, "https://") {
@@ -123,6 +126,7 @@ func GetRandomImages(c *gin.Context) {
 
 		originalPath := c.Request.URL.Path
 		originalRawPath := c.Request.URL.RawPath
+		defer func() { c.Request.URL.Path = originalPath; c.Request.URL.RawPath = originalRawPath }()
 		imageURL := ensureLeadingSlash(images[0].Url)
 
 		c.Request.URL.Path = imageURL
@@ -138,7 +142,7 @@ func GetRandomImages(c *gin.Context) {
 
 	var respData []RandomImageResponse
 	for _, img := range images {
-		fullUrl := buildImageResponseURL(c, setting, img.Storage, img.BucketId, img.Url)
+		fullUrl := imagePublicResponseURL(c, setting, img)
 		respData = append(respData, RandomImageResponse{
 			Image: img.FileName,
 			Url:   fullUrl,
@@ -186,6 +190,7 @@ func applyRandomGraphTagFilter(query *gorm.DB, db *gorm.DB, tagIds []int) *gorm.
 
 // SetRandomGraph 设置随机图范围
 func SetRandomGraph(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
 	var req models.RandomGraph
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, "请求参数错误"))
@@ -193,20 +198,19 @@ func SetRandomGraph(c *gin.Context) {
 	}
 
 	db := database.GetDB().DB
-	var err error
-	if req.ID == 0 {
-		err = db.Create(&req).Error
-	} else {
-		err = db.Model(&models.RandomGraph{}).Where("id = ?", req.ID).
-			Select("UserIds", "TagIds").
-			Updates(models.RandomGraph{
-				UserIds: req.UserIds,
-				TagIds:  req.TagIds,
-			}).Error
-		if err == nil {
-			db.First(&req, req.ID)
+	// Singleton upsert is atomic; client IDs cannot create unread orphan config.
+	req.ID = 1
+	if len(req.UserIds) > 1000 || len(req.TagIds) > 1000 {
+		c.JSON(http.StatusBadRequest, result.Error(400, "范围过大"))
+		return
+	}
+	for _, id := range req.TagIds {
+		if id < 0 {
+			c.JSON(http.StatusBadRequest, result.Error(400, "标签ID无效"))
+			return
 		}
 	}
+	err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"user_ids", "tag_ids"})}).Create(&req).Error
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, result.Error(500, "设置随机图范围失败"))
@@ -224,8 +228,7 @@ func GetRandomGraph(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			randomGraph = models.RandomGraph{UserIds: []int{}, TagIds: []int{}}
-		} else if strings.Contains(err.Error(), "cannot unmarshal") {
-			randomGraph = models.RandomGraph{ID: 1, UserIds: []int{}, TagIds: []int{}}
+
 		} else {
 			c.JSON(http.StatusInternalServerError, result.Error(500, "获取随机图范围失败"))
 			return

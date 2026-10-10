@@ -1,12 +1,17 @@
 package app
 
 import (
+	"fmt"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"log"
+	"oneimg/backend/utils/settings"
 
 	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
 	"oneimg/backend/services"
+	"oneimg/backend/utils/authsecurity"
 	"oneimg/backend/utils/images"
 
 	"golang.org/x/crypto/bcrypt"
@@ -29,16 +34,36 @@ func Init() *System {
 	database.InitDB(cfg)
 	db := database.GetDB()
 
+	if err := InitializeDefaults(cfg, db.DB); err != nil {
+		log.Fatalf("默认数据初始化失败: %v", err)
+	}
+	if err := settings.MigrateSecrets(db.DB); err != nil {
+		log.Fatalf("敏感配置迁移失败: %v", err)
+	}
+	if err := authsecurity.EnsureState(db.DB); err != nil {
+		log.Fatalf("认证状态初始化失败: %v", err)
+	}
+	var storedSettings models.Settings
+	if err := db.DB.First(&storedSettings, 1).Error; err != nil {
+		log.Fatalf("认证配置读取失败: %v", err)
+	}
+	if err := authsecurity.EnrollLegacyToken(db.DB, storedSettings); err != nil {
+		log.Fatalf("旧 API 凭据迁移失败: %v", err)
+	}
+	if err := settings.RegisterInvalidation(db.DB); err != nil {
+		log.Fatalf("系统配置缓存初始化失败: %v", err)
+	}
 	images.InitImageService()
-	InitDefaultUser(cfg, db)
-	InitSettings(db)
-	InitDefaultStorage(db)
 
 	// 为旧图片补齐存储副本记录（幂等），再启动同步 worker。
 	if err := services.BackfillImageStorages(); err != nil {
-		log.Printf("图片存储副本回填失败: %v", err)
+		log.Fatalf("图片存储副本回填失败: %v", err)
+	}
+	if err := database.ReconcileLegacyBucketUsage(db.DB); err != nil {
+		log.Fatalf("历史存储容量核对失败: %v", err)
 	}
 	services.StartStorageSyncWorker()
+	services.StartDirectUploadWorker()
 
 	return &System{
 		Config:   cfg,
@@ -52,71 +77,85 @@ func hashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
-// InitDefaultUser 在空库时创建默认管理员。
-func InitDefaultUser(cfg *config.Config, db *database.Database) {
-	var count int64
-	db.DB.Model(&models.User{}).Count(&count)
-	if count > 0 {
-		log.Println("用户已存在，跳过默认用户初始化")
-		return
-	}
+// InitializeDefaults seeds only missing defaults in one transaction. It never
+// resets an existing settings row, storage configuration or image ownership.
+func InitializeDefaults(cfg *config.Config, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := initDefaultUser(cfg, tx); err != nil {
+			return err
+		}
+		if err := initSettings(tx); err != nil {
+			return err
+		}
+		if err := initDefaultStorage(tx); err != nil {
+			return err
+		}
+		return migrateLegacyData(tx)
+	})
+}
 
-	hashedPassword, err := hashPassword(cfg.DefaultPass)
+func initDefaultUser(cfg *config.Config, tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&models.User{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	initialPassword, err := config.InitialAdminPassword(cfg)
 	if err != nil {
-		log.Fatal("密码加密失败:", err)
+		return err
 	}
-
-	defaultUser := models.User{
-		Username: cfg.DefaultUser,
-		Role:     models.RoleAdmin,
-		Password: hashedPassword,
+	password, err := hashPassword(initialPassword)
+	if err != nil {
+		return err
 	}
-	if result := db.DB.Create(&defaultUser); result.Error != nil {
-		log.Fatal("创建默认用户失败:", result.Error)
+	return tx.Create(&models.User{Username: cfg.DefaultUser, Role: models.RoleAdmin, Password: password}).Error
+}
+func initSettings(tx *gorm.DB) error {
+	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&models.Settings{ID: 1}).Error
+}
+func initDefaultStorage(tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&models.Buckets{}).Where("type = ?", "default").Count(&count).Error; err != nil {
+		return err
 	}
-	log.Printf("默认用户创建成功 - 用户名: %s", defaultUser.Username)
+	if count > 0 {
+		return nil
+	}
+	var occupied int64
+	if err := tx.Model(&models.Buckets{}).Where("id = ?", 1).Count(&occupied).Error; err != nil {
+		return err
+	}
+	if occupied > 0 {
+		return fmt.Errorf("bucket ID=1 is occupied by nonlocal storage; refusing to overwrite")
+	}
+	storage := models.Buckets{Id: 1, Name: "本地默认存储", Type: "default", Capacity: 0, Config: map[string]any{"storagePath": config.UploadRoot()}, Usage: 0}
+	if err := tx.Create(&storage).Error; err != nil {
+		return err
+	}
+	return database.AdvanceBucketSequence(tx)
 }
 
-// InitDefaultStorage 在空库时创建本地默认存储桶，并执行版本迁移。
+// Compatibility entrypoints retain their names, but errors are never ignored.
+func InitDefaultUser(cfg *config.Config, db *database.Database) {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error { return initDefaultUser(cfg, tx) }); err != nil {
+		log.Fatal("默认用户初始化失败: ", err)
+	}
+}
 func InitDefaultStorage(db *database.Database) {
-	const storageType = "default"
-	const storagePath = "/uploads"
-
-	var count int64
-	db.DB.Model(&models.Buckets{}).Where("type = ?", storageType).Count(&count)
-	if count > 0 {
-		log.Println("存储配置已存在，跳过默认存储初始化")
-		return
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := initDefaultStorage(tx); err != nil {
+			return err
+		}
+		return migrateLegacyData(tx)
+	}); err != nil {
+		log.Fatal("默认存储初始化失败: ", err)
 	}
-
-	storage := models.Buckets{
-		Id:       1,
-		Name:     "本地默认存储",
-		Type:     storageType,
-		Capacity: 0,
-		Config: map[string]any{
-			"storagePath": storagePath,
-		},
-		Usage: 0,
-	}
-	if result := db.DB.Create(&storage); result.Error != nil {
-		log.Fatal("创建默认存储配置失败:", result.Error)
-	}
-	log.Printf("默认存储配置创建成功 - 类型: %s, 路径: %s", storage.Type, storagePath)
-
-	Migrate(db)
 }
-
-// InitSettings 在空库时创建默认系统设置行。
 func InitSettings(db *database.Database) {
-	var count int64
-	db.DB.Model(&models.Settings{}).Count(&count)
-	if count > 0 {
-		log.Println("系统配置已存在，跳过系统配置初始化")
-		return
+	if err := db.DB.Transaction(initSettings); err != nil {
+		log.Fatal("系统设置初始化失败: ", err)
 	}
-	if result := db.DB.Create(&models.Settings{}); result.Error != nil {
-		log.Fatal("创建系统配置失败:", result.Error)
-	}
-	log.Printf("系统配置创建成功")
+	settings.Invalidate()
 }

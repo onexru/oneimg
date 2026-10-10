@@ -2,6 +2,9 @@
  * 全局加载动画类
  * 支持静态调用、全局配置、多实例管理、自定义样式等
  */
+import { OVERLAY_LAYERS } from './overlay.js';
+import { FEEDBACK_STYLE, applyFeedbackStyles } from './feedbackStyles.js';
+
 class Loading {
   // 默认配置
   static defaults = {
@@ -10,7 +13,7 @@ class Loading {
     mask: true, // 是否显示遮罩层
     color: '#1677ff', // 加载动画主色调
     fullscreen: true, // 是否全屏显示
-    zIndex: 9999, // 层级
+    zIndex: OVERLAY_LAYERS.loading, // 层级
     container: document.body, // 默认挂载容器
     onShow: null, // 显示回调
     onHide: null // 隐藏回调
@@ -29,9 +32,9 @@ class Loading {
       alignItems: 'center',
       justifyContent: 'center',
       pointerEvents: 'none',
-      opacity: '0',
+      ...FEEDBACK_STYLE.hidden,
       transition: 'opacity 0.2s ease',
-      boxSizing: 'border-box'
+      ...FEEDBACK_STYLE.box
     },
     // 全屏样式
     fullscreen: {
@@ -149,14 +152,7 @@ class Loading {
    * @param {HTMLElement} el - 目标元素
    * @param {Object} styles - 样式对象
    */
-  static applyStyles(el, styles) {
-    if (!el) return;
-    Object.keys(styles).forEach(key => {
-        const cssKey = key.replace(/[A-Z]/g, match => `-${match.toLowerCase()}`);
-        el.style[cssKey] = styles[key];
-        el.style.setProperty(cssKey, styles[key]);
-    });
-  }
+  static applyStyles(el, styles) { applyFeedbackStyles(el, styles); }
 
   /**
    * 添加全局动画样式
@@ -249,7 +245,9 @@ class Loading {
     const loadingDom = document.createElement('div');
     loadingDom.dataset.className = config.className;
     loadingDom.dataset.fullscreen = config.fullscreen;
-    loadingDom.style.zIndex = config.zIndex;
+    loadingDom.style.zIndex = Math.max(OVERLAY_LAYERS.loading, config.zIndex || 0);
+    loadingDom.setAttribute('role', 'status');
+    loadingDom.setAttribute('aria-live', 'polite');
 
     // 应用基础样式
     this.applyStyles(loadingDom, this.styles.base);

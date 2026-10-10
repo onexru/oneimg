@@ -1,7 +1,10 @@
+import { applyFeedbackStyles } from './feedbackStyles.js';
+import { OVERLAY_LAYERS, activateDialog, nextDialogLayer } from './overlay.js';
+
 class PopupModal {
   constructor(options = {}) {
     this.defaults = {
-      id: `modal-${Date.now()}`,
+      id: `modal-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: '提示',
       content: '',
       type: 'default',
@@ -9,7 +12,7 @@ class PopupModal {
       showClose: true,
       mask: true,
       maskClose: true,
-      zIndex: 9999,
+      zIndex: nextDialogLayer(),
       buttons: [
         { text: '取消', type: 'default', callback: (modal) => modal.close() },
         { text: '确认', type: 'primary', callback: null }
@@ -35,7 +38,7 @@ class PopupModal {
 
   createElements() {
     const widthMap = {
-      sm: 'w-[300px]', md: 'w-[500px]', lg: 'w-[700px]', full: 'w-[90%]',
+      sm: ['w-[300px]'], md: ['w-[500px]'], lg: ['w-[700px]'], full: ['w-[90%]'],
       auto: ['w-[calc(100%-20px)]', 'min-w-[320px]', 'max-w-[500px]']
     };
 
@@ -49,6 +52,7 @@ class PopupModal {
     this.modal.id = this.config.id;
     this.modal.className = 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-95 opacity-0 transition-all duration-300 pointer-events-none rounded-xl bg-white dark:bg-dark-200 shadow-lg dark:shadow-dark-lg overflow-hidden';
     this.modal.style.zIndex = this.config.zIndex;
+    applyFeedbackStyles(this.modal, { maxWidth: 'calc(100vw - 20px)', minWidth: '0', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' });
     this.modal.classList.add(...(widthMap[this.config.width] || widthMap.auto));
 
     this.header = document.createElement('div');
@@ -56,12 +60,14 @@ class PopupModal {
     
     this.titleEl = document.createElement('h3');
     this.titleEl.className = 'font-semibold text-lg text-dark-300 dark:text-light-100 w-[50%] truncate';
-    this.titleEl.innerHTML = this.config.title;
+    this.titleEl.textContent = this.config.title;
+    this.titleEl.id = `${this.config.id}-title`;
     this.header.appendChild(this.titleEl);
 
     if (this.config.showClose) {
       this.closeBtn = document.createElement('button');
       this.closeBtn.type = 'button';
+      this.closeBtn.setAttribute('aria-label', '关闭弹窗');
       this.closeBtn.className = 'w-8 h-8 flex items-center justify-center text-secondary hover:text-danger transition-colors';
       this.closeBtn.innerHTML = '<i class="ri-close-fill font-bold text-[1.35rem]"></i>';
       this.closeBtn.addEventListener('click', () => this.close());
@@ -71,6 +77,8 @@ class PopupModal {
 
     this.content = document.createElement('div');
     this.content.className = 'px-6 py-5 max-h-[60vh] overflow-y-auto';
+    this.content.style.minHeight = '0';
+    this.content.style.overflowWrap = 'anywhere';
     
     if (this.config.type === 'form') {
       this.renderFormContent();
@@ -80,7 +88,7 @@ class PopupModal {
     this.modal.appendChild(this.content);
 
     this.footer = document.createElement('div');
-    this.footer.className = 'px-6 py-4 border-t border-light-200 dark:border-dark-100 flex justify-end gap-3';
+    this.footer.className = 'px-6 py-4 border-t border-light-200 dark:border-dark-100 flex flex-wrap justify-end gap-3';
     this.renderButtons();
     this.modal.appendChild(this.footer);
 
@@ -102,7 +110,7 @@ class PopupModal {
     form.className = 'space-y-4';
     
     form.method = 'post';
-    form.action = 'javascript:void(0)';
+    form.action = location.pathname;
     
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -155,6 +163,8 @@ class PopupModal {
       }
 
       input.name = field.name;
+      input.id = `${this.titleEl.id}-${field.name}`;
+      label.htmlFor = input.id;
       input.value = this.state.formData[field.name] || '';
       if (field.required) input.required = true;
       if (field.disabled) input.disabled = true;
@@ -177,7 +187,8 @@ class PopupModal {
       if (field.tip) {
         const tip = document.createElement('p');
         tip.className = 'text-xs text-secondary';
-        tip.innerHTML = field.tip;
+        tip.classList.add('whitespace-pre-line', 'break-words');
+        tip.textContent = field.tip;
         fieldGroup.appendChild(tip);
       }
 
@@ -224,7 +235,12 @@ class PopupModal {
 
   open() {
     if (this.state.isOpen) return;
-    
+    clearTimeout(this.closeMaskTimer);
+    clearTimeout(this.closeModalTimer);
+    this.modal.style.zIndex = Math.max(nextDialogLayer(), Number(this.config.zIndex) || OVERLAY_LAYERS.dialog);
+    this.mask.style.zIndex = Number(this.modal.style.zIndex) - 1;
+    if (!this.modal.isConnected) document.body.appendChild(this.modal);
+    if (!this.mask.isConnected) document.body.appendChild(this.mask);
     if (this.config.mask) {
       this.mask.classList.remove('pointer-events-none');
       setTimeout(() => {
@@ -233,6 +249,8 @@ class PopupModal {
       }, 10);
     }
     
+    this.modal.inert = false;
+    this.modal.removeAttribute('aria-hidden');
     this.modal.classList.remove('pointer-events-none');
     setTimeout(() => {
       this.modal.classList.remove('scale-95', 'opacity-0');
@@ -242,16 +260,22 @@ class PopupModal {
     this.state.isOpen = true;
     
     if (typeof this.config.onOpen === 'function') this.config.onOpen(this);
-    document.body.style.overflow = 'hidden';
+    this.deactivateDialog = activateDialog(this.modal, { labelId: this.titleEl.id, close: () => this.close() });
   }
 
   close() {
     if (!this.state.isOpen) return;
     
+    this.deactivateDialog?.();
+    this.deactivateDialog = null;
+    this.modal.inert = true;
+    this.modal.removeAttribute('role');
+    this.modal.removeAttribute('aria-modal');
+    this.modal.setAttribute('aria-hidden', 'true');
     if (this.config.mask) {
       this.mask.classList.remove('opacity-100');
       this.mask.classList.add('opacity-0');
-      setTimeout(() => {
+      this.closeMaskTimer = setTimeout(() => {
         this.mask.classList.add('pointer-events-none');
         this.mask.remove();
       }, 300);
@@ -259,7 +283,7 @@ class PopupModal {
     
     this.modal.classList.remove('scale-100', 'opacity-100');
     this.modal.classList.add('scale-95', 'opacity-0');
-    setTimeout(() => {
+    this.closeModalTimer = setTimeout(() => {
       this.modal.classList.add('pointer-events-none');
       this.modal.remove();
     }, 300);
@@ -267,7 +291,8 @@ class PopupModal {
     this.state.isOpen = false;
     
     if (typeof this.config.onClose === 'function') this.config.onClose(this);
-    document.body.style.overflow = '';
+    this.modal.classList.add('pointer-events-none');
+    this.mask.classList.add('pointer-events-none');
   }
 
   update(options) {

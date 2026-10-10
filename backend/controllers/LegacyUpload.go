@@ -16,6 +16,8 @@ import (
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
+	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/md5"
 	"oneimg/backend/utils/safefetch"
 	"oneimg/backend/utils/telegram"
@@ -27,7 +29,7 @@ import (
 
 // uploadImagesLegacy keeps the original request-time, single-bucket upload
 // path used when multi-storage synchronization is disabled.
-func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []models.Tags) {
+func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []models.Tags, folderID int) {
 	uc := uploads.NewUploadContext(c)
 	db := database.GetDB()
 
@@ -57,9 +59,9 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 		return
 	}
 
-	files, err := uc.ParseAndValidateFiles()
+	files, err := parseConfiguredUploadFiles(c, setting)
 	if err != nil {
-		uc.Fail(http.StatusBadRequest, "文件解析失败：%v", err)
+		uc.Fail(uploadParseErrorStatus(err), "文件解析失败：%v", err)
 		return
 	}
 
@@ -68,7 +70,7 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 		for _, file := range files {
 			uploadSize += uint64(file.Size)
 		}
-		if bucket.Usage+uploadSize >= bucket.Capacity {
+		if !bucket.CanStore(uploadSize) {
 			uc.Fail(http.StatusBadRequest, "存储空间已满, 请切换存储")
 			return
 		}
@@ -84,8 +86,8 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 	for _, file := range files {
 		fileResult, uploadErr := uploader.Upload(c, &setting, &bucket, file)
 		if uploadErr != nil {
-			uc.Fail(http.StatusInternalServerError, "文件[%s]上传失败：%v", file.Filename, uploadErr)
-			return
+			results = append(results, failedUploadResult(file, "文件上传失败"))
+			continue
 		}
 
 		imageModel := models.Image{
@@ -98,13 +100,19 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 			Height:    fileResult.Height,
 			Storage:   fileResult.Storage,
 			BucketId:  bucketID,
+			FolderId:  folderID,
 			UserId:    c.GetInt("user_id"),
 			MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
-			UUID:      GetUUID(c),
+			UUID:      CurrentOwnerKey(c),
 		}
 
 		now := time.Now()
 		if err := db.DB.Transaction(func(tx *gorm.DB) error {
+			resolved, err := services.ResolvePublicationFolder(tx, imageModel.UserId, imageModel.FolderId)
+			if err != nil {
+				return err
+			}
+			imageModel.FolderId = resolved
 			if err := tx.Create(&imageModel).Error; err != nil {
 				return err
 			}
@@ -131,25 +139,16 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 					return err
 				}
 			}
-			return nil
+			return chargeUploadQuota(tx, bucket, fileResult)
 		}); err != nil {
-			uc.Fail(http.StatusInternalServerError, "保存文件记录失败：%v", err)
-			return
-		}
-
-		if fileResult.Storage != "default" {
-			totalSize := uint64(fileResult.FileSize + fileResult.ThumbnailSize)
-			usageColumn := database.UsageColumn(db.DB)
-			update := db.DB.Model(&models.Buckets{}).
-				Where("id = ? AND ("+usageColumn+" + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSize).
-				UpdateColumn("usage", gorm.Expr(usageColumn+" + ?", totalSize))
-			if update.Error != nil {
-				log.Printf("更新Usage失败：%v", update.Error)
-			}
+			cleanupUnpublishedUpload(c, imageModel, fileResult)
+			results = append(results, failedUploadResult(file, "保存记录失败或容量不足"))
+			continue
 		}
 
 		responseResult := *fileResult
 		responseResult.ID = imageModel.Id
+		responseResult.FolderID = imageModel.FolderId
 		responseResult.URL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.URL)
 		responseResult.ThumbnailURL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.ThumbnailURL)
 		results = append(results, responseResult)
@@ -168,13 +167,10 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 		}
 	}
 
-	uc.Success("上传成功", map[string]any{
-		"files": results,
-		"count": len(results),
-	})
+	respondUploadBatch(uc, results, "上传成功", 0)
 }
 
-func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag, rawBucketID string) {
+func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag, rawBucketID string, folderID int) {
 	uc := uploads.NewUploadContext(c)
 	db := database.GetDB()
 	bucketID, err := resolveLegacyRequestedBucketID(c, setting, rawBucketID)
@@ -203,7 +199,7 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 		uc.Fail(http.StatusBadRequest, "URL 不合法或禁止访问内网地址")
 		return
 	}
-	resp, err := safefetch.Get(c.Request.Context(), rawURL, 60*time.Second)
+	resp, err := fetchUploadURL(c.Request.Context(), rawURL, 60*time.Second)
 	if err != nil {
 		uc.Fail(http.StatusBadRequest, "图片下载失败：%v", err)
 		return
@@ -214,11 +210,6 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 		return
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		uc.Fail(http.StatusBadRequest, "URL不是图片类型")
-		return
-	}
 	fileName := filepath.Base(rawURL)
 	if fileName == "/" || fileName == "." || fileName == "" {
 		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
@@ -227,15 +218,21 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 	if strings.Contains(fileName, "..") || fileName == "." || fileName == "" {
 		fileName = fmt.Sprintf("url_image_%d.jpg", time.Now().Unix())
 	}
-	fileBytes, err := safefetch.ReadLimited(resp.Body, int64(setting.MaxFileSize))
+	maxBytes := int64(setting.MaxFileSize)
+	if maxBytes <= 0 || maxBytes > images.MaxUploadBytes {
+		maxBytes = images.MaxUploadBytes
+	}
+	fileBytes, err := safefetch.ReadLimited(resp.Body, maxBytes)
 	if err != nil {
-		uc.Fail(http.StatusInternalServerError, "读取图片失败：%v", err)
+		uc.Fail(http.StatusBadRequest, "URL 图片超过限制或下载失败")
 		return
 	}
-	if len(fileBytes) > setting.MaxFileSize {
-		uc.Fail(http.StatusBadRequest, "URL 图片超过文件大小限制")
+	info, err := inspectDownloadedImage(fileBytes)
+	if err != nil || !images.AllowedMIME(info.MIME, strings.Split(setting.AllowedTypes, ",")) {
+		uc.Fail(http.StatusBadRequest, "URL不是允许的安全图片")
 		return
 	}
+	contentType := info.MIME
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -291,48 +288,15 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 		Height:    fileResult.Height,
 		Storage:   fileResult.Storage,
 		BucketId:  bucketID,
+		FolderId:  folderID,
 		UserId:    c.GetInt("user_id"),
 		MD5:       md5.Md5(c.GetString("username") + fileResult.FileName),
-		UUID:      GetUUID(c),
+		UUID:      CurrentOwnerKey(c),
 	}
-	now := time.Now()
-	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&imageModel).Error; err != nil {
-			return err
-		}
-		storageStatus := models.ImageStorage{
-			ImageID:       imageModel.Id,
-			BucketID:      bucketID,
-			Storage:       bucket.Type,
-			Status:        models.ImageStorageStatusSuccess,
-			URL:           fileResult.URL,
-			Thumbnail:     fileResult.ThumbnailURL,
-			FileSize:      fileResult.FileSize,
-			ThumbnailSize: fileResult.ThumbnailSize,
-			SyncedAt:      &now,
-		}
-		if err := tx.Create(&storageStatus).Error; err != nil {
-			return err
-		}
-		if tag != "" && tag != "0" {
-			tagID, err := strconv.Atoi(tag)
-			if err != nil {
-				return err
-			}
-			return tx.Create(&models.ImageToTags{ImageId: imageModel.Id, TagId: tagID}).Error
-		}
-		return nil
-	}); err != nil {
-		uc.Fail(http.StatusInternalServerError, "保存文件记录失败：%v", err)
+	if err := saveLegacyURLUpload(db.DB, bucket, &imageModel, fileResult, tag); err != nil {
+		cleanupUnpublishedUpload(c, imageModel, fileResult)
+		uc.Fail(http.StatusInternalServerError, "保存文件记录失败或容量不足")
 		return
-	}
-
-	if fileResult.Storage != "default" {
-		totalSize := uint64(fileResult.FileSize + fileResult.ThumbnailSize)
-		usageColumn := database.UsageColumn(db.DB)
-		db.DB.Model(&models.Buckets{}).
-			Where("id = ? AND ("+usageColumn+" + ? <= capacity OR type IN ('telegram','default') OR capacity = 0)", bucketID, totalSize).
-			UpdateColumn("usage", gorm.Expr(usageColumn+" + ?", totalSize))
 	}
 
 	if setting.TGNotice {
@@ -350,9 +314,50 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 
 	responseResult := *fileResult
 	responseResult.ID = imageModel.Id
+	responseResult.FolderID = imageModel.FolderId
 	responseResult.URL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.URL)
 	responseResult.ThumbnailURL = applyPublicImageURL(setting, bucket.Type, bucketID, fileResult.ThumbnailURL)
 	uc.Success("URL 图片上传成功", map[string]any{"file": responseResult})
+}
+
+// Publish URL uploads and account the processed main/thumbnail bytes atomically,
+// just like multipart uploads. Tags must not bypass the final quota check.
+func saveLegacyURLUpload(db *gorm.DB, bucket models.Buckets, image *models.Image, result *interfaces.ImageUploadResult, tag string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		resolved, err := services.ResolvePublicationFolder(tx, image.UserId, image.FolderId)
+		if err != nil {
+			return err
+		}
+		image.FolderId = resolved
+		if err := tx.Create(image).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		storageStatus := models.ImageStorage{
+			ImageID:       image.Id,
+			BucketID:      bucket.Id,
+			Storage:       bucket.Type,
+			Status:        models.ImageStorageStatusSuccess,
+			URL:           result.URL,
+			Thumbnail:     result.ThumbnailURL,
+			FileSize:      result.FileSize,
+			ThumbnailSize: result.ThumbnailSize,
+			SyncedAt:      &now,
+		}
+		if err := tx.Create(&storageStatus).Error; err != nil {
+			return err
+		}
+		if tag != "" && tag != "0" {
+			tagID, err := strconv.Atoi(tag)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&models.ImageToTags{ImageId: image.Id, TagId: tagID}).Error; err != nil {
+				return err
+			}
+		}
+		return chargeUploadQuota(tx, bucket, result)
+	})
 }
 
 func resolveLegacyRequestedBucketID(c *gin.Context, setting models.Settings, rawBucketID string) (int, error) {
@@ -369,7 +374,7 @@ func resolveLegacyRequestedBucketID(c *gin.Context, setting models.Settings, raw
 		return 0, fmt.Errorf("获取可用存储源失败：%w", err)
 	}
 	for _, bucket := range available {
-		if bucket.Id == setting.DefaultStorage {
+		if bucket.Id == defaultUploadStorageID(c.GetInt("user_role"), setting) {
 			return bucket.Id, nil
 		}
 	}

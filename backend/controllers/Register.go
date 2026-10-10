@@ -27,7 +27,7 @@ func Register(c *gin.Context) {
 
 	type RegisterReq struct {
 		Username       string `json:"username" binding:"required,min=3,max=50"`
-		Password       string `json:"password" binding:"required,min=6,max=100"`
+		Password       string `json:"password" binding:"required,min=8,max=72"`
 		PowToken       string `json:"powToken"`
 		TurnstileToken string `json:"turnstileToken"`
 		CapToken       string `json:"capToken"`
@@ -40,20 +40,23 @@ func Register(c *gin.Context) {
 
 	if ok, errMsg, fallback := verifyHuman(c, settings, req.PowToken, req.TurnstileToken, req.CapToken); !ok {
 		if fallback != "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    400,
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
 				"message": errMsg,
 				"data":    gin.H{"verify_fallback": fallback},
 			})
 			return
 		}
-		c.JSON(http.StatusBadRequest, result.Error(400, errMsg))
+		c.JSON(http.StatusForbidden, result.Error(403, errMsg))
 		return
 	}
 
-	db := database.GetDB().DB
+	if req.Username!=strings.TrimSpace(req.Username) || isTouristUsername(req.Username) || len(req.Password)>72 {
+  c.JSON(400,result.Error(400,"用户名为保留名称或密码长度无效")); return
+ }
+ db := database.GetDB().DB
 
-	if db.Where("username = ?", req.Username).First(&models.User{}).Error == nil {
+ if db.Where("username = ?", req.Username).First(&models.User{}).Error == nil {
 		c.JSON(http.StatusBadRequest, result.Error(400, "用户名已存在"))
 		return
 	}

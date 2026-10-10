@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/gif"
 	"image/jpeg"
-	"image/png"
 	"io"
 	"log"
 	"math/rand"
@@ -78,35 +76,24 @@ func (s *ImageService) ProcessImage(
 	setting models.Settings,
 	userRole int,
 ) (*ProcessedImage, error) {
-	// 1. 读取文件内容（一次性读取，避免多次IO）
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("read file failed: %w", err)
-	}
-
-	// 2. 解码图片（获取原图信息）
-	img, format, err := s.decodeImage(bytes.NewReader(fileBytes), header.Header.Get("Content-Type")) // 新增MIME参数
-	if err != nil {
-		return nil, fmt.Errorf("decode image failed: %w", err)
-	}
-
-	// 3. 获取图片基本信息
-	var width, height int
-	bounds := img.Bounds()
-	if format != "svg" {
-		width, height = bounds.Dx(), bounds.Dy()
-	}
-	mimeType := header.Header.Get("Content-Type")
+	// Every backend (including URL ingestion) validates actual raster bytes before
+	// a decoder can allocate. Browser/remote MIME is only a mismatch check.
+	release := AcquireProcessing()
+	defer release()
+	fileBytes, err := ReadDirectLimited(file, UploadByteLimit(int64(setting.MaxFileSize)))
+	if err != nil { return nil, err }
+	img, format, err := decodeDirectImage(fileBytes, declaredImageMIME(header.Header.Get("Content-Type")))
+	if err != nil { return nil, fmt.Errorf("decode image failed: %w", err) }
+	if _, actual, err := ValidateDirectImage(fileBytes, ""); err != nil { return nil, err
+	} else if !AllowedMIME(actual, strings.Split(setting.AllowedTypes, ",")) { return nil, ErrUnsupportedFormat }
+	width, height := img.Bounds().Dx(), img.Bounds().Dy()
+	mimeType := formatMIME(format)
 	originalFileName := header.Filename
+	processedBytes, finalFormat, finalMimeType, err := s.processMainImage(fileBytes, img, format, mimeType, int64(len(fileBytes)), setting)
+	if err != nil { return nil, fmt.Errorf("process main image failed: %w", err) }
 
-	// 4. 处理主图片（压缩/格式转换）
-	processedBytes, finalFormat, finalMimeType, err := s.processMainImage(
-		fileBytes, img, format, mimeType, header.Size, setting,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("process main image failed: %w", err)
-	}
-
+	_, finalMimeType, err = ValidateDirectImage(processedBytes, "")
+	if err != nil { return nil, err }; finalFormat = strings.TrimPrefix(finalMimeType, "image/")
 	// 5. 处理文件扩展名
 	outputExt := map[string]string{
 		"image/jpeg":    ".jpg",
@@ -120,25 +107,27 @@ func (s *ImageService) ProcessImage(
 		"image/heif":    ".heif",
 	}
 
-	// 6. 生成缩略图（SVG单独处理）
-	thumbnailBytes, err := s.generateThumbnail(img, finalFormat, finalMimeType, fileBytes) // 新增原始字节参数
-	if err != nil {
-		// SVG缩略图生成失败不中断流程，返回空字节或原文件
-		log.Printf("generate thumbnail failed: %v, use original file as thumbnail", err)
-		thumbnailBytes = fileBytes // SVG用原文件作为缩略图
+	// 6. Only generate thumbnail bytes when enabled. All storage uploaders use
+	// this pipeline; nil also keeps disabled-thumbnail size/accounting at zero.
+	var thumbnailBytes []byte
+	if setting.Thumbnail {
+		thumbnailBytes, err = s.generateThumbnail(img, finalFormat, finalMimeType, fileBytes)
+		if err != nil {
+			log.Printf("generate thumbnail failed: %v", err)
+			thumbnailBytes = nil
+		}
 	}
 
-	// 7. 处理文件名
-	fileName := ""
-	if setting.SaveOriginalName {
-		fileName = originalFileName
-	} else {
+	// Always use the actual encoded extension; never publish user-controlled
+	// directories or overwrite an existing logical image with an original name.
+	stem := strings.TrimSuffix(filepath.Base(strings.ReplaceAll(originalFileName, "\\", "/")), filepath.Ext(originalFileName))
+	if !setting.SaveOriginalName {
 		pattern := setting.FileName
-		if pattern == "" {
-			pattern = "{random}"
-		}
-		fileName = s.ReplaceMagicVariables(pattern, originalFileName, userRole) + outputExt[finalMimeType]
+		if pattern == "" { pattern = "{random}" }
+		stem = s.ReplaceMagicVariables(pattern, originalFileName, userRole)
 	}
+	stem = safeFilenameStem(stem)
+	fileName := stem + "_" + uuid.NewString() + outputExt[finalMimeType]
 
 	// 8. 组装返回结果
 	return &ProcessedImage{
@@ -222,7 +211,7 @@ func (s *ImageService) processMainImage(
 		if err != nil {
 			return nil, "", "", fmt.Errorf("compress webp: %w", err)
 		}
-		return compressed, format, mimeType, nil
+		return compressed, "webp", "image/webp", nil
 	}
 
 	return fileBytes, format, mimeType, nil
@@ -234,17 +223,6 @@ func (s *ImageService) generateThumbnail(
 	format, mimeType string,
 	originalBytes []byte, // 新增原始字节参数，用于SVG
 ) ([]byte, error) {
-	// SVG单独处理：返回原文件作为缩略图
-	if format == "svg" || mimeType == "image/svg+xml" {
-		return originalBytes, ErrSVGThumbnail // 返回原文件并提示SVG缩略图不支持
-	}
-
-	// 特殊格式（GIF）生成JPEG缩略图
-	if s.isSpecialFormat(format, mimeType) {
-		return s.generateJPEGThumbnail(img, ThumbnailMaxWidth, ThumbnailMaxHeight, ThumbnailQuality)
-	}
-
-	// 普通格式生成WebP缩略图
 	return s.generateWebPThumbnail(img, ThumbnailMaxWidth, ThumbnailMaxHeight, ThumbnailQuality)
 }
 
@@ -266,46 +244,9 @@ func (s *ImageService) isSpecialFormat(format, mimeType string) bool {
 // decodeImage 解码图片，支持webp/gif/png/jpeg/SVG等格式
 // 优化点：增加SVG处理，避免解码失败
 func (s *ImageService) decodeImage(reader io.Reader, mimeType string) (image.Image, string, error) {
-	// 读取数据到缓冲区（复用）
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, "", fmt.Errorf("read image data: %w", err)
-	}
-	buf := bytes.NewReader(data)
-
-	// 优先处理SVG（MIME类型判断）
-	if mimeType == "image/svg+xml" || strings.HasPrefix(strings.ToLower(string(data[:100])), "<svg") {
-		// SVG返回空的image.Image（不解析矢量图），格式标记为svg
-		return image.NewRGBA(image.Rect(0, 0, 0, 0)), "svg", nil
-	}
-
-	// 按优先级解码（常用格式优先）
-	decodeFuncs := []struct {
-		decode func(*bytes.Reader) (image.Image, error)
-		format string
-	}{
-		{func(r *bytes.Reader) (image.Image, error) { return webp.Decode(r) }, "webp"},
-		{func(r *bytes.Reader) (image.Image, error) { return gif.Decode(r) }, "gif"},
-		{func(r *bytes.Reader) (image.Image, error) { return png.Decode(r) }, "png"},
-		{func(r *bytes.Reader) (image.Image, error) { return jpeg.Decode(r) }, "jpeg"},
-	}
-
-	for _, df := range decodeFuncs {
-		buf.Seek(0, io.SeekStart) // 重置读取指针
-		img, err := df.decode(buf)
-		if err == nil {
-			return img, df.format, nil
-		}
-	}
-
-	// 最后尝试标准库的自动检测
-	buf.Seek(0, io.SeekStart)
-	img, format, err := image.Decode(buf)
-	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
-	}
-
-	return img, format, nil
+	data, err := ReadDirectLimited(reader, MaxUploadBytes)
+	if err != nil { return nil, "", err }
+	return decodeDirectImage(data, declaredImageMIME(mimeType))
 }
 
 // convertToWebP 将图片转换为webp格式
@@ -333,24 +274,15 @@ func (s *ImageService) ValidateImage(
 	allowedTypes []string,
 	maxSize int64,
 ) error {
-	// 检查文件大小
-	if header.Size > maxSize {
-		return fmt.Errorf("%w: max size %d bytes, got %d bytes",
-			ErrFileTooLarge, maxSize, header.Size)
-	}
-
-	// 检查Content-Type
-	mimeType := header.Header.Get("Content-Type")
-	if mimeType == "" {
-		return ErrMissingContentType
-	}
-
-	// 检查是否允许的类型
-	if !slices.Contains(allowedTypes, mimeType) {
-		return fmt.Errorf("unsupported content type: %s (allowed: %s)",
-			mimeType, strings.Join(allowedTypes, ", "))
-	}
-
+	if header == nil || header.Size <= 0 || header.Size > UploadByteLimit(maxSize) { return ErrFileTooLarge }
+	file, err := header.Open()
+	if err != nil { return err }
+	defer file.Close()
+	data, err := ReadDirectLimited(file, UploadByteLimit(maxSize))
+	if err != nil { return err }
+	_, actual, err := ValidateDirectImage(data, declaredImageMIME(header.Header.Get("Content-Type")))
+	if err != nil { return err }
+	if !AllowedMIME(actual, allowedTypes) { return ErrUnsupportedFormat }
 	return nil
 }
 
@@ -408,7 +340,7 @@ func ReadFileContent(header *multipart.FileHeader) ([]byte, error) {
 	}
 	defer file.Close()
 
-	return io.ReadAll(file)
+	return ReadDirectLimited(file, MaxUploadBytes)
 }
 
 // GetFileMimeType 获取文件MIME类型

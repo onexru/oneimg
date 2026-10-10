@@ -15,7 +15,7 @@
               <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">
                 {{ multiStorageSync ? `本机 + ${syncBuckets.length} 个同步目标` : (presetBuckets.find(bucket => bucket.id == selectedBucket)?.name || '未选择存储') }}
               </span>
-              <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950">{{ selectedTags.length }} 个标签</span>
+              <span v-if="foldersAuthenticated" class="max-w-full truncate rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-white/10 dark:bg-slate-950" :title="uploadFolderName">{{ uploadFolderName }}</span>
             </div>
           </div>
 
@@ -38,6 +38,7 @@
             </div>
             <h3 class="mb-1.5 text-base font-semibold text-slate-900 dark:text-white">拖拽图片到此处，或点击立即上传</h3>
             <p class="mx-auto mb-3 max-w-md text-sm leading-5 text-slate-500 dark:text-slate-400">支持常见图片格式、剪贴板和 URL 上传。</p>
+            <p v-if="isGuest" class="mx-auto mb-3 max-w-md text-xs text-secondary">游客图片依赖本浏览器的安全 Cookie。清除 Cookie 或更换浏览器后无法找回，请注册账户保存长期身份。</p>
             <div class="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button class="primary-button w-full px-4 py-2 sm:w-auto">
               <i class="ri-file-image-line"></i>
@@ -58,13 +59,12 @@
           <!-- 上传进度状态 -->
           <div v-else class="upload-progress px-3 py-8 text-center sm:px-4 sm:py-10">
             <div class="spinner w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-3"></div>
-            <p class="text-secondary text-sm mb-3">正在上传 {{ uploadingCount }} 个文件（{{ Math.round(uploadProgress) }}%）</p>
-            <div class="progress-bar w-full max-w-md mx-auto h-2 bg-light-200 dark:bg-dark-100 rounded-full overflow-hidden">
-              <div 
-                class="progress-fill h-full bg-primary transition-all duration-300 ease-out"
-                :style="{ width: uploadProgress + '%' }"
-              ></div>
-            </div>
+            <p class="text-secondary text-sm mb-3">{{ uploadSummary }}</p>
+            <template v-if="legacyUploading">
+              <progress class="block h-2 w-full max-w-md mx-auto accent-blue-600" :value="uploadProgress == null ? undefined : uploadProgress" max="100" aria-label="文件传输进度"></progress>
+              <button class="soft-button mt-3 px-3 py-1.5 text-xs" type="button" @click.stop="cancelLegacyUpload()">停止本次请求</button>
+              <p class="mt-2 text-xs text-slate-500">停止请求不保证撤回服务器已接收的文件，请检查最近上传。</p>
+            </template>
           </div>
         </div>
 
@@ -72,9 +72,11 @@
           ref="fileInput"
           type="file"
           multiple
-          accept="image/*"
+          :accept="uploadAccept"
           @change="handleFileSelect"
           class="hidden"
+        />
+
         </div>
 
         <div class="content-panel home-panel-compact space-y-2.5">
@@ -85,7 +87,7 @@
             </div>
           </div>
 
-          <div class="grid gap-2.5 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+          <div class="grid gap-2.5" :class="foldersAuthenticated ? 'xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]' : ''">
             <div class="control-group control-group-compact">
             <template v-if="multiStorageSync">
               <p class="panel-label">存储流程</p>
@@ -109,10 +111,10 @@
               <p class="panel-label">上传目标</p>
               <p class="control-group-title">选择存储桶</p>
               <p class="control-group-hint">上传前先确定目标存储。</p>
-              <select
+              <select id="upload-bucket" aria-label="上传存储"
                 class="input-modern mt-3"
                 v-model="selectedBucket"
-                :disabled="isGuest()"
+                :disabled="isGuest || isUploading"
                 @change="handleBucketChange"
               >
                 <option
@@ -124,71 +126,32 @@
             </template>
           </div>
 
-            <div class="control-group control-group-compact">
-            <p class="panel-label">标签区</p>
-            <p class="control-group-title">给本次上传补充标签</p>
-            <p class="control-group-hint">标签会跟随本次上传一起保存。</p>
-
-            <div class="mt-2.5 space-y-2">
-              <select 
-                class="input-modern"
-                v-model="selectedPresetTag"
-                @change="addPresetTag"
-                :disabled="isUploading"
-              >
-                <option value="" selected>请选择...</option>
-                <option 
-                  v-for="presetTag in presetTags" 
-                  :key="presetTag.id"
-                  :value="presetTag.name"
-                >{{ presetTag.name }}</option>
-              </select>
-
-              <div class="relative flex w-full">
-                <input 
-                  type="text" 
-                  placeholder="输入自定义标签"
-                  class="input-modern flex-1 pr-14"
-                  v-model="customTagInput"
-                  @keyup.enter="addCustomTag"
-                  maxlength="10"
-                  :disabled="isUploading"
-                >
-                <button 
-                  class="absolute right-1 top-1 inline-flex h-[calc(100%-8px)] items-center justify-center rounded-[16px] bg-slate-900 px-3.5 text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
-                  @click="addCustomTag"
-                  :disabled="isUploading || !customTagInput.trim()"
-                >
-                  <i class="ri-add-line"></i>
-                </button>
+            <div v-if="foldersAuthenticated" class="control-group control-group-compact min-w-0">
+              <p class="panel-label">图片归档</p>
+              <label for="upload-folder" class="control-group-title block">上传文件夹</label>
+              <p class="control-group-hint">按文件夹整理本次上传，不改变图片链接或存储位置。</p>
+              <div class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
+                <select id="upload-folder" v-model="selectedFolder" class="input-modern min-w-0 flex-1" :disabled="isUploading || foldersLoading || !foldersLoaded">
+                  <option value="0">未分类</option>
+                  <option v-for="folder in folders" :key="folder.id" :value="String(folder.id)" :disabled="folder.deleting">{{ folderLabel(folder) }}</option>
+                </select>
+                <button type="button" class="soft-button shrink-0" :disabled="isUploading || foldersLoading || !foldersLoaded || foldersAtLimit" @click="createFolderOpen = true"><i class="ri-folder-add-line" aria-hidden="true"></i>新建文件夹</button>
               </div>
-
-              <div class="tag-list flex flex-wrap gap-1">
-                <div 
-                  v-for="(tag, index) in selectedTags" 
-                  :key="index"
-                  class="flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-sm text-white dark:bg-white dark:text-slate-900"
-                >
-                  <span>{{ tag }}</span>
-                  <button 
-                    class="ml-2 text-white/70 transition-colors hover:text-white dark:text-slate-500 dark:hover:text-slate-900"
-                    @click="removeTag(index)"
-                    :disabled="isUploading"
-                  >
-                    <i class="ri-close-line text-xs"></i>
-                  </button>
-                </div>
-                <div v-if="selectedTags.length === 0" class="text-sm text-secondary italic">
-                  暂无已选标签
-                </div>
-              </div>
-
-              <div v-if="tagError" class="text-xs text-red-500 dark:text-red-400">
-                {{ tagError }}
-              </div>
-            </div>
+              <p v-if="foldersAtLimit" class="field-hint">已达到 200 个文件夹上限。</p>
+              <p v-if="foldersError" role="alert" class="field-hint text-red-600">{{ foldersError }} <button type="button" class="underline" :disabled="isUploading" @click="reloadFolders">重试</button></p>
             </div>
           </div>
+        </div>
+
+        <div v-if="unlinkedDirectTasks.length || directTasksError" class="content-panel home-panel-compact space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white">上传任务</h2>
+            <button class="soft-button px-2 py-1 text-xs" type="button" :disabled="directRefreshing" @click="refreshDirectTasks">刷新状态</button>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400">显示最近 {{ MAX_RECENT_TASKS }} 个任务；文件传输、后台主图处理和缩略图分别显示。已到达服务器的任务可刷新恢复。</p>
+          <p v-if="directTasksError" class="text-xs text-amber-700 dark:text-amber-300" role="status">{{ directTasksError }}</p>
+          <DirectUploadTaskStatus v-for="task in unlinkedDirectTasks" :key="task.client_id || task.id" :task="task"
+            @retry="retryDirectTask" @cancel="cancelDirectTask" @confirm="confirmDirectTask" @reselect="reselectDirectFile" />
         </div>
 
         <div class="content-panel home-panel-compact">
@@ -204,109 +167,7 @@
           </div>
 
       <div v-if="recentImages.length > 0" class="result-stream">
-        <div
-          v-for="image in recentImages" 
-          :key="image.id"
-          class="result-card result-card-compact result-card-mobile-safe"
-        >
-          <div class="result-card-layout">
-            <div class="result-card-media result-card-media-large">
-            <div class="loading absolute inset-0 z-0 flex items-center justify-center bg-gray-100 text-slate-300 dark:bg-gray-800">
-              <svg class="w-8 h-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </div>
-            <img 
-              :src="getFullUrl(image.thumbnail || image.url)"
-              :alt="image.filename || '图片预览'" 
-              class="recent-image h-full w-full object-cover opacity-0"
-              loading="lazy"
-              @load="handleImageLoad"
-              @error="(e) => handleImageError(e, image)"
-              @click.stop="previewImage(image)"
-            />
-            </div>
-
-            <div class="min-w-0 flex-1 space-y-2">
-              <div class="flex flex-col gap-2 sm:gap-2.5 lg:flex-row lg:items-start lg:justify-between">
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium text-slate-900 dark:text-white">{{ image.filename }}</p>
-                  <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <span class="result-meta-pill">{{ formatFileSize(image.file_size) }}</span>
-                    <span class="result-meta-pill">{{ image.width }}×{{ image.height }}</span>
-                  </div>
-                </div>
-                <div class="flex items-center justify-end gap-1.5 sm:self-end lg:justify-end">
-                  <button 
-                    @click.stop="downloadImage(image)"
-                    class="result-card-action"
-                    title="下载图片"
-                  >
-                    <i class="ri-download-line text-sm"></i>
-                  </button>
-                  <button 
-                    @click.stop="deleteImage(image.id)"
-                    class="result-card-action border-red-200 bg-red-50 text-red-500 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
-                    title="删除图片"
-                  >
-                    <i class="ri-delete-bin-line text-sm"></i>
-                  </button>
-                </div>
-              </div>
-
-              <div v-if="multiStorageSync" class="grid gap-1.5 sm:grid-cols-2">
-                <div class="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 dark:border-white/10 dark:bg-slate-900">
-                  <span class="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-200">本机</span>
-                  <span class="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-300">
-                    <i class="ri-checkbox-circle-line"></i>已保存
-                  </span>
-                </div>
-                <div
-                  v-for="storage in getStorageStatuses(image)"
-                  :key="`${image.id}-${storage.bucket_id}`"
-                  class="min-w-0 rounded-xl border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 dark:border-white/10 dark:bg-slate-900"
-                >
-                  <div class="flex min-w-0 items-center justify-between gap-2">
-                    <span class="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-200" :title="getStorageDisplayName(storage)">{{ getStorageDisplayName(storage) }}</span>
-                    <span class="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]" :class="getStorageStatusMeta(storage.status).badgeClass">
-                      <i :class="getStorageStatusMeta(storage.status).icon"></i>{{ getStorageStatusMeta(storage.status).label }}
-                    </span>
-                  </div>
-                  <p v-if="storage.status === 'failed' && storage.error" class="mt-1 truncate text-[10px] text-red-600 dark:text-red-300" :title="storage.error">{{ storage.error }}</p>
-                </div>
-              </div>
-
-              <div class="result-links-grid result-links-grid-mobile">
-            <div class="link-field cursor-pointer"
-              @click.stop="copyImageLink(image, 'url')"
-              title="点击复制URL"
-            >
-              <i class="ri-link text-sm text-slate-400"></i>
-              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">URL</span>
-              <span class="truncate">{{ getFullUrl(image.url) }}</span>
-            </div>
-
-            <div class="link-field cursor-pointer"
-              @click.stop="copyImageLink(image, 'html')"
-              title="点击复制HTML"
-            >
-              <i class="ri-code-line text-sm text-slate-400"></i>
-              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">HTML</span>
-              <span class="truncate">{{ getHtmlCode(image) }}</span>
-            </div>
-
-            <div class="link-field cursor-pointer"
-              @click.stop="copyImageLink(image, 'markdown')"
-              title="点击复制Markdown"
-            >
-              <i class="ri-markdown-line text-sm text-slate-400"></i>
-              <span class="w-8 shrink-0 font-medium text-slate-900 dark:text-white sm:w-10">MD</span>
-              <span class="truncate">{{ getMarkdownCode(image) }}</span>
-            </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RecentImageCard v-for="image in recentImages" :key="image.id" v-bind="{ image, multiStorageSync, formatFileSize, getFullUrl, handleImageLoad, handleImageError, previewImage, downloadImage, deleteImage, directTaskForImage, retryDirectTask, cancelDirectTask, confirmDirectTask, reselectDirectFile, getStorageStatuses, getStorageStatusMeta, getStorageDisplayName, copyImageLink, getHtmlCode, getMarkdownCode }" />
       </div>
 
       <!-- 无图片状态 -->
@@ -319,39 +180,77 @@
       </div>
       </section>
     </div>
+    <FolderDialog v-if="createFolderOpen && foldersAuthenticated" mode="create" :folders="folders" :account-key="folderAccountKey" @close="createFolderOpen = false" @saved="onFolderCreated" />
   </div>
 </template>
 
 <script setup>
+import { escapeHtml, safeResourceUrl } from '@/utils/html.js'
+
+import { boundedPage, RECENT_IMAGE_LIMIT } from '@/utils/renderBounds.js';
+import { uploadLimits, allowedRasterTypes } from '@/utils/uploadValidation.js';
+import { readApiResponse } from '@/utils/apiFeedback.js';
 import errorImg from '@/assets/images/error.webp';
-import { ref, onMounted, nextTick, onBeforeUnmount } from 'vue'
-import {
-  getStorageDisplayName,
-  getStorageStatuses,
-  getStorageStatusMeta,
-  hasActiveStorageSync,
-  renderStorageStatusesHtml,
-} from '@/utils/storageStatus.js'
+
+import { ref, computed, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
+import { useRoute } from 'vue-router';
+import FolderDialog from '@/components/FolderDialog.vue';
+import { useFolders } from '@/composables/useFolders.js';
+import { folderFilter, folderAccount, folderLabel } from '@/utils/folders.js';
+import DirectUploadTaskStatus from '@/components/DirectUploadTaskStatus.vue';
+import { createHomeDirectTasks } from '@/utils/homeDirectTasks.js';
+import RecentImageCard from '@/components/home/RecentImageCard.vue';
+import { createHomeUploadActions } from '@/utils/homeUploadActions.js';
+import { createHomeDialogs } from '@/utils/homeDialogs.js';
+import Message from '@/utils/message.js';
+import { createDialogScope } from '@/utils/dialogScope.js';
+const { Dialog: PopupModal, dispose: disposeViewDialogs } = createDialogScope();
+import Loading from '@/utils/loading.js';
+import { MAX_RECENT_TASKS, mergeImages } from '@/utils/directUpload.js'
+import { getStorageDisplayName, getStorageStatuses, getStorageStatusMeta, hasActiveStorageSync } from '@/utils/storageStatus.js'
 
 // ====================== 常量定义 ======================
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+const authHeaders = () => ({});
+const isGuest = computed(() => Number(JSON.parse(localStorage.getItem('userInfo') || '{}').role) === 2);
+
 
 // ====================== 响应式数据 ======================
 // 上传相关
 const isDragOver = ref(false);
-const isUploading = ref(false);
+const legacyUploading = ref(false);
+const directTasks = ref([]);
+const isUploading = computed(() => legacyUploading.value || directTasks.value.some(task => task.busy));
+const uploadConfig = ref({});
+const clientUploadLimits = computed(() => uploadLimits(uploadConfig.value));
+const uploadAccept = computed(() => allowedRasterTypes(uploadConfig.value).join(','));
 const uploadingCount = ref(0);
 const uploadProgress = ref(0);
 const recentImages = ref([]);
 const fileInput = ref(null);
 
-// 标签相关
-const presetTags = ref([]);
-const selectedPresetTag = ref('');
-const customTagInput = ref('');
-const selectedTags = ref([]);
-const tagError = ref('');
+// Folder state belongs to this mounted account only; never persist upload destinations.
+const route = useRoute();
+const { account: folderAccountKey, authenticated: foldersAuthenticated, folders, loading: foldersLoading,
+  loaded: foldersLoaded, error: foldersError, atLimit: foldersAtLimit, reload: reloadFolders } = useFolders(API_BASE_URL);
+const selectedFolder = ref('0');
+const createFolderOpen = ref(false);
+let initialFolderPending = true;
+const uploadFolderName = computed(() => folders.value.find(folder => String(folder.id) === selectedFolder.value)?.name || '未分类');
+watch(folderAccountKey, () => { selectedFolder.value = '0'; createFolderOpen.value = false; initialFolderPending = false; });
+watch([folders, foldersLoaded], () => {
+  if (!foldersLoaded.value) return;
+  const requested = initialFolderPending ? folderFilter(route.query.folder_id, '0') : selectedFolder.value;
+  initialFolderPending = false;
+  selectedFolder.value = folders.value.some(folder => !folder.deleting && String(folder.id) === requested) ? requested : '0';
+});
+// Resolve at upload start, also rejecting stale IDs if another tab changes account.
+const getUploadFolderId = () => foldersAuthenticated.value && folderAccount() === folderAccountKey.value && folders.value.some(folder => !folder.deleting && String(folder.id) === selectedFolder.value) ? Number(selectedFolder.value) : 0;
+async function onFolderCreated({ folder }) {
+  createFolderOpen.value = false;
+  await reloadFolders();
+  if (!disposed && folders.value.some(item => !item.deleting && item.id === folder?.id)) selectedFolder.value = String(folder.id);
+}
 
 // 存储相关
 const multiStorageSync = ref(false);
@@ -365,20 +264,21 @@ const syncBuckets = ref([]);
 // 预览相关
 const activeCopyMenu = ref(null);
 let previewCopyMenu = false;
-let currentPreviewImage = null;
-let previewModalInstance = null;
-let progressInterval = null; // 上传进度定时器
+
 let syncPollTimer = null;
+let disposed = false;
+const { directRefreshing, directTasksError, resumeTask, deletedImageIds, currentUser, realUser,
+  directEnabled, uploadSummary, directTaskForImage, unlinkedDirectTasks, usableTasks,
+  refreshDirectTasks, startDirectFiles, retryDirectTask, cancelDirectTask, confirmDirectTask,
+  reselectDirectFile, handleResumeFile, disposeDirectTasks } = createHomeDirectTasks({
+  API_BASE_URL, directTasks, recentImages, legacyUploading, uploadProgress, uploadingCount,
+  multiStorageSync, storageConfigLoaded, presetBuckets, selectedBucket, getUploadFolderId, fileInput,
+  validateFiles: files => validateFiles(files), loadRecentImages: () => loadRecentImages(),
+  isDisposed: () => disposed,
+  onSingleUpload: showUploadResult,
+});
 
 // ====================== 工具函数 ======================
-/**
- * 检查是否为游客
- */
-function isGuest() {
-  const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-  return userInfo?.isTourist === true;
-}
-
 /**
  * 获取完整的图片URL
  */
@@ -434,7 +334,7 @@ const getTypeText = (type) => {
 const getHtmlCode = (image) => {
   const url = getFullUrl(image.url);
   const alt = image.filename || '图片预览';
-  return `<img src="${url}" alt="${alt}"/>`;
+  return `<img loading="lazy" decoding="async" src="${escapeHtml(safeResourceUrl(url))}" alt="${escapeHtml(alt)}"/>`;
 };
 
 /**
@@ -456,13 +356,13 @@ const getUploadConfig = async () => {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
     
-    const result = await response.json();
+    const result = await readApiResponse(response, '请求失败');
     if (response.ok && result.code === 200) {
-      presetTags.value = result.data?.tags || [];
+      uploadConfig.value = result.data || {};
       presetBuckets.value = Array.isArray(result.data?.buckets) ? result.data.buckets : [];
       multiStorageSync.value = result.data?.multi_storage_sync === true;
       const configuredSyncBuckets = result.data?.sync_buckets ?? result.data?.buckets ?? [];
@@ -495,20 +395,20 @@ const getUploadConfig = async () => {
  */
 const loadRecentImages = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/images?limit=12`, {
+    const response = await fetch(`${API_BASE_URL}/api/images?scope=mine&limit=12`, {
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
     
-    if (response.ok) {
-      const result = await response.json();
-      recentImages.value = Array.isArray(result.data?.images) ? result.data.images : [];
-      scheduleSyncRefresh();
-    }
+    const result = await readApiResponse(response, '加载图片失败');
+    if (disposed) return;
+    recentImages.value = boundedPage(mergeImages(Array.isArray(result.data?.images) ? result.data.images : [], usableTasks()), RECENT_IMAGE_LIMIT);
+    scheduleSyncRefresh();
+    if (foldersAuthenticated.value) reloadFolders();
   } catch (error) {
+    if (disposed) return;
     console.error('加载图片失败:', error);
-    recentImages.value = [];
     Message.error(`加载图片失败: ${error.message}`, {
       duration: 3000,
       position: 'top-right',
@@ -518,7 +418,7 @@ const loadRecentImages = async () => {
 };
 
 const scheduleSyncRefresh = () => {
-  if (!multiStorageSync.value) {
+  if (disposed || !multiStorageSync.value) {
     if (syncPollTimer) clearTimeout(syncPollTimer);
     syncPollTimer = null;
     return;
@@ -552,30 +452,27 @@ const deleteAsync = async (imageId) => {
     const response = await fetch(`${API_BASE_URL}/api/images/${imageId}`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/json'
       }
     });
     
-    if (response.ok) {
+    const result = await readApiResponse(response, '请求失败');
+    if (response.ok && result.code === 200) {
+      deletedImageIds.add(String(imageId));
+      while (deletedImageIds.size > 64) deletedImageIds.delete(deletedImageIds.values().next().value);
+      recentImages.value = recentImages.value.filter(image => String(image.id) !== String(imageId));
       Message.success('图片删除成功', {
         duration: 1500,
         position: 'top-right'
       });
       
-      // 如果删除的是当前预览的图片，关闭预览弹窗
-      if (currentPreviewImage?.id === imageId && previewModalInstance) {
-        previewModalInstance.close();
-        currentPreviewImage = null;
-        previewModalInstance = null;
-      }
-      
+      closeDeletedPreview(imageId);
       previewCopyMenu = false;
       activeCopyMenu.value = null;
       await loadRecentImages();
     } else {
-      const result = await response.json();
-      throw new Error(result.message || '删除失败');
+      throw new Error(result.message || '删除失败；部分存储源可能已删除，请重试');
     }
   } catch (error) {
     console.error('删除图片错误:', error);
@@ -589,274 +486,18 @@ const deleteAsync = async (imageId) => {
   }
 };
 
-/**
- * 添加标签到服务器
- */
-const addTagToServer = async (tag) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/tags`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify({ name: tag })
-    });
-    
-    const result = await response.json();
-    if (response.ok && result.code === 200) {
-      return result.data;
-    } else {
-      throw new Error(result.message || '添加标签失败');
-    }
-  } catch (error) {
-    console.error('添加标签失败:', error);
-    throw error;
-  }
-};
-
 // ====================== 事件处理函数 ======================
 /**
  * 拖拽相关处理
  */
-const handleDragOver = () => {
-  isDragOver.value = true;
-};
-
-const handleDragEnter = () => {
-  isDragOver.value = true;
-};
-
-const handleDragLeave = (e) => {
-  if (!e.currentTarget.contains(e.relatedTarget)) {
-    isDragOver.value = false;
-  }
-};
-
-const handleDrop = (e) => {
-  e.preventDefault();
-  isDragOver.value = false;
-  
-  const files = Array.from(e.dataTransfer.files);
-  const validFiles = validateFiles(files);
-  
-  if (validFiles.length > 0) {
-    uploadFiles(validFiles);
-  } else {
-    Message.error('请拖拽有效的图片文件（仅支持JPG、PNG、GIF、WebP、SVG）', {
-      duration: 3000,
-      position: 'top-right'
-    });
-  }
-};
-
-/**
- * 文件选择处理
- */
-const triggerFileInput = () => {
-  if (!isUploading.value && fileInput.value) {
-    fileInput.value.click();
-  }
-};
-
-const handleFileSelect = (e) => {
-  const files = Array.from(e.target.files);
-  if (files.length > 0) {
-    const validFiles = validateFiles(files);
-    if (validFiles.length > 0) {
-      uploadFiles(validFiles);
-    }
-  }
-  e.target.value = ''; // 清空文件选择
-};
-
-/**
- * 剪贴板粘贴处理
- */
-const handlePaste = async (e) => {
-  const items = e.clipboardData?.items;
-  if (!items) return;
-  
-  const imageFiles = [];
-  
-  for (let item of items) {
-    if (item.type.startsWith('image/')) {
-      const file = item.getAsFile();
-      if (file) {
-        const timestamp = new Date().getTime();
-        const extension = item.type.split('/')[1] || 'png';
-        const newFile = new File([file], `paste-${timestamp}.${extension}`, {
-          type: item.type
-        });
-        imageFiles.push(newFile);
-      }
-    }
-  }
-  
-  if (imageFiles.length > 0) {
-    e.preventDefault();
-    uploadFiles(imageFiles);
-    Message.success(`从剪贴板粘贴了 ${imageFiles.length} 个图片`, {
-      duration: 2000,
-      position: 'top-right'
-    });
-  }
-};
-
-/**
- * 验证文件有效性
- */
-const validateFiles = (files) => {
-  const validFiles = [];
-  
-  files.forEach(file => {
-    // 验证文件类型
-    if (!file.type.startsWith('image/') || !ALLOWED_FILE_TYPES.includes(file.type)) {
-      Message.warning(`文件 ${file.name} 不是支持的图片格式`, {
-        duration: 2000,
-        position: 'top-right'
-      });
-      return;
-    }
-    
-    validFiles.push(file);
-  });
-  
-  return validFiles;
-};
-
-/**
- * 文件上传
- */
-const uploadFiles = async (files) => {
-  if (isUploading.value) return;
-  if (!storageConfigLoaded.value) {
-    Message.warning('存储配置正在加载，请稍后重试');
-    return;
-  }
-  
-  isUploading.value = true;
-  uploadingCount.value = files.length;
-  uploadProgress.value = 0;
-  
-  // 重置进度定时器
-  if (progressInterval) clearInterval(progressInterval);
-  progressInterval = setInterval(() => {
-    if (uploadProgress.value < 95) {
-      uploadProgress.value += Math.random() * 5;
-    }
-  }, 150);
-  
-  try {
-    const formData = new FormData();
-    files.forEach(file => {
-      formData.append('images[]', file);
-    });
-    
-    // 携带标签数据
-    if (selectedTags.value.length > 0) {
-      formData.append('tags', JSON.stringify(selectedTags.value));
-    }
-    if (!multiStorageSync.value) {
-      formData.append('bucket_id', selectedBucket.value || '1');
-    }
-    const response = await fetch(`${API_BASE_URL}/api/upload/images`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: formData
-    });
-    
-    clearInterval(progressInterval);
-    uploadProgress.value = 100;
-    
-    const result = await response.json();
-    
-    if (response.ok && result.code === 200) {
-      await loadRecentImages();
-      Message.success(multiStorageSync.value ? '已保存到本机，正在后台同步' : '上传成功', {
-        duration: 2000,
-        position: 'top-right'
-      });
-    } else {
-      throw new Error(result.message || '上传失败');
-    }
-  } catch (error) {
-    console.error('上传错误:', error);
-    Message.error(`上传失败: ${error.message}`, {
-      duration: 3000,
-      position: 'top-right',
-      showClose: true
-    });
-  } finally {
-    isUploading.value = false;
-    uploadingCount.value = 0;
-    uploadProgress.value = 0;
-    if (progressInterval) clearInterval(progressInterval);
-  }
-};
-
-/**
- * 标签相关处理
- */
-const addPresetTag = () => {
-  const tag = selectedPresetTag.value;
-  if (!tag) return;
-  
-  tagError.value = '';
-  
-  if (selectedTags.value.includes(tag)) {
-    tagError.value = '该标签已添加';
-    selectedPresetTag.value = '';
-    return;
-  }
-  
-  selectedTags.value.push(tag);
-  selectedPresetTag.value = ''; // 清空选择
-};
-
-const addCustomTag = async () => {
-  const tag = customTagInput.value.trim();
-  if (!tag) {
-    tagError.value = '标签不能为空';
-    return;
-  }
-  
-  // 校验标签长度
-  if (tag.length > 10) {
-    tagError.value = '标签长度不能超过10个字符';
-    return;
-  }
-  
-  // 校验标签不重复
-  if (selectedTags.value.includes(tag)) {
-    tagError.value = '该标签已添加';
-
-    return;
-  }
-  
-  try {
-    // 添加到服务器
-    const newTag = await addTagToServer(tag);
-    
-    // 更新本地列表
-    selectedTags.value.push(tag);
-    presetTags.value.push(newTag);
-    customTagInput.value = ''; // 清空输入框
-    tagError.value = '';
-    
-    Message.success('标签添加成功');
-  } catch (error) {
-    tagError.value = error.message || '添加标签失败';
-    Message.error(error.message || '添加标签失败');
-  }
-};
-
-const removeTag = (index) => {
-  selectedTags.value.splice(index, 1);
-  tagError.value = '';
-};
+const { handleDragOver, handleDragEnter, handleDragLeave, handleDrop, triggerFileInput,
+  handleFileSelect, handlePaste, validateFiles, uploadFiles, cancelLegacyUpload } = createHomeUploadActions({
+  API_BASE_URL, isDragOver, isUploading, fileInput, resumeTask, handleResumeFile, clientUploadLimits,
+  uploadConfig, storageConfigLoaded, directEnabled, startDirectFiles, legacyUploading, uploadingCount,
+  uploadProgress, getUploadFolderId, multiStorageSync, selectedBucket, recentImages, loadRecentImages,
+  isDisposed: () => disposed,
+  onSingleUpload: showUploadResult,
+});
 
 /**
  * 图片相关操作
@@ -868,6 +509,8 @@ const handleImageLoad = (e) => {
 };
 
 const handleImageError = (e) => {
+  if (e.target.dataset.fallbackApplied) return;
+  e.target.dataset.fallbackApplied = 'true';
   e.target.src = errorImg;
   const loadingEl = e.target.parentElement.querySelector('.loading');
   if (loadingEl) loadingEl.classList.add('hidden');
@@ -884,10 +527,10 @@ const copyImageLink = async (image, type) => {
       copyText = fullUrl;
       break;
     case 'html':
-      copyText = `<img src="${fullUrl}" alt="${image.filename}" width="${image.width || ''}" height="${image.height || ''}">`;
+      copyText = `<img loading="lazy" decoding="async" src="${fullUrl}" alt="${escapeHtml(image.filename)}" width="${image.width || ''}" height="${image.height || ''}">`;
       break;
     case 'markdown':
-      copyText = `![${image.filename}](${fullUrl})`;
+      copyText = `![${escapeHtml(image.filename)}](${fullUrl})`;
       break;
     default:
       copyText = fullUrl;
@@ -981,7 +624,9 @@ const downloadImage = (image) => {
   
   const fullUrl = getFullUrl(image.url);
   const link = document.createElement('a');
-  link.href = fullUrl;
+  const downloadUrl = new URL(fullUrl, window.location.origin);
+  downloadUrl.searchParams.set('download', '1');
+  link.href = downloadUrl.toString();
   link.download = image.filename || `image-${Date.now()}.png`;
   document.body.appendChild(link);
   link.click();
@@ -999,331 +644,27 @@ const downloadImage = (image) => {
 /**
  * 图片预览功能
  */
-const previewImage = (image) => {
-  if (!image || !image.url) {
-    Message.error('图片信息不完整，无法预览', {
-      duration: 2000,
-      position: 'top-right'
-    });
-    return;
-  }
-  
-  currentPreviewImage = image;
-
-  const tagsHtml = image.tags?.map(tag => `
-    <div class="px-2 py-0.5 rounded bg-primary/10 dark:bg-primary/20 text-primary text-xs">
-      <span>${tag.name}</span>
-    </div>
-  `).join('') || '';
-
-  const syncStatusHtml = multiStorageSync.value ? `
-    <div class="mt-3 border-t border-slate-200/70 pt-3 dark:border-white/10">
-      <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
-        <i class="ri-cloud-line"></i>存储同步状态
-      </div>
-      <div class="grid gap-2 sm:grid-cols-2">
-        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-          <div class="flex items-center justify-between gap-2 text-xs">
-            <span class="font-medium text-emerald-800 dark:text-emerald-200">本机</span>
-            <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300"><i class="ri-checkbox-circle-line"></i>已保存</span>
-          </div>
-        </div>
-        ${renderStorageStatusesHtml(image)}
-      </div>
-    </div>
-  ` : '';
-  const legacyStorageHtml = !multiStorageSync.value ? `
-    <div class="flex items-center gap-1.5">
-      <i class="ri-hard-drive-3-line"></i>
-      存储: ${(image.storage === 'default' ? '本地' : image.storage) || '未知'}
-    </div>
-  ` : '';
-  
-  // 构建预览弹窗内容
-  const previewContent = `
-    <div class="image-preview-popup w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden bg-white dark:bg-dark-200">
-      <!-- 顶部操作栏 -->
-      <div class="preview-header bg-light-50 pb-2 flex justify-between items-center">
-          <h3 class="text-xs font-medium truncate max-w-[50%]">${image.filename}</h3>
-          <div class="flex gap-1">
-              <!-- 下载按钮 -->
-              <button 
-                  class="px-3 py-1.5 text-xs bg-light-100 dark:bg-dark-300 hover:bg-light-200 whitespace-nowrap dark:hover:bg-dark-400 text-secondary rounded-md transition-colors duration-200 flex items-center gap-1"
-                  onclick="event.stopPropagation(); window.downloadPreviewImage()"
-              >
-                  <i class="ri-download-fill text-xs"></i>
-                  下载
-              </button>
-              <!-- 删除按钮 -->
-              <button 
-                  class="px-3 py-1.5 text-xs bg-danger/10 hover:bg-danger/20 whitespace-nowrap text-danger rounded-md transition-colors duration-200 flex items-center gap-1"
-                  onclick="event.stopPropagation(); window.deletePreviewImage(${image.id})"
-              >
-                  <i class="ri-delete-bin-fill text-xs"></i>
-                  删除
-              </button>
-          </div>
-      </div>
-      
-      <!-- 预览图片区域 -->
-      <div class="max-h-[360px] flex-1 overflow-auto flex items-center justify-center">
-          <a 
-              class="spotlight min-w-full max-w-full min-h-[260px] block" 
-              href="${getFullUrl(image.url)}" 
-              data-description="尺寸: ${image.width || '未知'}×${image.height || '未知'} | 大小: ${formatFileSize(image.file_size || 0)} | 上传日期：${formatDate(image.created_at)} | 角色：${ image.uploader_role == '1' ? '管理员' : (image.uploader_role == '3' ? '用户' : '游客') }"
-          >
-              <div class="relative max-w-full w-fill max-h-[360px] min-h-[260px] rounded-lg overflow-hidden animate-pulse flex items-center justify-center">
-                  <div class="absolute inset-0 flex items-center justify-center">
-                      <svg class="w-10 h-10 text-slate-300 animate-spin loading-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: scaleX(-1) scaleY(-1);">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                  </div>
-                  <img 
-                      src="${getFullUrl(image.url)}"
-                      alt="${image.filename}" 
-                      class="max-w-full w-fill max-h-[360px] min-h-[260px] object-contain rounded-lg relative z-10 opacity-0 transition-opacity duration-300"
-                      onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse'); this.parentElement.querySelector('.loading-svg').classList.add('hidden');"
-                      onerror="this.parentElement.classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.src='${errorImg}';"
-                  />
-              </div>
-          </a>
-      </div>
-
-      <!-- 图片复制区域 -->
-      <div class="flex gap-1 flex-wrap items-center w-full mt-3 mb-3">
-          <p class="mr-1 text-xs text-secondary font-semibold">复制：</p>
-          <button 
-              onclick="window.copyPreviewImageLink('url')"
-              class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-              <i class="ri-link text-xs w-4 text-center text-white"></i> URL
-          </button>
-
-          <button 
-              onclick="window.copyPreviewImageLink('html')"
-              class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-              <i class="ri-code-fill text-xs w-4 text-center text-white"></i> HTML
-          </button>
-
-          <button 
-              onclick="window.copyPreviewImageLink('markdown')"
-              class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
-              <i class="ri-markdown-fill text-xs w-4 text-center text-white"></i> Markdown
-          </button>
-      </div>
-
-      <!-- Tags -->
-      <div class="pt-2 flex flex-wrap gap-2 items-center">
-        <p class="mr-1 text-xs text-secondary font-semibold">Tags：</p>
-        ${tagsHtml}
-      </div>
-
-      ${syncStatusHtml}
-      
-      <!-- 底部信息栏 -->
-      <div class="pt-2 flex flex-wrap gap-2 text-xs text-secondary">
-          <div class="flex items-center gap-1.5">
-              <i class="ri-ruler-line w-3.5 text-center"></i>
-              尺寸: ${image.width || '未知'}×${image.height || '未知'}
-          </div>
-          <div class="flex items-center gap-1.5">
-              <i class="ri-image-line w-3.5 text-center"></i>
-              大小: ${formatFileSize(image.file_size || 0)}
-          </div>
-          ${legacyStorageHtml}
-      </div>
-  </div>
-  `;
-
-  // 注册预览相关全局函数
-  window.copyPreviewImageLink = (type) => copyImageLink(currentPreviewImage, type);
-  window.downloadPreviewImage = () => downloadImage(currentPreviewImage);
-  window.deletePreviewImage = () => {
-    deleteImage(currentPreviewImage.id);
-    closePreviewModal();
-  };
-  window.closePreviewModal = () => {
-    if (previewModalInstance) {
-      previewModalInstance.close();
-      cleanupPreview();
-    }
-  };
-
-  // 创建预览弹窗
-  previewModalInstance = new PopupModal({
-    title: '图片预览',
-    content: previewContent,
-    type: 'default',
-    buttons: [{
-      text: '确定',
-      type: 'default',
-      callback: (modal) => modal.close()
-    }],
-    maskClose: true,
-    zIndex: 10000,
-    maxHeight: '90vh',
-    onClose: cleanupPreview
-  });
-
-  previewModalInstance.open();
-
-  // 阻止弹窗内容冒泡
-  nextTick(() => {
-    const previewContent = document.querySelector('.image-preview-popup');
-    if (previewContent) {
-      previewContent.addEventListener('click', (e) => e.stopPropagation());
-    }
-  });
-};
-
 /**
  * 从URL上传图片
  */
-const uploadbyurlmodal = () => {
-  if (!storageConfigLoaded.value) {
-    Message.warning('存储配置正在加载，请稍后重试');
-    return;
-  }
-  // 构建标签选项
-  const tagList = [
-    { value: "0", label: "不添加"}
-  ];
-  presetTags.value.forEach(tag => {
-    tagList.push({ value: tag.id, label: tag.name });
-  });
-  const storageList = presetBuckets.value.map(storage => ({
-    value: storage.id,
-    label: storage.name,
-  }));
-  const modal = new PopupModal({
-    title: '从URL上传图片',
-    type: 'form',
-    formFields: [
-      {
-        name: 'url',
-        label: '图片链接',
-        type: 'text',
-        required: true,
-        placeholder: '请输入图片链接'
-      },
-      {
-        name: 'tag_id',
-        label: 'Tag标签',
-        type: 'select',
-        required: true,
-        defaultValue: "0",
-        options: tagList
-      },
-      ...(!multiStorageSync.value ? [{
-        name: 'bucket_id',
-        label: '存储',
-        type: 'select',
-        required: true,
-        defaultValue: selectedBucket.value || "1",
-        options: storageList,
-      }] : [])
-    ],
-    buttons: [
-      {
-        text: '取消',
-        type: 'default',
-        callback: (modal) => {
-          modal.close();
-        }
-      },
-      {
-        text: '确定',
-        type: 'primary',
-        callback: (modal) => {
-          const formData = serializeForm(modal);
-          if(formData['url'].length === 0) {
-            Message.error('请输入图片链接');
-            return
-          }
-          postuploadbyurl(formData);
-          modal.close();
-        }
-      }
-    ]
-  });
-  modal.open();
+const { disposeDialogs, previewImage, uploadbyurlmodal, cleanupPreview, closeDeletedPreview } = createHomeDialogs({
+  storageConfigLoaded, getUploadFolderId, folders, foldersAuthenticated, presetBuckets, selectedBucket, multiStorageSync, getFullUrl,
+  errorImg, formatFileSize, formatDate, copyImageLink, downloadImage, deleteImage, loadRecentImages,
+  onSingleUpload: showUploadResult, isDisposed: () => disposed,
+});
+
+function showUploadResult(image) {
+  if (disposed || !image?.id || !image.url) return;
+  // Resolve the uploaded ID, never whichever image happens to be first in the recent list.
+  const recent = recentImages.value.find(item => String(item.id) === String(image.id));
+  previewImage({
+    ...image, ...recent,
+    thumbnail: recent?.thumbnail || image.thumbnail || image.thumbnail_url || '',
+    bucket_id: recent?.bucket_id ?? image.bucket_id ?? selectedBucket.value,
+    uploader_role: recent?.uploader_role ?? image.uploader_role ?? currentUser().role,
+    tags: recent?.tags ?? image.tags ?? [],
+  }, { title: '上传成功', showLink: true });
 }
-
-const postuploadbyurl = async (formData) => {
-  try {
-    const res = await fetch(`/api/images/url`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-      },
-      body: JSON.stringify(formData)
-    });
-    const result = await res.json();
-    if (res.ok && result.code === 200) {
-      await loadRecentImages();
-      Message.success(multiStorageSync.value ? '已保存到本机，正在后台同步' : '上传成功');
-    } else {
-      throw new Error(result.message || '上传失败');
-    }
-  } catch (err) {
-    console.error(err);
-    Message.error(err.message || '上传失败');
-  }
-}
-
-/**
- * 序列化表单数据
- * @param {Object} modal - 弹窗实例
- * @returns {Object} 表单数据对象
- */
-const serializeForm = (modal) => {
-  const form = modal.content?.querySelector('form');
-  if (!form) {
-    console.warn('未找到表单元素');
-    return {};
-  }
-
-  return Array.from(form.elements).reduce((acc, element) => {
-    const { name, disabled, type, checked, value } = element;
-    
-    // 跳过无name、禁用的元素
-    if (!name || disabled) return acc;
-    
-    // 处理复选框/单选框
-    if ((type === 'checkbox' || type === 'radio') && !checked) return acc;
-    
-    // 处理文件输入
-    if (type === 'file') {
-      acc[name] = element.files.length > 0 ? element.files[0].name : '';
-      return acc;
-    }
-    
-    // 处理多值字段
-    if (acc[name]) {
-      acc[name] = Array.isArray(acc[name]) ? [...acc[name], value] : [acc[name], value];
-    } else {
-      acc[name] = value;
-    }
-    
-    return acc;
-  }, {});
-};
-
-/**
- * 清理预览相关资源
- */
-const cleanupPreview = () => {
-  // 清理全局函数
-  window.copyPreviewImageLink = null;
-  window.downloadPreviewImage = null;
-  window.deletePreviewImage = null;
-  window.closePreviewModal = null;
-  
-  // 重置状态
-  currentPreviewImage = null;
-  previewModalInstance = null;
-  previewCopyMenu = false;
-};
 
 /**
  * 全局点击处理（关闭下拉菜单）
@@ -1349,7 +690,8 @@ const handleGlobalClick = (e) => {
 onMounted(() => {
   // 初始化数据
   getUploadConfig();
-  setTimeout(loadRecentImages, 100);
+  loadRecentImages();
+  refreshDirectTasks();
   
   // 注册全局事件
   document.addEventListener('paste', handlePaste);
@@ -1357,8 +699,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  // 清理定时器
-  if (progressInterval) clearInterval(progressInterval);
+  disposed = true;
+  disposeDirectTasks();
+  cancelLegacyUpload();
   if (syncPollTimer) clearTimeout(syncPollTimer);
   
   // 移除事件监听
@@ -1367,6 +710,8 @@ onBeforeUnmount(() => {
   
   // 清理预览资源
   cleanupPreview();
+  disposeDialogs();
+  disposeViewDialogs();
   
   // 关闭所有消息提示
   if (window.Message) {

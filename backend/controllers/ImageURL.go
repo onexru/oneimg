@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"net/url"
+	"oneimg/backend/config"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -9,8 +11,8 @@ import (
 	"oneimg/backend/utils/publicurl"
 )
 
-func buildImageResponseURL(c *gin.Context, setting models.Settings, storage string, bucketID int, path string) string {
-	publicPath := publicurl.BuildForStorage(setting, storage, bucketID, path)
+func buildImageResponseURL(c *gin.Context, setting models.Settings, storageType string, bucketID int, imagePath string) string {
+	publicPath := applyPublicImageURL(setting, storageType, bucketID, imagePath)
 	if publicPath == "" || strings.HasPrefix(publicPath, "http://") || strings.HasPrefix(publicPath, "https://") {
 		return publicPath
 	}
@@ -30,19 +32,14 @@ func rewriteImageURLs(setting models.Settings, image *models.Image) {
 }
 
 func getRequestBaseURL(c *gin.Context) string {
-	scheme := "http"
-	if proto := firstForwardedValue(c.GetHeader("X-Forwarded-Proto")); proto != "" {
-		scheme = proto
-	} else if c.Request.TLS != nil {
-		scheme = "https"
+	if config.App != nil {
+		u, err := url.Parse(strings.TrimSpace(config.App.AppURL))
+		if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" {
+			return strings.TrimRight(u.String(), "/")
+		}
 	}
-
-	host := c.Request.Host
-	if forwardedHost := firstForwardedValue(c.GetHeader("X-Forwarded-Host")); forwardedHost != "" {
-		host = forwardedHost
-	}
-
-	return strings.TrimSuffix(scheme+"://"+host, "/")
+	// Invalid/missing AppURL produces a relative URL, not an attacker-host URL.
+	return ""
 }
 
 func ensureLeadingSlash(path string) string {

@@ -1,12 +1,15 @@
+import { FEEDBACK_STYLE, applyFeedbackStyles } from './feedbackStyles.js';
+import { OVERLAY_LAYERS } from './overlay.js';
+
 class Message {
   // 默认配置
   static defaults = {
     type: 'info', // 通知类型：success/info/warning/error
-    message: '', // 通知内容（支持HTML）
+    message: '', // 普通字符串使用 textContent；仅显式 DOM 节点支持富内容
     duration: 3000, // 自动关闭时长（毫秒），0表示不自动关闭
     position: 'top-right', // 显示位置：top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
     offset:75, // 距离边界的偏移量（像素）
-    zIndex: 99999, // 层级（高于普通元素，低于PopupModal）
+    zIndex: OVERLAY_LAYERS.toast, // 消息高于预览、弹窗和加载层
     showClose: false, // 是否显示关闭按钮
     onClose: null // 关闭回调函数
   };
@@ -25,12 +28,12 @@ class Message {
       display: 'flex',
       alignItems: 'center',
       transition: 'all 0.3s ease',
-      opacity: '0',
+      ...FEEDBACK_STYLE.hidden,
       transform: 'translateY(-10px)',
       maxWidth: '380px',
       minWidth: '160px',
       wordBreak: 'break-word',
-      boxSizing: 'border-box'
+      ...FEEDBACK_STYLE.box
     },
     // 显示状态
     show: {
@@ -39,7 +42,7 @@ class Message {
     },
     // 隐藏状态
     hide: {
-      opacity: '0',
+      ...FEEDBACK_STYLE.hidden,
       transform: 'translateY(-10px)'
     },
     // 类型样式
@@ -139,11 +142,7 @@ class Message {
    * @param {HTMLElement} el - 目标元素
    * @param {Object} styles - 样式对象
    */
-  static applyStyles(el, styles) {
-    Object.keys(styles).forEach(key => {
-      el.style[key] = styles[key];
-    });
-  }
+  static applyStyles(el, styles) { applyFeedbackStyles(el, styles); }
 
   /**
    * 显示通知
@@ -211,7 +210,8 @@ class Message {
     const messageDom = document.createElement('div');
     messageDom.dataset.type = config.type;
     messageDom.dataset.position = config.position;
-    messageDom.style.zIndex = config.zIndex;
+    messageDom.style.zIndex = Math.max(OVERLAY_LAYERS.toast, config.zIndex || 0);
+    messageDom.setAttribute('role', config.type === 'error' ? 'alert' : 'status');
 
     // 应用基础样式
     this.applyStyles(messageDom, this.styles.base);
@@ -247,9 +247,9 @@ class Message {
     if (isDark) {
       this.applyStyles(text, this.styles.darkText);
     }
-    // 处理文本内容（支持HTML和DOM元素）
+    // Default messages are plain text; callers may explicitly provide a DOM node.
     if (typeof config.message === 'string') {
-      text.innerHTML = config.message;
+      text.textContent = config.message;
     } else if (config.message instanceof HTMLElement) {
       text.innerHTML = '';
       text.appendChild(config.message);

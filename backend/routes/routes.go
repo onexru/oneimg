@@ -1,9 +1,10 @@
 package routes
 
 import (
-	"embed"
 	"io/fs"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 )
 
 // SetupRoutes 注册中间件、API 与 SPA 回退路由。
-func SetupRoutes(frontendFS embed.FS) *gin.Engine {
+func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 	cfg := config.App
 
 	gin.SetMode(gin.ReleaseMode)
@@ -26,6 +27,22 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 		"/api/auth/oidc/callback",
 		"/api/auth/cas/callback",
 	}}))
+	r.Use(middlewares.SecurityHeaders(config.App))
+	r.HandleMethodNotAllowed = true
+	r.NoMethod(middlewares.MethodNotAllowed)
+	// Only explicit proxy networks may supply forwarded addresses. Empty disables
+	// Gin's insecure default trust of every proxy/client-supplied X-Forwarded-For.
+	trusted := []string{}
+	for _, entry := range strings.Split(os.Getenv("TRUSTED_PROXIES"), ",") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			trusted = append(trusted, entry)
+		}
+	}
+	if err := r.SetTrustedProxies(trusted); err != nil {
+		log.Fatalf("无效 TRUSTED_PROXIES: %v", err)
+	}
+	r.Use(middlewares.NewAuthLimiter().Middleware(), middlewares.AuthBodyLimitMiddleware(64<<10), middlewares.SameOriginWrites(config.App))
+
 	r.Use(gin.Recovery())
 	r.Use(middlewares.ConfigMiddleware(cfg))
 	r.Use(middlewares.SessionMiddleware(cfg))
@@ -56,6 +73,14 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 	assetsFS, _ := fs.Sub(distFS, "assets")
 	r.StaticFS("/assets", http.FS(assetsFS))
 	r.StaticFile("/favicon.ico", "./frontend/dist/favicon.ico")
+	r.GET("/theme-init.js", func(c *gin.Context) {
+		content, err := fs.ReadFile(distFS, "theme-init.js")
+		if err != nil {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		c.Data(http.StatusOK, "text/javascript; charset=utf-8", content)
+	})
 
 	// cap-pow 自托管验证组件（cap-widget JS + WASM）
 	capFS, _ := fs.Sub(distFS, "cap")
@@ -66,8 +91,7 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 		// 公开接口
 		api.POST("/login", controllers.Login)
 		api.POST("/register", controllers.Register)
-		api.POST("/logout", controllers.Logout)
-		api.GET("/logout", controllers.Logout)
+		api.POST("/logout", middlewares.OptionalAuthMiddleware(), controllers.Logout)
 		api.GET("/settings/login", controllers.GetLoginSettings)
 		api.GET("/settings/seo", controllers.GetSEOSettings)
 		api.POST("/verify/cappow/challenge", controllers.CapPowChallenge)
@@ -88,14 +112,29 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.GET("/stats/dashboard", controllers.GetDashboardStats)
 			auth.GET("/stats/images", controllers.GetImageStats)
 
+			auth.GET("/folders", controllers.GetFolders)
+			auth.POST("/folders", controllers.CreateFolder)
+			auth.PUT("/folders/:id", controllers.UpdateFolder)
+			auth.DELETE("/folders/:id", controllers.DeleteFolder)
+			auth.PUT("/images/folder", controllers.MoveImagesFolder)
 			auth.GET("/tags", controllers.GetTags)
 			auth.GET("/buckets/list", controllers.GetBucketsList)
 
 			// 图片
 			auth.POST("/upload", controllers.UploadImage)
 			auth.POST("/upload/images", controllers.UploadImages)
+			direct := auth.Group("/uploads/direct", controllers.DirectUploadGuard())
+			direct.POST("", controllers.CreateDirectUpload)
+			direct.GET("", controllers.ListDirectUploads)
+			direct.GET("/:id", controllers.GetDirectUpload)
+			direct.POST("/:id/sign", controllers.SignDirectUpload)
+			direct.POST("/:id/complete", controllers.CompleteDirectUpload)
+			direct.POST("/:id/fallback", controllers.FallbackDirectUpload)
+			direct.POST("/:id/retry", controllers.RetryDirectUpload)
+			direct.DELETE("/:id", controllers.CancelDirectUpload)
 			auth.DELETE("/images/:id", controllers.DeleteImage)
 			auth.GET("/images", controllers.GetImageList)
+			auth.GET("/admin/images", middlewares.AdminOnlyMiddleware(), controllers.GetManagedImageList)
 			auth.GET("/images/:id", controllers.GetImageDetail)
 			auth.POST("/images/tag", controllers.AddImageTag)
 			auth.DELETE("/images/tag", controllers.DeleteImageTag)
@@ -119,11 +158,18 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.DELETE("/buckets/:id", middlewares.RequirePermission("storage:delete"), controllers.DeleteBuckets)
 
 			// 账户
+			auth.DELETE("/account/sessions/:id", controllers.RevokeAccountSession)
 			auth.POST("/account/change", controllers.ChangeAccountInfo)
+			auth.GET("/account/sessions", controllers.ListSessions)
+			auth.GET("/account/login-history", controllers.ListAccountLoginHistory)
+			auth.POST("/account/sessions/revoke", controllers.RevokeOwnSessions)
 			auth.POST("/sessions/clear", middlewares.RequirePermission("setting:security"), controllers.ClearAllSessions)
 
 			// 用户管理
 			auth.GET("/users", middlewares.AdminOnlyMiddleware(), controllers.GetUsers)
+			auth.GET("/admin/access-policy", middlewares.AdminOnlyMiddleware(), controllers.GetAccessPolicy)
+			auth.GET("/admin/storage-assignments", middlewares.AdminOnlyMiddleware(), controllers.GetStorageAssignments)
+			auth.PUT("/admin/storage-assignments/:role", middlewares.AdminOnlyMiddleware(), controllers.UpdateStorageAssignment)
 			auth.POST("/users/Add", middlewares.RequirePermission("user:create"), controllers.CreateUser)
 			auth.DELETE("/users/:id", middlewares.RequirePermission("user:delete"), controllers.DeleteUser)
 			auth.POST("/users/updateRole", middlewares.RequirePermission("user:role:update"), controllers.UpdateUserRole)
@@ -131,7 +177,10 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			auth.POST("/users/updatePermission/:id", middlewares.RequirePermission("user:permission:update"), controllers.UpdateUserPermission)
 
 			// 系统设置
-			auth.Any("/settings/get", controllers.GetSettings)
+			auth.GET("/settings/get", middlewares.RequirePermission("setting:list"), controllers.GetSettings)
+			auth.POST("/settings/get", middlewares.RequirePermission("setting:list"), controllers.GetSettings)
+			auth.POST("/settings/regenerate", middlewares.RequirePermission("setting:api"), controllers.RegenerateAPIToken)
+			auth.POST("/settings/renew_session", controllers.RenewSession)
 			auth.POST("/settings/update", controllers.UpdateSettings)
 			auth.GET("/settings/randomGraph", middlewares.RequirePermission("setting:api"), controllers.GetRandomGraph)
 			auth.POST("/settings/randomGraph", middlewares.RequirePermission("setting:api"), controllers.SetRandomGraph)
@@ -145,6 +194,16 @@ func SetupRoutes(frontendFS embed.FS) *gin.Engine {
 			return
 		}
 		if controllers.ImageProxy(c) {
+			return
+		}
+		// A missing image must not masquerade as an HTML SPA success response.
+		if strings.HasPrefix(c.Request.URL.Path, "/uploads/") {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "图片不存在"})
+			return
+		}
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			c.Header("Allow", "GET, HEAD")
+			middlewares.MethodNotAllowed(c)
 			return
 		}
 		indexContent, err := fs.ReadFile(distFS, "index.html")

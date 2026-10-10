@@ -4,14 +4,13 @@
       <div>
         <h1 class="page-title">存储管理</h1>
       </div>
-      <button
-        @click="AddBucketModal"
-        class="primary-button"
-      >
-        <i class="ri-add-line"></i>
-        添加存储
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="role-storage-config" type="button" class="soft-button" @click="roleStorageOpen = true">角色存储配置</button>
+        <button @click="AddBucketModal" class="primary-button"><i class="ri-add-line" aria-hidden="true"></i>添加存储</button>
+      </div>
     </section>
+
+    <StorageAssignmentsPanel v-if="roleStorageOpen" @close="closeRoleStorage" />
 
     <!-- 顶部标题 + 添加存储按钮 -->
     <div class="hidden items-center justify-between mb-6">
@@ -29,17 +28,17 @@
     </div>
 
     <!-- 多存储卡片列表 -->
-    <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
+    <div id="storage-sources" class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-6">
       <div
         v-for="storage in buckets"
         :key="storage.key"
-        class="section-card relative"
+        class="section-card storage-card relative min-w-0"
         :class="{ 'opacity-75': storage.disabled }"
       >
         <h3 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
           {{ storage.name }}
           <span class="text-xs bg-gray-100 dark:bg-dark-300 text-gray-500 dark:text-gray-300 px-2 py-0.5 rounded-full">
-            {{ storage.type === 'default' ? '默认存储' : storage.type.toUpperCase() }}
+            {{ storage.type === 'default' ? '默认存储' : storage.type === 'r2' ? 'Cloudflare R2' : storage.type.toUpperCase() }}
           </span>
           <span
             class="rounded-full px-2 py-0.5 text-xs"
@@ -57,22 +56,23 @@
 
         <div class="grid grid-cols-3 gap-3 mb-5">
           <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">总容量</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ storage.type === 'default' ? '磁盘总容量' : '总容量' }}</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.total_readable || '--' }}</h4>
           </div>
           <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">已使用</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ storage.type === 'default' ? '磁盘已用' : '已使用' }}</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.usage_readable }}</h4>
           </div>
           <div class="rounded-2xl border border-slate-200/70 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-900">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">剩余容量</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ storage.type === 'default' ? '磁盘可用' : '剩余容量' }}</p>
             <h4 class="text-lg font-bold text-gray-800 dark:text-white">{{ storage.usage_free || '--' }}</h4>
           </div>
         </div>
 
+        <p v-if="storage.type === 'default'" class="mb-3 text-xs text-gray-500 dark:text-gray-400">图床已登记：{{ storage.accounted_usage_readable || '--' }}；磁盘占用包含其它文件。</p>
         <div class="mb-5">
           <div class="flex items-center justify-between mb-2">
-            <p class="text-sm text-gray-600 dark:text-gray-300">使用率：{{ storage.usage_percent }}%</p>
+            <p class="text-sm text-gray-600 dark:text-gray-300">使用率：{{ clampUsage(storage.usage_percent).toFixed(1) }}%</p>
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ storage.usage_readable }} / {{ storage.total_readable }}
             </p>
@@ -80,12 +80,12 @@
           <div class="w-full h-2 bg-gray-200 dark:bg-dark-300 rounded-full overflow-hidden">
             <div
               class="h-full bg-blue-500 dark:bg-blue-400 rounded-full transition-all duration-500"
-              :style="{ width: `${storage.usage_percent}%` }"
+              :style="{ width: `${clampUsage(storage.usage_percent)}%` }"
             ></div>
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-dark-300">
+        <div class="storage-card-actions flex flex-nowrap items-center justify-end gap-1.5 pt-3 border-t border-gray-200 dark:border-dark-300">
           <button
             type="button"
             :disabled="testingBucketId === storage.id"
@@ -124,7 +124,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import StorageAssignmentsPanel from '@/components/buckets/StorageAssignmentsPanel.vue'
+import { clampUsage } from '@/utils/batchResults.js'
+import { ref, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+const route = useRoute(), router = useRouter();
+const roleStorageOpen = ref(route.hash === '#assignments');
+watch(() => route.hash, hash => { if (hash === '#assignments') roleStorageOpen.value = true; });
+function closeRoleStorage() {
+  roleStorageOpen.value = false;
+  if (route.hash === '#assignments') router.replace({ hash: '' });
+}
 import message from '@/utils/message.js';
 const buckets = ref([]);
 const testingBucketId = ref(null);
@@ -140,10 +150,14 @@ const typeSpecificFields = {
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   r2: [
-    { name: 'r2_endpoint', label: 'Endpoint', type: 'text', placeholder: '请输入 Endpoint', required: true},
+    { name: 'r2_endpoint', label: 'R2 S3 API 地址', type: 'text', placeholder: 'https://<account-id>.r2.cloudflarestorage.com', required: true},
     { name: 'r2_access_key', label: 'AccessKey', type: 'password', placeholder: '请输入 AccessKey', required: true},
     { name: 'r2_secret_key', label: 'SecretKey', type: 'password', placeholder: '请输入 SecretKey', required: true},
     { name: 'r2_bucket', label: 'Bucket', type: 'text', placeholder: '请输入 Bucket', required: true},
+    { name: 'r2_cdn_domain', label: '自定义 CDN / 访问域名', type: 'text', placeholder: 'https://img.example.com（可选）', required: false, tip: '留空使用 R2 签名直链；仅影响读取，不改变上传地址。' },
+    { name: 'r2_cdn_mode', label: 'CDN 访问方式', type: 'select', defaultValue: 'public', required: false,
+      options: [{ label: '桶绑定域名 / 公开 CDN', value: 'public' }, { label: '私有桶签名反代', value: 'signed_proxy' }],
+      tip: '签名反代需配置回源 Host，并完整保留路径和查询参数。' },
     { name: 'capacity', label: '容量大小', type: 'number', placeholder: '请输入容量大小，单位 GB', required: true}
   ],
   ftp: [
@@ -185,7 +199,7 @@ const AddBucketModal = () => {
       options: [
         { label: '请选择存储类型', value: '', disabled: true },
         { label: 'S3', value: 's3' },
-        { label: 'R2', value: 'r2' },
+        { label: 'Cloudflare R2', value: 'r2' },
         { label: 'FTP', value: 'ftp' },
         { label: 'WebDav', value: 'webdav' },
         { label: 'Telegram', value: 'telegram' },
@@ -211,7 +225,7 @@ const AddBucketModal = () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'X-Requested-With': 'XMLHttpRequest'
           },
           body: JSON.stringify(formData)
         });
@@ -260,7 +274,7 @@ const AddBucketModal = () => {
 const UpdateBucketModal = (bucket) => {
   const setValue = typeSpecificFields[bucket.type].map(field => ({
     ...field,
-    defaultValue: field.name == 'capacity' ? formatCapacity(bucket[field.name]) : (bucket.config[field.name] ?? ''),
+    defaultValue: field.name == 'capacity' ? formatCapacity(bucket[field.name]) : (bucket.config[field.name] ?? field.defaultValue ?? ''),
     placeholder: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '已配置，留空表示不修改' : field.placeholder,
     tip: sensitiveFields.includes(field.name) && bucket.config?.[`${field.name}_configured`] ? '当前已配置，后端不会返回明文；留空表示继续使用原值' : field.tip,
     required: sensitiveFields.includes(field.name) ? !bucket.config?.[`${field.name}_configured`] : field.required,
@@ -271,11 +285,11 @@ const UpdateBucketModal = (bucket) => {
     formFields: [
       { name: 'name', label: '存储名称', type: 'text', placeholder: '请输入存储名称', required: true, defaultValue: bucket.name },
       { name: 'type', label: '存储类型', type: 'select', disabled: true,
-      tip: '存储类型不可修改；<br><b class="text-red-500">修改配置会导致已有的图片无法访问，请谨慎操作</b>',
+      tip: '存储类型不可修改；\n修改配置会导致已有的图片无法访问，请谨慎操作',
       options: [
         { label: '请选择存储类型', value: '', disabled: true },
         { label: 'S3', value: 's3' },
-        { label: 'R2', value: 'r2' },
+        { label: 'Cloudflare R2', value: 'r2' },
         { label: 'FTP', value: 'ftp' },
         { label: 'WebDav', value: 'webdav' },
         { label: 'Telegram', value: 'telegram' },
@@ -292,7 +306,7 @@ const UpdateBucketModal = (bucket) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'X-Requested-With': 'XMLHttpRequest'
           },
           body: JSON.stringify(formData)
         });
@@ -341,7 +355,7 @@ const runBucketConnectionTest = async (payload) => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      'X-Requested-With': 'XMLHttpRequest'
     },
     body: JSON.stringify(payload)
   });
@@ -395,7 +409,7 @@ const ToggleBucketEnabled = async (storage) => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       },
       body: JSON.stringify({ enabled })
     });
@@ -438,7 +452,7 @@ const DeleteBucketModal = (id) => {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                'X-Requested-With': 'XMLHttpRequest'
               }
             });
             const result = await response.json();
@@ -467,7 +481,7 @@ const GetBuckets = async () => {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        'X-Requested-With': 'XMLHttpRequest'
       }
     });
     const result = await response.json();
@@ -492,3 +506,31 @@ onMounted(() => {
   GetBuckets();
 });
 </script>
+
+<style scoped>
+.storage-card {
+  container-type: inline-size;
+}
+
+.storage-card-actions > button {
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 12px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+@container (max-width: 400px) {
+  .storage-card-actions > button {
+    padding-inline: 8px;
+    gap: 4px;
+    font-size: 12px;
+  }
+}
+
+@container (max-width: 340px) {
+  .storage-card-actions > button > i {
+    display: none;
+  }
+}
+</style>

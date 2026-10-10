@@ -96,6 +96,15 @@ func isBlockedIP(ip net.IP) bool {
 
 // Get 使用安全策略下载远端资源。
 func Get(ctx context.Context, rawURL string, timeout time.Duration) (*http.Response, error) {
+	return get(ctx, rawURL, timeout, true)
+}
+
+// GetNoRedirect never forwards credential-bearing URLs to a redirected host.
+func GetNoRedirect(ctx context.Context, rawURL string, timeout time.Duration) (*http.Response, error) {
+	return get(ctx, rawURL, timeout, false)
+}
+
+func get(ctx context.Context, rawURL string, timeout time.Duration, follow bool) (*http.Response, error) {
 	if err := ValidatePublicHTTPURL(rawURL); err != nil {
 		return nil, err
 	}
@@ -109,6 +118,9 @@ func Get(ctx context.Context, rawURL string, timeout time.Duration) (*http.Respo
 	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !follow {
+				return http.ErrUseLastResponse
+			}
 			if len(via) >= 5 {
 				return ErrTooManyRedirects
 			}

@@ -17,6 +17,7 @@ type User struct {
 	Permission Permission `json:"permission" gorm:"type:json"`
 	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	AuthVersion uint64 `json:"-" gorm:"not null;default:0"`
 }
 
 // 角色与超级管理员约定。
@@ -39,7 +40,8 @@ var AllPermissionMap = map[string]string{
 	"tag:delete": "删除Tag",
 	"tag:update": "编辑Tag",
 
-	"setting:upload":       "上传与存储",
+	"setting:list": "查看设置",
+ "setting:upload":       "上传与存储",
 	"setting:image":        "图片处理",
 	"setting:security":     "安全与登录",
 	"setting:notification": "通知",

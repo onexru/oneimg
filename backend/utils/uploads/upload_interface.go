@@ -9,13 +9,16 @@ import (
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/result"
+	"oneimg/backend/utils/settings"
+	"oneimg/backend/utils/uploadpolicy"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	MaxUploadFiles     = 10
-	DefaultStorageType = "default"
+	MaxUploadFiles           = 10 // Deprecated: use uploadpolicy.MaxFiles for runtime policy.
+	MaxRequestBytes    int64 = (MaxUploadFiles * (32 << 20)) + (1 << 20)
+	DefaultStorageType       = "default"
 )
 
 // UploadContext 上传上下文
@@ -28,10 +31,15 @@ func NewUploadContext(c *gin.Context) *UploadContext {
 	return &UploadContext{c: c}
 }
 
+// Gin 返回底层 gin 上下文（供 controllers 层统一返回结果）
+func (uc *UploadContext) Gin() *gin.Context {
+	return uc.c
+}
+
 // Fail 统一错误返回
 func (uc *UploadContext) Fail(code int, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	uc.c.JSON(http.StatusOK, result.Error(code, msg))
+	uc.c.JSON(code, result.Error(code, msg))
 }
 
 // Success 统一成功返回
@@ -41,8 +49,18 @@ func (uc *UploadContext) Success(msg string, data map[string]any) {
 
 // ParseAndValidateFiles 解析并校验上传文件（数量、非空）
 func (uc *UploadContext) ParseAndValidateFiles() ([]*multipart.FileHeader, error) {
+	policy, err := settings.GetSettings()
+	if err != nil {
+		return nil, fmt.Errorf("读取上传限制失败: %w", err)
+	}
+	return uc.ParseAndValidateFilesWithSettings(policy)
+}
+
+func (uc *UploadContext) ParseAndValidateFilesWithSettings(policy models.Settings) ([]*multipart.FileHeader, error) {
+	uc.c.Request.Body = http.MaxBytesReader(uc.c.Writer, uc.c.Request.Body, uploadpolicy.RequestBytes(policy))
 	// 解析表单
-	form, err := uc.c.MultipartForm()
+	err := uc.c.Request.ParseMultipartForm(1 << 20)
+	form := uc.c.Request.MultipartForm
 	if err != nil {
 		return nil, fmt.Errorf("解析表单失败：%v", err)
 	}
@@ -54,8 +72,8 @@ func (uc *UploadContext) ParseAndValidateFiles() ([]*multipart.FileHeader, error
 	}
 
 	// 校验文件数量
-	if len(files) > MaxUploadFiles {
-		return nil, fmt.Errorf("最多只能上传%d个文件", MaxUploadFiles)
+	if err := uploadpolicy.ValidateCount(policy, len(files)); err != nil {
+		return nil, err
 	}
 
 	return files, nil

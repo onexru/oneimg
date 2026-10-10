@@ -8,6 +8,7 @@ import (
 
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/services"
 	"oneimg/backend/utils/result"
 	"oneimg/backend/utils/settings"
 
@@ -17,6 +18,7 @@ import (
 
 // ImageWithTags 列表接口返回的图片及其标签、存储同步状态。
 type ImageWithTags struct {
+	Deleting        bool                         `json:"deleting" gorm:"column:deleting"`
 	Id              int                          `json:"id" gorm:"primaryKey;autoIncrement;column:id"`
 	Url             string                       `json:"url" gorm:"column:url"`
 	Thumbnail       string                       `json:"thumbnail" gorm:"column:thumbnail"`
@@ -27,8 +29,10 @@ type ImageWithTags struct {
 	Height          int                          `json:"height" gorm:"column:height"`
 	Storage         string                       `json:"storage" gorm:"column:storage"`
 	BucketId        int                          `json:"bucket_id" gorm:"column:bucket_id"`
+	FolderId        int                          `json:"folder_id" gorm:"column:folder_id"`
 	AccessBucketId  int                          `json:"access_bucket_id" gorm:"column:access_bucket_id"`
 	UserId          int                          `json:"user_id" gorm:"column:user_id"`
+	UploaderName    string                       `json:"uploader_name" gorm:"-"`
 	UploaderRole    int                          `json:"uploader_role" gorm:"-"`
 	Md5             string                       `json:"md5" gorm:"column:md5"`
 	Uuid            string                       `json:"uuid" gorm:"column:uuid"`
@@ -42,8 +46,16 @@ func (ImageWithTags) TableName() string {
 	return "images"
 }
 
+// GetManagedImageList is the dedicated admin view; query parameters cannot
+// accidentally turn it into the personal folder browser.
+func GetManagedImageList(c *gin.Context) {
+	c.Set("gallery_scope", "all")
+	GetImageList(c)
+}
+
 // GetImageList 分页获取图片列表（按角色过滤可见范围）。
 func GetImageList(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
 		page = 1
@@ -68,13 +80,13 @@ func GetImageList(c *gin.Context) {
 	if sortOrder != "asc" && sortOrder != "desc" {
 		sortOrder = "desc"
 	}
-	orderClause := dbSortField + " " + sortOrder
+	orderClause := dbSortField + " " + sortOrder + ", images.id " + sortOrder
 
 	search := c.Query("search")
 	roleFilter := c.Query("role")
 	roleID := c.GetInt("user_role")
 	userID := c.GetInt("user_id")
-	userUUID := GetUUID(c)
+	userUUID := CurrentOwnerKey(c)
 
 	var hasZeroTag bool
 	var filterTagIds []int
@@ -97,7 +109,32 @@ func GetImageList(c *gin.Context) {
 	}
 
 	db := database.GetDB().DB
-	idQuery := db.Model(&models.Image{}).Select("images.id", dbSortField)
+	idQuery := db.Model(&models.Image{})
+	if rawFolder, present := c.GetQuery("folder_id"); present {
+		folderID, err := parseFolderID(rawFolder, true)
+		if err != nil {
+			folderHTTPError(c, err)
+			return
+		}
+		if err := services.ValidateFolderRead(db.WithContext(c.Request.Context()), userID, roleID, folderID); err != nil {
+			folderHTTPError(c, err)
+			return
+		}
+		idQuery = idQuery.Where("images.folder_id = ? AND images.user_id = ?", folderID, userID)
+	} else if _, present := c.Request.URL.Query()["folder_id"]; present {
+		c.JSON(400, result.Error(400, "文件夹ID无效"))
+		return
+	}
+	switch c.DefaultQuery("deletion", "active") {
+	case "active":
+		idQuery = idQuery.Where("images.deleting = ?", false)
+	case "deleting":
+		idQuery = idQuery.Where("images.deleting = ?", true)
+	case "all": // Explicit management list; owner/role permissions below still apply.
+	default:
+		c.JSON(400, result.Error(400, "删除状态筛选无效"))
+		return
+	}
 
 	// 存储桶筛选
 	bucket := c.Query("bucket")
@@ -108,34 +145,46 @@ func GetImageList(c *gin.Context) {
 		)
 	}
 
-	// 仅超级管理员可使用 role=admin / role=guest 全局筛选
-	if roleFilter != "" {
-		if roleID != models.RoleAdmin {
-			c.JSON(http.StatusBadRequest, result.Error(400, "无权限查看全局用户图片"))
+	// Explicit personal scope never expands, even if a stale role filter is sent.
+	scope := c.Query("scope")
+	if fixed := c.GetString("gallery_scope"); fixed != "" {
+		scope = fixed
+	}
+	if scope != "" && scope != "mine" && scope != "all" {
+		c.JSON(400, result.Error(400, "图库范围无效"))
+		return
+	}
+	global := scope == "all" || (scope == "" && roleFilter != "")
+	if global {
+		if roleID != models.RoleAdmin || userID <= 0 {
+			status := 403
+			if scope == "" {
+				status = 400
+			} // Legacy clients keep their error contract.
+			c.JSON(status, result.Error(status, "仅管理员可查看总图库"))
 			return
 		}
 		switch roleFilter {
+		case "", "all":
 		case "admin":
-			idQuery = idQuery.Where("images.user_id = ?", userID)
-		case "guest":
-			idQuery = idQuery.Joins("LEFT JOIN users ON images.user_id = users.id").
-				Where("users.id IS NULL")
+			idQuery = idQuery.Where("EXISTS (SELECT 1 FROM users WHERE users.id = images.user_id AND users.role = ?)", models.RoleAdmin)
 		case "user":
-			idQuery = idQuery.Joins("LEFT JOIN users ON images.user_id = users.id").
-				Where("users.id IS NOT NULL")
-			if userID != models.SuperAdminID {
-				idQuery = idQuery.Where("images.user_id = ? and users.id != ?", models.SuperAdminID, userID)
-			} else {
-				idQuery = idQuery.Where("images.user_id != ? or users.id != ?", models.SuperAdminID, userID)
-			}
+			idQuery = idQuery.Where("EXISTS (SELECT 1 FROM users WHERE users.id = images.user_id AND users.role = ?)", models.RoleUser)
+		case "guest":
+			idQuery = idQuery.Where("images.user_id < 0 OR NOT EXISTS (SELECT 1 FROM users WHERE users.id = images.user_id) OR EXISTS (SELECT 1 FROM users WHERE users.id = images.user_id AND users.role = ?)", models.RoleGuest)
+		default:
+			c.JSON(400, result.Error(400, "上传者角色无效"))
+			return
 		}
 	} else {
-		// 普通角色：只能查看自身数据
 		switch roleID {
 		case models.RoleUser, models.RoleAdmin:
-			idQuery = idQuery.Where("images.user_id = ?", userID)
+			idQuery = idQuery.Where("images.user_id = ? AND images.user_id > 0", userID)
 		case models.RoleGuest:
-			idQuery = idQuery.Where("images.uuid = ?", userUUID)
+			idQuery = scopeGuestImages(idQuery, userID, userUUID)
+		default:
+			c.JSON(403, result.Error(403, "无权查看图库"))
+			return
 		}
 	}
 
@@ -143,43 +192,28 @@ func GetImageList(c *gin.Context) {
 		idQuery = idQuery.Where("images.file_name LIKE ?", "%"+search+"%")
 	}
 
-	if hasZeroTag || len(filterTagIds) > 0 {
-		idQuery = idQuery.Joins("LEFT JOIN image_to_tags ON images.id = image_to_tags.image_id")
-		if hasZeroTag && len(filterTagIds) > 0 {
-			idQuery = idQuery.Where("image_to_tags.tag_id IS NULL OR image_to_tags.tag_id IN (?)", filterTagIds)
-		} else if hasZeroTag {
-			idQuery = idQuery.Where("image_to_tags.tag_id IS NULL")
-		} else {
-			idQuery = idQuery.Where("image_to_tags.tag_id IN (?) AND image_to_tags.tag_id IS NOT NULL", filterTagIds)
-		}
-		idQuery = idQuery.Distinct("images.id")
-	}
-
-	var imageIds []int
-	if err := idQuery.Order(orderClause).Offset(offset).Limit(limit).Pluck("images.id", &imageIds).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "筛选图片失败："+err.Error()))
+	idQuery = filterImageTags(idQuery, filterTagIds, hasZeroTag)
+	var total int64
+	if err := idQuery.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "统计图片失败"))
 		return
 	}
-
-	var total int64
-	countQuery := idQuery.Session(&gorm.Session{})
-	countQuery = countQuery.Offset(-1).Limit(-1)
-	if hasZeroTag || len(filterTagIds) > 0 {
-		countQuery.Distinct("images.id").Count(&total)
-	} else {
-		countQuery.Count(&total)
+	var imageIds []int
+	if err := idQuery.Session(&gorm.Session{}).Order(orderClause).Offset(offset).Limit(limit).Pluck("images.id", &imageIds).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, result.Error(500, "筛选图片失败"))
+		return
 	}
 	totalPages := (total + int64(limit) - 1) / int64(limit)
 
 	var images []ImageWithTags
 	if len(imageIds) > 0 {
-		imageFields := "id, url, thumbnail, file_name, file_size, mime_type, width, height, storage, bucket_id, access_bucket_id, user_id, md5, uuid, created_at"
+		imageFields := "id, deleting, url, thumbnail, file_name, file_size, mime_type, width, height, storage, bucket_id, access_bucket_id, folder_id, user_id, md5, uuid, created_at"
 		if err := db.Model(&models.Image{}).
 			Select(imageFields).
 			Where("id IN (?)", imageIds).
 			Order(orderClause).
 			Find(&images).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, result.Error(500, "查询图片详情失败："+err.Error()))
+			internalFailure(c, "查询图片详情失败", err)
 			return
 		}
 	}
@@ -193,7 +227,7 @@ func GetImageList(c *gin.Context) {
 	var imageToTags []models.ImageToTags
 	if len(imgIds) > 0 {
 		if err := db.Where("image_id IN (?)", imgIds).Find(&imageToTags).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, result.Error(500, "查询标签关联失败："+err.Error()))
+			internalFailure(c, "查询标签关联失败", err)
 			return
 		}
 	}
@@ -247,19 +281,22 @@ func GetImageList(c *gin.Context) {
 
 	// 批量查询用户ID-角色映射
 	type userRoleDTO struct {
-		ID   int `gorm:"column:id"`
-		Role int `gorm:"column:role"`
+		ID       int    `gorm:"column:id"`
+		Role     int    `gorm:"column:role"`
+		Username string `gorm:"column:username"`
 	}
 	var userRoleList []userRoleDTO
 	roleMap := make(map[int]int)
+	nameMap := make(map[int]string)
 	if len(uidList) > 0 {
 		err := db.Model(&models.User{}).
-			Select("id, role").
+			Select("id, role, username").
 			Where("id IN (?)", uidList).
 			Find(&userRoleList).Error
 		if err == nil {
 			for _, item := range userRoleList {
 				roleMap[item.ID] = item.Role
+				nameMap[item.ID] = item.Username
 			}
 		}
 	}
@@ -269,19 +306,21 @@ func GetImageList(c *gin.Context) {
 		uid := images[i].UserId
 		if r, exist := roleMap[uid]; exist {
 			images[i].UploaderRole = r
+			images[i].UploaderName = nameMap[uid]
 		} else {
 			images[i].UploaderRole = models.RoleGuest
+			images[i].UploaderName = "游客"
 		}
 	}
 
 	setting, err := settings.GetSettings()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "获取系统配置失败："+err.Error()))
+		internalFailure(c, "获取系统配置失败", err)
 		return
 	}
 	storageStatuses, err := loadImageStorageStatuses(imgIds, setting)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, result.Error(500, "获取存储同步状态失败："+err.Error()))
+		internalFailure(c, "获取存储同步状态失败", err)
 		return
 	}
 	for i := range images {
