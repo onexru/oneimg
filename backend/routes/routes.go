@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,20 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
+
+// isLocalhostURL 判断给定 URL 是否指向本机（localhost / 127.0.0.1 / ::1）。
+// 仅用于 CORS 本机源放行决策：服务本身部署在本机时才允许本机任意端口源。
+func isLocalhostURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
 
 // SetupRoutes 注册中间件、API 与 SPA 回退路由。
 func SetupRoutes(frontendFS fs.FS) *gin.Engine {
@@ -56,8 +71,15 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 			if appURL != "" && strings.EqualFold(origin, appURL) {
 				return true
 			}
-			return strings.HasPrefix(origin, "http://localhost:") ||
-				strings.HasPrefix(origin, "http://127.0.0.1:")
+			// 仅当服务本身以 localhost 形态部署（本地开发/默认配置）时才放行
+			// 本机任意端口源；生产部署（APP_URL 为真实域名）不再接受
+			// localhost 源，防止受害者本机其他端口的恶意页面借
+			// SameSite=Lax 不区分端口的特性携带凭据读取已登录接口。
+			if isLocalhostURL(appURL) {
+				return strings.HasPrefix(origin, "http://localhost:") ||
+					strings.HasPrefix(origin, "http://127.0.0.1:")
+			}
+			return false
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
@@ -150,9 +172,12 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 			auth.DELETE("/tags/:id", middlewares.RequirePermission("tag:delete"), controllers.DeleteTag)
 
 			// 存储管理
-			auth.GET("/buckets", controllers.GetBuckets)
+			// GET /api/buckets 与 POST /api/buckets/test 均挂权限门：
+			// 前者返回存储拓扑（endpoint/本地路径），后者驱动服务器主动
+			// 出站连接（S3/FTP/WebDAV/TG API），无权限时构成内网探测面。
+			auth.GET("/buckets", middlewares.RequireAnyPermission("storage:create", "storage:update", "storage:delete"), controllers.GetBuckets)
 			auth.POST("/buckets", middlewares.RequirePermission("storage:create"), controllers.AddBuckets)
-			auth.POST("/buckets/test", controllers.TestBucketConnection)
+			auth.POST("/buckets/test", middlewares.RequireAnyPermission("storage:create", "storage:update"), controllers.TestBucketConnection)
 			auth.POST("/buckets/update/:id", middlewares.RequirePermission("storage:update"), controllers.UpdateBuckets)
 			auth.PUT("/buckets/:id/enabled", middlewares.RequirePermission("storage:update"), controllers.UpdateBucketEnabled)
 			auth.DELETE("/buckets/:id", middlewares.RequirePermission("storage:delete"), controllers.DeleteBuckets)

@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"oneimg/backend/database"
@@ -35,7 +34,7 @@ func UploadImagesByURL(c *gin.Context) {
 		return
 	}
 	defer release()
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
+	wrapUploadBody(c, 32<<10)
 	defer func() {
 		if c.Request.MultipartForm != nil {
 			_ = c.Request.MultipartForm.RemoveAll()
@@ -248,9 +247,7 @@ func UploadImagesByURL(c *gin.Context) {
 			StorageType: localBucket.Type,
 			URL:         buildImageResponseURL(c, setting, localBucket.Type, localBucket.Id, fileResult.URL),
 		}
-		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, placeholderData); err != nil {
-			log.Println(err)
-		}
+		sendTGNotification(setting, placeholderData)
 	}
 
 	responseResult := *fileResult

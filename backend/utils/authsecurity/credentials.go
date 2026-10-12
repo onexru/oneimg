@@ -17,6 +17,11 @@ const GuestLifetime = 365 * 24 * time.Hour
 const TokenLifetime = 30 * 24 * time.Hour
 const DefaultTokenScopes = "image:read,upload:write"
 
+// DummyBcryptHash 是一个与真实用户哈希同 cost（10）的 bcrypt 哈希，
+// 供"用户不存在"分支执行等价比较，抹平登录响应时间差，防御用户名
+// 枚举时序侧信道。它不对应任何可登录口令。
+const DummyBcryptHash = "$2a$10$wMRzY1dmN/u9N2ZJqliZmeSBYNsW7ADe12qhOCEo09.1zms/IMzrS"
+
 func RandomSecret(size int) (string, error) {
  b := make([]byte, size)
  if _, err := rand.Read(b); err != nil { return "", err }

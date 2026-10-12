@@ -26,3 +26,11 @@ frontend/node_modules/
 *.db
 __pycache__/
 *.pyc
+
+# v3.5.5 审计构建产物与会话测试文件
+/release/
+/cookies.txt
+/login.json
+/rg.json
+/evil.svg
+/tiny.png

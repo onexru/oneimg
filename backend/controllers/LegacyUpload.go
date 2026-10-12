@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -161,9 +160,7 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 				StorageType: bucket.Type,
 				URL:         buildImageResponseURL(c, setting, bucket.Type, bucketID, fileResult.URL),
 			}
-			if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, data); err != nil {
-				log.Println(err)
-			}
+			sendTGNotification(setting, data)
 		}
 	}
 
@@ -307,9 +304,7 @@ func uploadImageByURLLegacy(c *gin.Context, setting models.Settings, rawURL, tag
 			StorageType: bucket.Type,
 			URL:         buildImageResponseURL(c, setting, bucket.Type, bucketID, fileResult.URL),
 		}
-		if err := telegram.SendSimpleMsg(setting.TGBotToken, setting.TGReceivers, setting.TGNoticeText, data); err != nil {
-			log.Println(err)
-		}
+		sendTGNotification(setting, data)
 	}
 
 	responseResult := *fileResult
@@ -351,6 +346,12 @@ func saveLegacyURLUpload(db *gorm.DB, bucket models.Buckets, image *models.Image
 			tagID, err := strconv.Atoi(tag)
 			if err != nil {
 				return err
+			}
+			// 与新版 URL 上传保持一致的标签存在性预检，避免依赖
+			// 外键回滚产生半途失败的用户可见错误。
+			var tagRow models.Tags
+			if err := tx.Where("id = ?", tagID).First(&tagRow).Error; err != nil {
+				return errors.New("标签不存在")
 			}
 			if err := tx.Create(&models.ImageToTags{ImageId: image.Id, TagId: tagID}).Error; err != nil {
 				return err

@@ -3,6 +3,14 @@ services:
     build: .
     ports:
       - "8080:8080"
+    environment:
+      # 站点对外访问地址：v4.5.5 起 API 返回的图片 URL 固定取自 APP_URL，
+      # 不再反射请求 Host（Host/X-Forwarded-Host 注入已在上游修复）。
+      # 部署时必须设为实际公网地址，如 http://31.57.10.10:18080
+      - APP_URL=http://localhost:8080
+      # 反向代理信任列表（可选）：仅在 nginx 等反代后部署时配置，
+      # 留空表示不信任任何代理的 X-Forwarded-For
+      # - TRUSTED_PROXIES=172.17.0.0/16
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads

@@ -109,6 +109,9 @@ func loginDB(c *gin.Context, db *gorm.DB) {
 	var user models.User
 	userInfo := db.Where("username = ?", req.Username).First(&user)
 	if userInfo.Error != nil {
+		// 用户不存在时也执行一次等价的 bcrypt 比较，抹平响应时间差，
+		// 防止通过时序侧信道枚举有效用户名。
+		bcrypt.CompareHashAndPassword([]byte(authsecurity.DummyBcryptHash), []byte(req.Password))
 		c.JSON(http.StatusUnauthorized, result.Error(401, "用户名或密码错误"))
 		return
 	}

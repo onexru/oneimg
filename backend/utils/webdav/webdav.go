@@ -39,6 +39,18 @@ func Client(cfg Config) *WebDAVClient {
 	return &WebDAVClient{config: cfg}
 }
 
+// httpClient 返回禁用重定向跟随的 HTTP 客户端：WebDAV 服务器可通过
+// 3xx 把请求重定向到任意主机（含内网地址），测试连接时跟随重定向
+// 既掩盖配置错误又扩大出站面。与 storage/webdav.go 的做法保持一致。
+func (c *WebDAVClient) httpClient() *http.Client {
+	return &http.Client{
+		Timeout: c.config.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 func (c *WebDAVClient) NormalizePath(path string) string {
 	// 空路径直接返回空，避免转为.
 	if path == "" || path == "." {
@@ -76,7 +88,7 @@ func (c *WebDAVClient) WebDAVStat(ctx context.Context, path string) (bool, error
 	req.Header.Set("Depth", "0")
 	req.Header.Set("User-Agent", "OneIMG/3.0")
 
-	client := &http.Client{Timeout: c.config.Timeout}
+	client := c.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败：%w", err)
@@ -136,7 +148,7 @@ func (c *WebDAVClient) WebDAVMkdirAll(ctx context.Context, dirPath string) error
 			req.SetBasicAuth(c.config.Username, c.config.Password)
 		}
 
-		client := &http.Client{Timeout: c.config.Timeout}
+		client := c.httpClient()
 		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("创建目录 %s 失败：%w", currentPath, err)
@@ -195,7 +207,7 @@ func (c *WebDAVClient) WebDAVUpload(ctx context.Context, remotePath string, file
 	req.Header.Set("Content-Length", strconv.FormatInt(fileSize, 10))
 	req.Header.Set("User-Agent", "OneIMG/3.0")
 
-	client := &http.Client{Timeout: c.config.Timeout}
+	client := c.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("上传失败：%w", err)
@@ -225,7 +237,7 @@ func (c *WebDAVClient) WebDAVDelete(ctx context.Context, path string) error {
 		req.SetBasicAuth(c.config.Username, c.config.Password)
 	}
 
-	client := &http.Client{Timeout: c.config.Timeout}
+	client := c.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("删除失败：%w", err)
@@ -253,7 +265,7 @@ func (c *WebDAVClient) WebDAVGetFile(ctx context.Context, path string) (*http.Re
 	}
 	req.Header.Set("User-Agent", "OneIMG-Proxy/1.0")
 
-	client := &http.Client{Timeout: c.config.Timeout}
+	client := c.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GET请求失败：%w", err)

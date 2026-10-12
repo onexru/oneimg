@@ -24,9 +24,31 @@ func (d *localDriver) resolve(ref Ref) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	current := string(filepath.Separator)
-	parts := append(strings.Split(strings.TrimPrefix(root, string(filepath.Separator)), string(filepath.Separator)), strings.Split(strings.TrimPrefix(key, "uploads/"), "/")...)
+	// filepath.Join 直接以 root 为前缀构造，天然兼容 Unix 根与 Windows
+	// 卷前缀（"D:\..."）。此前逐分隔符从 string(filepath.Separator)
+	// 重建的做法在盘符路径下会得到 "\D:" 而非 "D:\"。
+	full := filepath.Join(root, filepath.FromSlash(key))
+	if rel, relErr := filepath.Rel(root, full); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", ErrInvalidKey
+	}
+	// 逐组件 Lstat 拒绝符号链接（含 root 自身与 root 的各级祖先）。
+	// Windows 盘符根从卷名起步，UNC 根保持 \\server\share 前缀完整。
+	sep := string(filepath.Separator)
+	var current string
+	var parts []string
+	if strings.HasPrefix(root, sep) && !strings.HasPrefix(root, `\\`) {
+		current = sep
+		parts = strings.Split(strings.TrimPrefix(root, sep), sep)
+	} else {
+		vol := filepath.VolumeName(root)
+		current = vol
+		parts = strings.Split(strings.TrimPrefix(root, vol), sep)
+	}
+	parts = append(parts, strings.Split(strings.TrimPrefix(key, "uploads/"), "/")...)
 	for _, part := range parts {
+		if part == "" {
+			continue
+		}
 		current = filepath.Join(current, part)
 		info, e := os.Lstat(current)
 		if e != nil && !errors.Is(e, os.ErrNotExist) {
@@ -36,7 +58,7 @@ func (d *localDriver) resolve(ref Ref) (string, error) {
 			return "", ErrInvalidKey
 		}
 	}
-	return current, nil
+	return full, nil
 }
 func (d *localDriver) Upload(ctx context.Context, ref Ref, r io.Reader, o UploadOptions) (Info, error) {
 	if err := ctx.Err(); err != nil {

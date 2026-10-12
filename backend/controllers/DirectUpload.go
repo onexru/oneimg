@@ -98,9 +98,17 @@ func FallbackDirectUpload(c *gin.Context) {
 		respondDirectUpload(c, nil, err)
 		return
 	}
+	// The fallback path streams the same body scale as the regular upload
+	// endpoints and must share their global slot budget, otherwise it could
+	// bypass the 2-request bound and pin memory outside the limit.
+	release, ok := acquireUploadRequest(c)
+	if !ok {
+		return
+	}
+	defer release()
 	// Bound multipart parsing before FormFile can spool arbitrary data to disk.
 	// The service additionally enforces the task's exact original size/hash.
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, services.DirectUploadMaxBytes+(1<<20))
+	wrapUploadBody(c, services.DirectUploadMaxBytes+(1<<20))
 	if err := c.Request.ParseMultipartForm(1 << 20); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {

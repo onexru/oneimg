@@ -2,13 +2,13 @@ package images
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
 	"log"
-	"math/rand"
 	"mime/multipart"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/watermark"
@@ -348,13 +348,17 @@ func GetFileMimeType(header *multipart.FileHeader) string {
 	return header.Header.Get("Content-Type")
 }
 
-// generateUniqueFileName 生成唯一文件名
+// generateUniqueFileName 生成唯一文件名。{random} 的取值使用 crypto/rand，
+// 不再依赖可预测的 math/rand（时间种子）；最终文件名仍由 UUIDv4 后缀兜底。
 func generateUniqueFileName() string {
 	timestamp := time.Now().UnixNano()
 	hash := fmt.Sprintf("%x", timestamp)
-	rand.New(rand.NewSource(time.Now().UnixNano()))
-	randomNum := rand.Intn(900) + 100
-	return fmt.Sprintf("%s%d", hash, randomNum)
+	var b [1]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		// crypto/rand 失败时退化为纳秒计数，仍保持唯一性倾向。
+		return fmt.Sprintf("%s%d", hash, timestamp%900+100)
+	}
+	return fmt.Sprintf("%s%d", hash, int(b[0])%900+100)
 }
 
 // ReplaceMagicVariables 替换魔法变量
@@ -387,10 +391,13 @@ func (s *ImageService) ReplaceMagicVariables(pattern string, originalName string
 		pattern = strings.ReplaceAll(pattern, "{uuid}", uuid.New().String())
 	}
 
-	// 原始文件名（不含扩展名）
+	// 原始文件名（不含扩展名）。替换值必须过 safeFilenameStem：原始
+	// 文件名是客户端可控输入，未消毒直接进对象 key 可注入 "/"（嵌套
+	// 目录）、":"、bidi 覆盖符等；storage.Key 的兜底校验发生在图片
+	// 处理之后，尽早消毒更稳妥。
 	ext := filepath.Ext(originalName)
 	nameWithoutExt := strings.TrimSuffix(originalName, ext)
-	pattern = strings.ReplaceAll(pattern, "{filename}", nameWithoutExt)
+	pattern = strings.ReplaceAll(pattern, "{filename}", safeFilenameStem(nameWithoutExt))
 
 	return pattern
 }

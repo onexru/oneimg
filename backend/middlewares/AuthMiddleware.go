@@ -103,4 +103,26 @@ func RequirePermission(required string) gin.HandlerFunc {
 func AdminOnlyMiddleware() gin.HandlerFunc {
  return func(c *gin.Context) { if c.GetString("auth_method")=="api_token" || c.GetInt("user_role")!=models.RoleAdmin { rejectAuth(c,403,"无权访问"); return }; c.Next() }
 }
+
+// RequireAnyPermission 要求持有任一给定权限码（OR 语义）。用于同一端点
+// 服务多个管理流程的场景（如存储连接测试同时服务创建与编辑表单）。
+// API token 凭据一律拒绝：token scope 白名单不含管理端点。
+func RequireAnyPermission(required ...string) gin.HandlerFunc {
+ return func(c *gin.Context) {
+  u,ok:=GetCurrentUser(c); if !ok { rejectAuth(c,401,"用户信息获取失败"); return }
+  if c.GetString("auth_method")=="api_token" { rejectAuth(c,403,"API 凭据无此操作权限"); return }
+  allowed := u.ID==models.SuperAdminID || u.Permission.HasPermission("*")
+  if !allowed {
+   for _, code := range required {
+    if u.Permission.HasPermission(code) { allowed = true; break }
+   }
+  }
+  if !allowed {
+   names := make([]string, 0, len(required))
+   for _, code := range required { names = append(names, models.GetPermissionName(code)) }
+   rejectAuth(c,403,"无操作权限，需要权限: ["+strings.Join(names," / ")+"]"); return
+  }
+  c.Next()
+ }
+}
 func GetCurrentUser(c *gin.Context) (*models.User,bool) { v,ok:=c.Get("current_user"); if !ok { return nil,false }; u,ok:=v.(*models.User); return u,ok && u!=nil }

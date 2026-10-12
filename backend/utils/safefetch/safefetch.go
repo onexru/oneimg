@@ -17,6 +17,7 @@ var (
 	ErrBlockedHost      = errors.New("禁止访问内网或保留地址")
 	ErrBlockedScheme    = errors.New("仅允许 http/https")
 	ErrTooManyRedirects = errors.New("重定向次数过多")
+	ErrBodyTooLarge     = errors.New("响应体超过大小限制")
 )
 
 // ValidatePublicHTTPURL 校验 URL 是否可安全对外请求（防 SSRF）。
@@ -174,10 +175,19 @@ func get(ctx context.Context, rawURL string, timeout time.Duration, follow bool)
 	return client.Do(req)
 }
 
-// ReadLimited 读取响应体并限制最大字节。
+// ReadLimited 读取响应体并限制最大字节。max+1 哨兵读法使超限可以被
+// 显式检测：超限时返回 ErrBodyTooLarge，而非静默截断后让调用方拿到
+// 一份被截断的数据并报出误导性错误。
 func ReadLimited(r io.Reader, max int64) ([]byte, error) {
 	if max <= 0 {
 		max = 10 * 1024 * 1024
 	}
-	return io.ReadAll(io.LimitReader(r, max+1))
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, ErrBodyTooLarge
+	}
+	return data, nil
 }
