@@ -234,6 +234,11 @@ func NewConfig() {
 	configSecret := strings.TrimSpace(getEnv("CONFIG_SECRET", ""))
 	if configSecret == "" {
 		configSecret = loadOrCreatePersistentConfigSecret()
+	} else if len(configSecret) < 32 {
+		// 与 SESSION_SECRET 的强制检查保持一致的 fail-closed 行为：
+		// CONFIG_SECRET 直接派生数据库敏感凭证的 AES 密钥，弱口令会使
+		// 全部存储凭证在数据库泄露后被离线暴力破解。
+		log.Fatal("CONFIG_SECRET must contain at least 32 characters (leave it empty to auto-generate a strong random secret)")
 	}
 
 	// 初始化全局配置

@@ -43,7 +43,16 @@ func limitedAuthPath(path string) bool {
 }
 func (l *AuthLimiter) Middleware() gin.HandlerFunc {
  return func(c *gin.Context) {
-  if !limitedAuthPath(c.Request.URL.Path) { c.Next(); return }
+  if !limitedAuthPath(c.Request.URL.Path) {
+   // /api/account/change 的"当前密码"确认可被会话劫持者当作密码
+   // 预言机无限尝试：单独限流（不与登录共享 IP 预算，避免误伤登录流量）。
+   if c.Request.URL.Path=="/api/account/change" && c.Request.Method==http.MethodPost {
+    c.Header("Cache-Control","private, no-store")
+    ip:=c.ClientIP()
+    if ok,wait:=l.allow("acct:"+ip,10,time.Minute); !ok { rateLimited(c,wait); return }
+   }
+   c.Next(); return
+  }
   c.Header("Cache-Control","private, no-store")
   ip:=c.ClientIP()
   // One shared IP budget prevents rotating across login/SSO/PoW endpoints.

@@ -3,6 +3,7 @@ package images
 import (
  "mime"
  "strings"
+ "unicode"
 )
 
 // Limits apply even when an administrator configures an unbounded upload size.
@@ -40,6 +41,9 @@ func formatMIME(format string) string {
 func safeFilenameStem(stem string) string {
  var out strings.Builder
  for _, r := range stem {
+  // 剥离 Unicode Cf（格式字符）类：包含 RTL 覆盖符 U+202E 等 bidi
+  // 欺骗字符，它们对路径安全无意义但可造成视觉欺骗。
+  if unicode.Is(unicode.Cf, r) { continue }
   if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r > 127 { out.WriteRune(r) }
   if out.Len() >= 120 { break }
  }

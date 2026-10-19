@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
@@ -34,7 +33,7 @@ func UploadImages(c *gin.Context) {
 		c.JSON(500, result.Error(500, "获取上传配置失败"))
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, uploadpolicy.RequestBytes(setting))
+	wrapUploadBody(c, uploadpolicy.RequestBytes(setting))
 	defer func() {
 		if c.Request.MultipartForm != nil {
 			_ = c.Request.MultipartForm.RemoveAll()
@@ -204,17 +203,7 @@ func UploadImages(c *gin.Context) {
 				StorageType: localBucket.Type,
 				URL:         buildImageResponseURL(c, setting, localBucket.Type, localBucket.Id, fileResult.URL),
 			}
-
-			err := telegram.SendSimpleMsg(
-				setting.TGBotToken,   // 机器人Token
-				setting.TGReceivers,  // 接收者ChatID
-				setting.TGNoticeText, // 模板文本
-				placeholderData,      // 占位符数据
-			)
-			if err != nil {
-				log.Println(err)
-				// 忽略错误
-			}
+			sendTGNotification(setting, placeholderData)
 		}
 
 		successCount++

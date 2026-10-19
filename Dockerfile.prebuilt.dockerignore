@@ -1,0 +1,33 @@
+# Dockerfile.prebuilt 专用 ignore：与根 .dockerignore 的差异是
+# 保留 frontend/dist（prebuilt 镜像直接 COPY 编译期产物）并纳入
+# release/bin 的 Linux 二进制；同时排除审计会话遗留的凭据/测试文件。
+.git
+.gopath
+.claude
+.env
+.env.*
+**/node_modules
+**/__pycache__
+*.log
+*.dump
+data
+uploads
+backups
+artifacts
+test-files
+deploy
+docs
+backend/docs
+admin-credentials.json
+sample-manifest.json
+cookies.txt
+login.json
+rg.json
+evil.svg
+tiny.png
+frontend/_tmp_*
+frontend-build.log
+release/bin/oneimg-win-amd64.exe
+release/*.zip
+release/*.tar
+release/*.tar.gz

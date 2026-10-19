@@ -326,7 +326,10 @@ func UpdateUserPermission(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, result.Fail(500, "读取多存储设置失败"))
 		return
 	}
-	if !setting.MultiStorageSync {
+	// 权限码（Codes）修改必须无条件执行超管/自我保护，与前端
+	// accessReadOnlyReason 的只读规则保持一致；多存储同步模式仅放宽
+	// 存储源（Buckets）的编辑范围，绝不放宽权限码门控。
+	if req.Codes != nil || !setting.MultiStorageSync {
 		if id == models.SuperAdminID {
 			c.JSON(http.StatusBadRequest, result.Fail(400, "不能修改超级管理员权限"))
 			return
