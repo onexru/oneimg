@@ -69,7 +69,7 @@ OneImg 是一个功能完整的自托管图床与图片管理系统。它的核�
 - **拖拽上传**：将图片拖入上传区域即可
 - **批量选择**：一次选择多张图片，配合实时进度条
 - **URL 远程上传**：输入图片链接，服务端拉取后入库
-- 支持格式：JPEG / PNG / GIF / WebP / SVG / BMP
+- 支持格式：JPEG / PNG / GIF / WebP（按实际图片字节校验，不信任浏览器声明的 MIME）
 
 ### 存储架构
 
@@ -78,6 +78,7 @@ OneImg 是一个功能完整的自托管图床与图片管理系统。它的核�
 | 存储类型 | 说明 |
 |----------|------|
 | 本地磁盘 | 默认存储，数据直接落盘 |
+| Cloudflare R2 | 独立存储类型，支持专用端点与 CDN、浏览器直传 |
 | S3 兼容 | 支持 Cloudflare R2、阿里云 OSS 等 S3 协议存储 |
 | FTP | 传统 FTP 服务器 |
 | WebDAV | 支持 Nextcloud、坚果云等 WebDAV 服务 |
@@ -149,6 +150,7 @@ OneImg 是一个功能完整的自托管图床与图片管理系统。它的核�
 git clone https://github.com/onexru/oneimg.git
 cd oneimg
 docker compose up -d
+docker compose exec oneimg cat /app/data/.initial_admin_password
 ```
 
 启动后访问 `http://localhost:8080`
@@ -159,19 +161,35 @@ docker compose up -d
 docker run -d \
   --name oneimg \
   -p 8080:8080 \
+  -e APP_URL=https://img.example.com \
   -v /data/oneimg:/app/data \
+  -v /data/oneimg-uploads:/app/uploads \
   --restart unless-stopped \
   onexru/oneimg-oneimg
+
+# 查看首次启动生成的随机管理员密码
+docker exec oneimg cat /app/data/.initial_admin_password
 ```
 
-### 默认账号
+### 初始账号与密码
 
 ```text
-账号：admin
-密码：123456
+账号：admin（由 DEFAULT_USER 决定）
+密码：首次启动自动生成，见 data/.initial_admin_password
 ```
 
-> 首次部署后请立即修改默认密码，并根据实际环境调整 `.env` 配置。
+密码生成规则：
+
+| `DEFAULT_PASS` | 行为 |
+|---|---|
+| 留空（推荐） | 仅在数据库中还没有任何用户时，生成 43 字符随机密码写入 `data/.initial_admin_password`（权限 `0600`），**不打印到日志** |
+| 非空 | 直接使用该值作为初始管理员密码 |
+
+- 该文件只在首次创建管理员时写入；之后重启不会覆盖，也不会重置已有账号的密码。
+- 密码**不会**出现在启动日志里，必须读取该文件获取。
+- 登录后请立即修改密码，并删除该文件。
+
+> ⚠️ 历史 `.env` 模板里曾有 `DEFAULT_PASS=123456`，若你的 `.env` 还保留这一行，它会被当作初始密码注入。请删除该行或改成强密码。仓库现在提供的模板已改为留空。
 
 ---
 
@@ -206,7 +224,50 @@ docker run -d \
 
 ### 配置方式
 
-通过环境变量或项目根目录下的 `.env` 文件进行调整，关键配置项包括存储后端凭证、安全策略、上传限制等。
+所有配置都可以**直接在容器编排里设置**，不需要进容器改 `/app/.env`。
+
+**Docker Compose**：编辑 `docker-compose.yml` 的 `environment` 段，或把 `.env.example` 复制为 `.env`（compose 会自动读取并替换 `${VAR}`）：
+
+```bash
+cp .env.example .env
+vim .env    # 至少改 APP_URL
+docker compose up -d
+```
+
+**docker run**：用 `-e` 逐个传入，例如：
+
+```bash
+docker run -d --name oneimg -p 8080:8080 \
+  -e APP_URL=https://img.example.com \
+  -e DEFAULT_USER=admin \
+  -e MAX_FILE_SIZE=20971520 \
+  -e TRUSTED_PROXIES=172.17.0.0/16 \
+  -v /data/oneimg:/app/data \
+  -v /data/oneimg-uploads:/app/uploads \
+  onexru/oneimg-oneimg
+```
+
+**优先级**：编排注入的环境变量 > 容器内自动生成的 `/app/.env`。
+
+应用首次启动时若发现工作目录没有 `.env` 会自动生成一份模板，但加载时（godotenv）**不会覆盖已存在的环境变量**，所以容器注入的值始终生效，容器内 `.env` 只用来补全未注入的默认项。这也意味着容器里那份 `.env` 可以完全不管。
+
+> 早期版本会把 `.env` 文件放在容器内，重建容器即丢失；现在密钥类的自动生成值都落在 `./data` 挂载卷里（`data/.config_secret`、`data/.initial_admin_password`），持久化与重建都不会变。
+
+常用变量：
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `APP_URL` | `http://localhost:8080` | **公网必改**。API 返回的图片 URL 取自该值 |
+| `SERVER_PORT` | `8080` | 监听端口 |
+| `DB_TYPE` | `sqlite` | `sqlite` / `mysql` / `postgres` |
+| `DEFAULT_USER` / `DEFAULT_PASS` | `admin` / 空 | 初始管理员；`DEFAULT_PASS` 留空则随机生成 |
+| `SESSION_SECRET` | 空（自动生成） | 会话签名密钥 |
+| `CONFIG_SECRET` | 空（自动生成） | 配置与图片加密密钥，显式设置必须 ≥32 字符且不可更换 |
+| `MAX_FILE_SIZE` | `10485760` | 单文件上限（字节），另有 32MB 硬上限 |
+| `ALLOWED_TYPES` | jpeg/png/gif/webp | 允许的 MIME，逗号分隔 |
+| `TRUSTED_PROXIES` | 空 | 反代信任的 IP/CIDR，留空表示不信任任何代理 |
+
+完整清单见 [`.env.example`](.env.example)。
 
 ---
 

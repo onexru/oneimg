@@ -27,7 +27,7 @@ frontend/node_modules/
 __pycache__/
 *.pyc
 
-# v3.5.5 审计构建产物与会话测试文件
+# Local build artifacts and session test files (v3.5.6)
 /release/
 /cookies.txt
 /login.json

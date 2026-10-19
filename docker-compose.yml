@@ -1,19 +1,80 @@
+# 初春图床 oneImg —— 容器编排
+#
+# 所有可配置项都已在下面的 environment 中暴露，无需进入容器改 /app/.env：
+# 直接改本文件，或用同目录的 .env 提供值（docker compose 会自动读取它做变量替换）。
+#
+# 优先级：本文件的 environment / .env  >  容器内自动生成的 /app/.env
+#   应用启动时若发现 /app/.env 不存在会自动生成一份模板，但 godotenv 不会覆盖
+#   已存在的进程环境变量，因此这里注入的值始终生效，容器内 .env 只用于补全默认值。
+#
+# 因此容器内 /app/.env 可以完全不管；需要持久化的只有 ./data 与 ./uploads。
+
 services:
   oneimg:
     build: .
+    # 也可改用官方镜像：image: onexru/oneimg-oneimg
+    # 或加载离线包：docker load -i oneImg_Docker_amd64_v3.5.6.tar（镜像名 oneimg:v3.5.6-amd64）
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     environment:
-      # 站点对外访问地址：v4.5.5 起 API 返回的图片 URL 固定取自 APP_URL，
-      # 不再反射请求 Host（Host/X-Forwarded-Host 注入已在上游修复）。
-      # 部署时必须设为实际公网地址，如 http://31.57.10.10:18080
-      - APP_URL=http://localhost:8080
-      # 反向代理信任列表（可选）：仅在 nginx 等反代后部署时配置，
-      # 留空表示不信任任何代理的 X-Forwarded-For
-      # - TRUSTED_PROXIES=172.17.0.0/16
+      # ── 服务器 ───────────────────────────────────────────────
+      # 监听端口（镜像内 EXPOSE 8080，改动时上面的 ports 会跟着变）
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      # 站点对外访问地址。API 返回的图片 URL 固定取自该值，不再反射请求 Host，
+      # 公网部署必须改成实际地址，如 https://img.example.com
+      - APP_URL=${APP_URL:-http://localhost:8080}
+
+      # ── 数据库 ───────────────────────────────────────────────
+      # sqlite | mysql | postgres
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - SQLITE_PATH=${SQLITE_PATH:-./data/data.db}
+      # 用 mysql/postgres 时额外填下面几项（sqlite 下会被忽略）
+      - DB_HOST=${DB_HOST:-localhost}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_NAME=${DB_NAME:-oneimg}
+      # CA 证书路径。留空使用系统 CA；证书验证默认开启，路径错误会拒绝启动。
+      - DB_CA_CERT_PATH=${DB_CA_CERT_PATH:-./ca/isrgrootx1.pem}
+      - DB_SKIP_CERT_VERIFY=${DB_SKIP_CERT_VERIFY:-false}
+      - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-10}
+      - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-2}
+      - DB_CONN_MAX_LIFETIME=${DB_CONN_MAX_LIFETIME:-30m}
+      - DB_CONN_MAX_IDLE_TIME=${DB_CONN_MAX_IDLE_TIME:-5m}
+
+      # ── 上传 ─────────────────────────────────────────────────
+      - UPLOAD_ROOT=${UPLOAD_ROOT:-./uploads}
+      # 单文件上限（字节），上限被程序内 32MB 硬限制再收一次
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-10485760}
+      # SVG 不再作为普通图片接受上传；留空则默认 jpeg/png/gif/webp
+      - ALLOWED_TYPES=${ALLOWED_TYPES:-image/jpeg,image/png,image/gif,image/webp}
+
+      # ── 初始管理员 ───────────────────────────────────────────
+      - DEFAULT_USER=${DEFAULT_USER:-admin}
+      # 留空（推荐）：仅在首次创建管理员时生成 43 字符随机密码，写入
+      #   ./data/.initial_admin_password（权限 0600），不打印到日志。
+      #   docker compose exec oneimg cat /app/data/.initial_admin_password
+      # 非空：直接使用该值作为初始密码。
+      # ⚠ 若同目录 .env 里残留 DEFAULT_PASS=123456，会被注入成管理员密码，请删除该行。
+      - DEFAULT_PASS=${DEFAULT_PASS:-}
+
+      # ── 密钥 ─────────────────────────────────────────────────
+      # 留空自动生成。SESSION_SECRET 已存在时用于签发会话；
+      # CONFIG_SECRET 用于加密存储凭证与图片文件，留空时自动生成并持久化到
+      # data/.config_secret（随 ./data 卷保留，重建容器不会变），
+      # 一旦启用加密存储就不可更换，否则历史内容无法解密。
+      # 显式配置时 CONFIG_SECRET 必须 >= 32 字符，否则启动直接失败。
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - CONFIG_SECRET=${CONFIG_SECRET:-}
+
+      # ── 反向代理 ─────────────────────────────────────────────
+      # 逗号分隔 IP/CIDR。仅这些来源的 X-Forwarded-For 会被采信为客户端 IP；
+      # 留空表示不信任任何代理（直连部署保持留空）。
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:

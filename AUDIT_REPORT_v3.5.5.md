@@ -24,7 +24,7 @@
 | M2 | `backend/routes/routes.go` CORS | AllowOriginFunc 放行任意 `http://localhost:*/127.0.0.1:*` 且 AllowCredentials:true → 受害者 localhost 任意端口恶意页可带 cookie 读全部已登录 GET 接口 | localhost 放行仅当 APP_URL 本身是 localhost/127.0.0.1/::1 时（新增 isLocalhostURL helper） |
 | M3 | TG 通知（ImageUpload/ImageURLUpload/LegacyUpload 4 处调用点） | MigrateSecrets 已把 TGBotToken 加密为 `enc:v1:...`，但 4 处直接拿密文调 telegram API → 必然 401 静默失败（功能坏死） | 新建 `backend/controllers/notify.go` `sendTGNotification(settingRow, data)`：GetSecret 解密后发送，空/错记日志返回；4 调用点全部替换 |
 | M4 | 上传 DoS：`main.go` 无 ReadTimeout + `UploadLimits.go` 全局仅 2 槽 | 慢速 multipart body 无限占槽，2 连接即全局上传 DoS；FallbackDirectUpload 完全不受槽约束 | `wrapUploadBody(c, max)` = MaxBytesReader + stallAbortBody（60s 空闲中断，经 http.ResponseController 设 body deadline，gin v1.11 responseWriter Unwrap 已验证可穿透）+ 槽持有 15 分钟 time.AfterFunc 兜底自动释放；三个入口（ImageUpload/ImageURLUpload/FallbackDirectUpload）全部接入；FallbackDirectUpload 补 acquireUploadRequest 槽 |
-| M5 | `.env` DEFAULT_PASS=123456 模板默认 | 部署沿用即 admin/123456 | 属部署模板问题：**文档化**（见二-1），代码层 DefaultPass 为空时已走随机生成路径 |
+| M5 | `.env` DEFAULT_PASS=123456 模板默认 | 部署沿用即 admin/123456 | **已彻底移除**：v3.5.6 起代码模板 `DEFAULT_PASS=` 留空、README/README.txt/.env.example 全部改为"随机生成"口径，本机 `.env` 中的历史值也已清除；代码层 DefaultPass 为空时走 `data/.initial_admin_password` 随机生成路径 |
 
 ### Low
 
@@ -49,7 +49,7 @@
 
 ## 二、未修复/文档化项（有意接受的取舍）
 
-1. **`.env` 模板 DEFAULT_PASS=123456**：生产部署务必修改或删除该行；留空时首启自动生成 32 字节随机密码写入 `data/.initial_admin_password`（0600，不落日志）——这是推荐路径。
+1. **`.env` 模板 DEFAULT_PASS 现已留空**（v3.5.6 起）：留空时仅在数据库还没有任何用户时生成 43 字符随机密码（32 字节随机数 base64url）写入 `data/.initial_admin_password`（0600，不落日志）——这是推荐路径；非空则直接作为初始密码。该文件只写一次，重启不覆盖，也不会重置已有账号密码。历史模板里的 `DEFAULT_PASS=123456` 若仍留在部署的 `.env` 中会被当作初始密码，需删除。
 2. **CONFIG_SECRET 部署要求**：文件加密密钥（securestorage）在 CONFIG_SECRET 为空时回退 SESSION_SECRET（域分离前缀是公开常量）。当前版本 CONFIG_SECRET 总非空（自动生成持久化 `data/.config_secret`），回退不可达；但生产建议显式独立配置两者，且 CONFIG_SECRET 现已强制 ≥32 字符。
 3. **公开图片代理无速率限制**（Proxy.go 流式路径）：带宽/上游配额 DoS 向量。建议反代层 limit_req；代码层不加（公开端点限流易误伤合法流量）。
 4. **safefetch ProxyFromEnvironment**：配置了 HTTP(S)_PROXY 环境变量时拨号级 IP 校验校验的是代理地址而非目标。powverify 已显式 Proxy:nil；其他出站点在代理部署下需知悉此语义。
