@@ -216,6 +216,19 @@ docker exec oneimg cat /app/data/.initial_admin_password
 
 > 修改数据库在`.env`内`DB_TYPE`配置
 
+MySQL / PostgreSQL 的 TLS 由 `DB_TLS_MODE` 控制：
+
+| 取值 | 行为 |
+|---|---|
+| `auto`（默认） | `DB_HOST` 解析为本机/私有地址（含 Docker 网络）时按 `preferred`，公网地址时按 `verify-full` |
+| `disable` | 不使用 TLS |
+| `preferred` | 服务端支持则使用 TLS，不校验证书；不支持则明文 |
+| `required` | 必须使用 TLS，不校验证书 |
+| `verify-ca` | 必须使用 TLS，校验 CA（`DB_CA_CERT_PATH`，留空使用系统 CA），不校验主机名 |
+| `verify-full` | 必须使用 TLS，校验 CA 和主机名（`DB_TLS_SERVER_NAME`，留空等于 `DB_HOST`） |
+
+同一 Docker 网络内的自建数据库（例如 `DB_HOST=mysql`）无需额外配置；连接云厂商 VPC 内的托管数据库时，如需严格校验请显式设置 `DB_TLS_MODE=verify-full`。启动日志会输出最终生效的模式。
+
 ### Telegram 存储配置
 
 使用 Telegram 作为存储后端时，需要获取 Telegram User ID：
@@ -260,6 +273,7 @@ docker run -d --name oneimg -p 8080:8080 \
 | `APP_URL` | `http://localhost:8080` | **公网必改**。API 返回的图片 URL 取自该值 |
 | `SERVER_PORT` | `8080` | 监听端口 |
 | `DB_TYPE` | `sqlite` | `sqlite` / `mysql` / `postgres` |
+| `DB_TLS_MODE` | `auto` | 数据库 TLS 模式，见上文「数据库」 |
 | `DEFAULT_USER` / `DEFAULT_PASS` | `admin` / 空 | 初始管理员；`DEFAULT_PASS` 留空则随机生成 |
 | `SESSION_SECRET` | 空（自动生成） | 会话签名密钥 |
 | `CONFIG_SECRET` | 空（自动生成） | 配置与图片加密密钥，显式设置必须 ≥32 字符且不可更换 |

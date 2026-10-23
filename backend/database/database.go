@@ -2,8 +2,6 @@ package database
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log"
 	"net"
@@ -18,6 +16,8 @@ import (
 
 	// MySQL底层驱动
 	sqlmysql "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	// GORM驱动
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -88,28 +88,34 @@ func InitDB(cfg *config.Config) {
 	var dialector gorm.Dialector
 
 	switch cfg.DbType {
-	case "mysql":
-		dialector, err = initMysqlWithTLS(cfg)
-		if err != nil {
-			log.Fatalf("❌ MySQL初始化失败: %v", err)
+	case "mysql", "postgres":
+		mode, reason := resolveTLSMode(cfg)
+		log.Printf("数据库 TLS 模式: %s（%s）", mode, reason)
+		if cfg.DbType == "mysql" {
+			dialector, err = initMysqlWithTLS(cfg, mode)
+		} else {
+			dialector, err = initPostgreSQLWithTLS(cfg, mode)
 		}
-		log.Println("✅ MySQL 数据库连接成功")
-	case "postgres":
-		dialector, err = initPostgreSQLWithTLS(cfg)
 		if err != nil {
-			log.Fatalf("❌ PostgreSQL初始化失败: %v", err)
+			log.Fatalf("❌ 数据库初始化失败: %v", err)
 		}
-		log.Println("✅ PostgreSQL 数据库连接成功")
 	default:
 		ensureDirExists(cfg.SqlitePath)
 		dialector = sqlite.Open(cfg.SqlitePath)
-		log.Printf("✅ SQLite 数据库连接成功: %s", cfg.SqlitePath)
 	}
 
-	// 创建数据库实例
+	// 创建数据库实例（含连接验证）
 	db, err = NewDB(dialector, cfg)
 	if err != nil {
 		log.Fatalf("❌ 数据库实例创建失败: %v", err)
+	}
+	switch cfg.DbType {
+	case "mysql":
+		log.Println("✅ MySQL 数据库连接成功")
+	case "postgres":
+		log.Println("✅ PostgreSQL 数据库连接成功")
+	default:
+		log.Printf("✅ SQLite 数据库连接成功: %s", cfg.SqlitePath)
 	}
 
 	// 自动迁移数据表
@@ -147,7 +153,7 @@ func InitDB(cfg *config.Config) {
 }
 
 // initMysqlWithTLS 初始化MySQL
-func initMysqlWithTLS(cfg *config.Config) (gorm.Dialector, error) {
+func initMysqlWithTLS(cfg *config.Config, mode string) (gorm.Dialector, error) {
 
 	mysqlConfig := sqlmysql.NewConfig()
 	mysqlConfig.User = cfg.DbUser
@@ -160,64 +166,47 @@ func initMysqlWithTLS(cfg *config.Config) (gorm.Dialector, error) {
 	mysqlConfig.Timeout = 10 * time.Second
 	mysqlConfig.Params = map[string]string{"charset": "utf8mb4"}
 
-	tlsName := "custom_tls"
-	tlsConfig, err := buildTLSConfig(cfg)
+	tlsParam, err := mysqlTLSParam(cfg, mode)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := sqlmysql.RegisterTLSConfig(tlsName, tlsConfig); err != nil {
-		return nil, err
-	}
-	mysqlConfig.TLSConfig = tlsName
+	mysqlConfig.TLSConfig = tlsParam
 	return mysql.New(mysql.Config{DSN: mysqlConfig.FormatDSN()}), nil
 }
 
 // initPostgreSQLWithTLS 初始化 PG 数据库
-func initPostgreSQLWithTLS(cfg *config.Config) (gorm.Dialector, error) {
+func initPostgreSQLWithTLS(cfg *config.Config, mode string) (gorm.Dialector, error) {
 	u := &url.URL{Scheme: "postgres", User: url.UserPassword(cfg.DbUser, cfg.DbPassword), Host: net.JoinHostPort(cfg.DbHost, fmt.Sprint(cfg.DbPort)), Path: "/" + cfg.DbName}
-	params := url.Values{"timezone": {"Asia/Shanghai"}, "connect_timeout": {"10"}, "sslmode": {"verify-full"}}
-	if cfg.DbSkipCertVerify {
-		params.Set("sslmode", "require")
+	params := url.Values{"timezone": {"Asia/Shanghai"}, "connect_timeout": {"10"}}
+	sslParams, err := postgresSSLParams(cfg, mode)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.DbCaCertPath != "" {
-		certPath, err := validateCAFile(cfg.DbCaCertPath)
-		if err != nil {
-			return nil, err
-		}
-		params.Set("sslrootcert", certPath)
+	for k, v := range sslParams {
+		params.Set(k, v)
 	}
-	// Missing configured CA is an error, never an implicit downgrade to require.
 	// GORM's timezone matcher reads the raw query before URL decoding. Keep
 	// the zone's slash literal (valid in a query), without unescaping secrets.
 	u.RawQuery = strings.Replace(params.Encode(), "timezone=Asia%2FShanghai", "timezone=Asia/Shanghai", 1)
-	return postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), nil
-}
 
-// buildTLSConfig 构建 TLS 配置
-func buildTLSConfig(cfg *config.Config) (*tls.Config, error) {
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: cfg.DbSkipCertVerify,
-		ServerName:         cfg.DbHost,
-		MinVersion:         tls.VersionTLS12,
-	}
-
-	if cfg.DbCaCertPath != "" {
-		certPath, err := validateCAFile(cfg.DbCaCertPath)
+	// sslmode 无法指定校验主机名，需要时改由 pgx 配置覆盖 ServerName。
+	if mode == TLSModeVerifyFull && cfg.DbTLSServerName != "" && cfg.DbTLSServerName != cfg.DbHost {
+		pgxConfig, err := pgx.ParseConfig(u.String())
 		if err != nil {
 			return nil, err
 		}
-		caCert, err := os.ReadFile(certPath)
-		if err != nil {
-			return nil, fmt.Errorf("读取CA证书失败: %w", err)
+		pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		if pgxConfig.TLSConfig != nil {
+			pgxConfig.TLSConfig.ServerName = cfg.DbTLSServerName
 		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("解析CA证书失败")
+		for _, fb := range pgxConfig.Fallbacks {
+			if fb.TLSConfig != nil {
+				fb.TLSConfig.ServerName = cfg.DbTLSServerName
+			}
 		}
-		tlsConfig.RootCAs = caCertPool
+		return postgres.New(postgres.Config{Conn: stdlib.OpenDB(*pgxConfig)}), nil
 	}
-	return tlsConfig, nil
+	return postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), nil
 }
 
 func ensureDirExists(path string) {
