@@ -12,7 +12,7 @@ type Folder struct {
 	ID               int            `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID           int            `json:"-" gorm:"not null;uniqueIndex:idx_folder_owner_name,priority:1;index"`
 	Name             string         `json:"name" gorm:"size:64;not null"`
-	Description      string         `json:"description" gorm:"type:text;not null;default:''"`
+	Description      string         `json:"description" gorm:"type:text;not null"`
 	NameKey          string         `json:"-" gorm:"size:64;not null;uniqueIndex:idx_folder_owner_name,priority:2"`
 	Deleting         bool           `json:"deleting" gorm:"not null;default:false"`
 	DeleteLease      string         `json:"-" gorm:"size:36"`
