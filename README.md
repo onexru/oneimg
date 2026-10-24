@@ -173,12 +173,15 @@ docker exec oneimg cat /app/data/.initial_admin_password
 
 ### 初始账号与密码
 
+> **版本差异**：`v3.5.5` 及更早版本，初始管理员密码固定为 `123456`；从 `v3.5.6` 起改为首次启动随机生成。
+
 ```text
 账号：admin（由 DEFAULT_USER 决定）
-密码：首次启动自动生成，见 data/.initial_admin_password
+密码：v3.5.6 起首次启动自动生成，见 data/.initial_admin_password
+      v3.5.5 及更早版本固定为 123456
 ```
 
-密码生成规则：
+**v3.5.6 及之后**（随机密码）的生成规则：
 
 | `DEFAULT_PASS` | 行为 |
 |---|---|
@@ -189,7 +192,9 @@ docker exec oneimg cat /app/data/.initial_admin_password
 - 密码**不会**出现在启动日志里，必须读取该文件获取。
 - 登录后请立即修改密码，并删除该文件。
 
-> ⚠️ 历史 `.env` 模板里曾有 `DEFAULT_PASS=123456`，若你的 `.env` 还保留这一行，它会被当作初始密码注入。请删除该行或改成强密码。仓库现在提供的模板已改为留空。
+**v3.5.5 及更早版本**：内置的 `.env` 模板为 `DEFAULT_PASS=123456`，首次启动直接以该值创建管理员，**不存在** `data/.initial_admin_password` 文件，日志里也不会提示初始密码。请用 `admin` / `123456` 登录后立即修改密码。
+
+> ⚠️ 从旧版本升级时，如果你保留了旧的 `.env` 文件，其中的 `DEFAULT_PASS=123456` 会被继续当作初始密码使用（仅影响尚未创建过管理员的空库）。新版本仓库提供的模板已改为留空，建议删除该行或改成强密码。
 
 ---
 
