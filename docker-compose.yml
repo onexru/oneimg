@@ -34,8 +34,15 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-}
       - DB_NAME=${DB_NAME:-oneimg}
-      # CA 证书路径。留空使用系统 CA；证书验证默认开启，路径错误会拒绝启动。
+      # TLS 模式：auto | disable | preferred | required | verify-ca | verify-full
+      # auto：DB_HOST 为本机/私有地址（如同一 Docker 网络内的 mysql 服务名）时
+      # preferred（有 TLS 就用、不校验证书），公网地址时 verify-full（校验 CA 与主机名）。
+      - DB_TLS_MODE=${DB_TLS_MODE:-auto}
+      # 校验证书时使用的主机名，留空等于 DB_HOST（仅 verify-full）
+      - DB_TLS_SERVER_NAME=${DB_TLS_SERVER_NAME:-}
+      # CA 证书路径（仅 verify-ca / verify-full 使用）。留空使用系统 CA；路径错误会拒绝启动。
       - DB_CA_CERT_PATH=${DB_CA_CERT_PATH:-./ca/isrgrootx1.pem}
+      # 旧配置兼容：DB_TLS_MODE 为 auto 时，true 等价于 DB_TLS_MODE=required
       - DB_SKIP_CERT_VERIFY=${DB_SKIP_CERT_VERIFY:-false}
       - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-10}
       - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-2}

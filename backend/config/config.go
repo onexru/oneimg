@@ -30,6 +30,8 @@ type Config struct {
 	DbName            string
 	DbCaCertPath      string
 	DbSkipCertVerify  bool
+	DbTLSMode         string
+	DbTLSServerName   string
 	DbMaxOpenConns    int
 	DbMaxIdleConns    int
 	DbConnMaxLifetime time.Duration
@@ -98,8 +100,14 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=
 DB_NAME=oneimg
-# CA证书路径。省略时使用系统 CA；证书验证默认开启，路径错误会拒绝启动。
+# TLS 模式：auto | disable | preferred | required | verify-ca | verify-full
+# auto（默认）：DB_HOST 为本机/私有地址时 preferred，公网地址时 verify-full
+DB_TLS_MODE=auto
+# 校验证书时使用的主机名，留空等于 DB_HOST
+DB_TLS_SERVER_NAME=
+# CA证书路径（仅 verify-ca / verify-full 使用）。省略时使用系统 CA；路径错误会拒绝启动。
 DB_CA_CERT_PATH=./ca/isrgrootx1.pem
+# 旧配置兼容：DB_TLS_MODE 未设置或为 auto 时，true 等价于 DB_TLS_MODE=required
 DB_SKIP_CERT_VERIFY=false
 DB_MAX_OPEN_CONNS=10
 DB_MAX_IDLE_CONNS=2
@@ -221,6 +229,8 @@ func NewConfig() {
 	dbName := getEnv("DB_NAME", "oneimg")
 	dbCaCertPath := getEnv("DB_CA_CERT_PATH", "")
 	dbSkipCertVerify := getEnv("DB_SKIP_CERT_VERIFY", "false") == "true"
+	dbTLSMode := normalizeTLSMode(getEnv("DB_TLS_MODE", ""))
+	dbTLSServerName := strings.TrimSpace(getEnv("DB_TLS_SERVER_NAME", ""))
 
 	// 默认用户配置
 	defaultUser := getEnv("DEFAULT_USER", "admin")
@@ -261,6 +271,8 @@ func NewConfig() {
 		ConfigSecret:      configSecret,
 		DbCaCertPath:      dbCaCertPath,
 		DbSkipCertVerify:  dbSkipCertVerify,
+		DbTLSMode:         dbTLSMode,
+		DbTLSServerName:   dbTLSServerName,
 		DbMaxOpenConns:    positiveEnvInt("DB_MAX_OPEN_CONNS", 10),
 		DbMaxIdleConns:    nonnegativeEnvInt("DB_MAX_IDLE_CONNS", 2),
 		DbConnMaxLifetime: positiveEnvDuration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
@@ -269,6 +281,24 @@ func NewConfig() {
 	}
 
 	log.Println("✅ 配置初始化完成")
+}
+
+// normalizeTLSMode 规范化 DB_TLS_MODE，接受 libpq 风格别名；未知取值拒绝启动。
+// 返回空字符串表示未设置。
+func normalizeTLSMode(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", "auto", "disable", "preferred", "required", "verify-ca", "verify-full":
+		return mode
+	case "disabled":
+		return "disable"
+	case "prefer":
+		return "preferred"
+	case "require":
+		return "required"
+	}
+	log.Fatalf("DB_TLS_MODE 取值无效: %q（可选 auto | disable | preferred | required | verify-ca | verify-full）", raw)
+	return ""
 }
 
 // 获取环境变量
