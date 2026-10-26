@@ -211,8 +211,10 @@ docker exec oneimg cat /app/data/.initial_admin_password
 
 | 目录 | 用途 |
 |------|------|
-| `./data` | 数据库与系统配置 |
+| `./data` | 数据库、系统配置与自动生成的密钥（`.session_secret`、`.config_secret`） |
 | `./uploads` | 本地上传文件 |
+
+> 只要 `./data` 卷保留，`SESSION_SECRET` / `CONFIG_SECRET` 留空时会自动生成并持久化到卷内，重启进程或重建容器都不会导致用户掉线、也不会让已加密的内容无法解密。反过来说，删除 `./data` 会同时丢失这些密钥。
 
 支持三种数据库：
 1. sqlite （默认）
@@ -280,8 +282,8 @@ docker run -d --name oneimg -p 8080:8080 \
 | `DB_TYPE` | `sqlite` | `sqlite` / `mysql` / `postgres` |
 | `DB_TLS_MODE` | `auto` | 数据库 TLS 模式，见上文「数据库」 |
 | `DEFAULT_USER` / `DEFAULT_PASS` | `admin` / 空 | 初始管理员；`DEFAULT_PASS` 留空则随机生成 |
-| `SESSION_SECRET` | 空（自动生成） | 会话签名密钥 |
-| `CONFIG_SECRET` | 空（自动生成） | 配置与图片加密密钥，显式设置必须 ≥32 字符且不可更换 |
+| `SESSION_SECRET` | 空（自动持久化） | 会话与 OIDC/CAS state 签名密钥，留空时生成到 `data/.session_secret` |
+| `CONFIG_SECRET` | 空（自动持久化） | 配置与图片加密密钥，留空时生成到 `data/.config_secret`；显式设置必须 ≥32 字符且不可更换 |
 | `MAX_FILE_SIZE` | `10485760` | 单文件上限（字节），另有 32MB 硬上限 |
 | `ALLOWED_TYPES` | jpeg/png/gif/webp | 允许的 MIME，逗号分隔 |
 | `TRUSTED_PROXIES` | 空 | 反代信任的 IP/CIDR，留空表示不信任任何代理 |

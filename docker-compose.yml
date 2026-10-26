@@ -66,11 +66,11 @@ services:
       - DEFAULT_PASS=${DEFAULT_PASS:-}
 
       # ── 密钥 ─────────────────────────────────────────────────
-      # 留空自动生成。SESSION_SECRET 已存在时用于签发会话；
-      # CONFIG_SECRET 用于加密存储凭证与图片文件，留空时自动生成并持久化到
-      # data/.config_secret（随 ./data 卷保留，重建容器不会变），
-      # 一旦启用加密存储就不可更换，否则历史内容无法解密。
-      # 显式配置时 CONFIG_SECRET 必须 >= 32 字符，否则启动直接失败。
+      # 两者留空都会自动生成并持久化到 ./data 卷，重启进程或重建容器都不会变：
+      #   SESSION_SECRET → data/.session_secret（会话与 OIDC/CAS state 签名）
+      #   CONFIG_SECRET  → data/.config_secret （加密存储凭证与图片文件）
+      # CONFIG_SECRET 一旦启用加密存储就不可更换，否则历史内容无法解密。
+      # 显式配置时必须 >= 32 字符，否则启动直接失败。
       - SESSION_SECRET=${SESSION_SECRET:-}
       - CONFIG_SECRET=${CONFIG_SECRET:-}
 

@@ -83,8 +83,9 @@ func CreateDefaultEnv() {
 		log.Fatalf("创建data目录失败：%v", err)
 	}
 
-	// 生成随机的SESSION_SECRET（32位base64编码）
-	sessionSecret := generateRandomSecret(32)
+	// 注意：这里不再把随机 SESSION_SECRET 写进 .env。容器部署中 .env 位于镜像层
+	// 而非 ./data 卷，重建容器后该值会丢失并要求重新生成；会话密钥统一由
+	// loadOrCreatePersistentSessionSecret() 持久化到 data/.session_secret。
 
 	// 直接定义.env模板内容
 	envTemplate := `# 服务器配置
@@ -125,17 +126,20 @@ DEFAULT_USER=admin
 DEFAULT_PASS=
 
 # Session配置
+# 留空时自动生成并持久化到 data/.session_secret（随 ./data 卷保留，重建容器/重启进程都不会变）。
+# 显式配置时必须 >= 32 字符，否则启动失败。
 SESSION_SECRET=
 
 # 配置加密密钥（用于敏感配置及图片文件加密，启用加密存储后请勿更换）
+# 留空时自动生成并持久化到 data/.config_secret（同样随 ./data 卷保留）。
 CONFIG_SECRET=
 `
 
 	configSecret := loadOrCreatePersistentConfigSecret()
 
-	// 替换模板中的密钥占位符
-	envContent := strings.Replace(envTemplate, "SESSION_SECRET=", "SESSION_SECRET="+sessionSecret, 1)
-	envContent = strings.Replace(envContent, "CONFIG_SECRET=", "CONFIG_SECRET="+configSecret, 1)
+	// 替换模板中的密钥占位符。SESSION_SECRET 保持留空，由
+	// loadOrCreatePersistentSessionSecret() 统一管理，避免把密钥写进镜像层。
+	envContent := strings.Replace(envTemplate, "CONFIG_SECRET=", "CONFIG_SECRET="+configSecret, 1)
 
 	// 写入.env文件
 	wd, err := os.Getwd()
@@ -194,6 +198,38 @@ func loadOrCreatePersistentConfigSecret() string {
 	return secret
 }
 
+// loadOrCreatePersistentSessionSecret keeps the session-signing key in the data
+// directory, mirroring loadOrCreatePersistentConfigSecret. Without this, an
+// empty SESSION_SECRET regenerated on every start (and every container
+// recreation, since /app/.env lives in the image layer rather than ./data),
+// logging out every user and invalidating in-flight OIDC/CAS state cookies.
+func loadOrCreatePersistentSessionSecret() string {
+	const secretPath = "./data/.session_secret"
+	if stored, err := os.ReadFile(secretPath); err == nil {
+		if secret := strings.TrimSpace(string(stored)); secret != "" {
+			if err := os.Chmod(secretPath, 0600); err != nil {
+				log.Fatalf("保护会话密钥权限失败: %v", err)
+			}
+			if len(secret) < 32 {
+				log.Fatal("持久化会话密钥长度不足 32 字符，拒绝启动（请删除 data/.session_secret 后重启以重新生成，这将使现有登录状态失效）")
+			}
+			return secret
+		}
+		log.Fatal("持久化会话密钥文件为空，拒绝生成替代密钥")
+	} else if !os.IsNotExist(err) {
+		log.Fatalf("读取持久化会话密钥失败（拒绝替换现有密钥）: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(secretPath), 0755); err != nil {
+		log.Fatalf("创建会话密钥目录失败：%v", err)
+	}
+	secret := generateRandomSecret(32)
+	if err := os.WriteFile(secretPath, []byte(secret+"\n"), 0600); err != nil {
+		log.Fatalf("保存持久化会话密钥失败：%v", err)
+	}
+	return secret
+}
+
 // 初始化配置（优先加载外部.env，无则生成默认）
 func NewConfig() {
 	// 1. 检查.env文件，不存在则生成
@@ -239,8 +275,17 @@ func NewConfig() {
 	// JWT配置（默认生成随机密钥，避免硬编码）
 	jwtSecret := getEnv("JWT_SECRET", generateRandomSecret(32))
 
-	// Session配置（读取.env中的值，无则生成）
-	sessionSecret := getEnv("SESSION_SECRET", generateRandomSecret(32))
+	// Session配置（读取.env中的值，无则持久化到 data/.session_secret）
+	//
+	// 注意：docker-compose.yml 注入 SESSION_SECRET=${SESSION_SECRET:-}，未配置时
+	// 进程环境里存在一个空值变量；godotenv 不会覆盖已存在（即使为空）的变量，
+	// 所以这里必须把空值当作“未设置”处理，否则每次重启都会换新密钥。
+	sessionSecret := strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	if sessionSecret == "" {
+		sessionSecret = loadOrCreatePersistentSessionSecret()
+	} else if len(sessionSecret) < 32 {
+		log.Fatal("SESSION_SECRET must contain at least 32 characters (leave it empty to auto-generate a persistent strong secret)")
+	}
 	configSecret := strings.TrimSpace(getEnv("CONFIG_SECRET", ""))
 	if configSecret == "" {
 		configSecret = loadOrCreatePersistentConfigSecret()
