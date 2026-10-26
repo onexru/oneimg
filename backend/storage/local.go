@@ -27,7 +27,7 @@ func (d *localDriver) resolve(ref Ref) (string, error) {
 	// filepath.Join 直接以 root 为前缀构造，天然兼容 Unix 根与 Windows
 	// 卷前缀（"D:\..."）。此前逐分隔符从 string(filepath.Separator)
 	// 重建的做法在盘符路径下会得到 "\D:" 而非 "D:\"。
-	full := filepath.Join(root, filepath.FromSlash(key))
+	full := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(key, "uploads/")))
 	if rel, relErr := filepath.Rel(root, full); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", ErrInvalidKey
 	}
