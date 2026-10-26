@@ -52,7 +52,7 @@ class PopupModal {
     this.modal.id = this.config.id;
     this.modal.className = 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-95 opacity-0 transition-all duration-300 pointer-events-none rounded-xl bg-white dark:bg-dark-200 shadow-lg dark:shadow-dark-lg overflow-hidden';
     this.modal.style.zIndex = this.config.zIndex;
-    applyFeedbackStyles(this.modal, { maxWidth: 'calc(100vw - 20px)', minWidth: '0', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' });
+    // applyFeedbackStyles(this.modal, { maxWidth: 'calc(100vw - 20px)', minWidth: '0', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' });
     this.modal.classList.add(...(widthMap[this.config.width] || widthMap.auto));
 
     this.header = document.createElement('div');
