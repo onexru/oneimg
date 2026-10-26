@@ -12,6 +12,12 @@ import (
 type localDriver struct{ root string }
 
 func NewLocal(root string) Driver { return &localDriver{root: root} }
+
+// legacyNestedKey reports whether root already ends in "uploads", i.e. whether
+// historical builds (v3.5.6 / v3.5.7) stored objects under <root>/uploads/<rel>.
+// Those releases joined the full "/uploads/..." key onto the upload root, so the
+// on-disk tree grew an extra level. resolve() must still find such objects:
+// dropping the nesting turns every image uploaded by those versions into a 404.
 func (d *localDriver) resolve(ref Ref) (string, error) {
 	key, err := Key(ref.Key)
 	if err != nil {
@@ -24,11 +30,35 @@ func (d *localDriver) resolve(ref Ref) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	rel := strings.TrimPrefix(key, "uploads/")
+	canonical, err := safeJoin(root, rel)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(canonical); statErr == nil {
+		return canonical, nil
+	}
+	// Compatibility fallback for the double-nested layout written by v3.5.6 and
+	// v3.5.7. Only consulted when the canonical object is absent, so newly
+	// written objects always resolve to the canonical (single-nested) path and
+	// upgrading does not require rewriting the upload directory.
+	legacy, legacyErr := safeJoin(root, "uploads/"+rel)
+	if legacyErr == nil {
+		if _, statErr := os.Stat(legacy); statErr == nil {
+			return legacy, nil
+		}
+	}
+	return canonical, nil
+}
+
+// safeJoin builds <root>/<rel> and rejects anything escaping root or passing
+// through a symlink, including root itself and root's ancestors.
+func safeJoin(root, rel string) (string, error) {
 	// filepath.Join 直接以 root 为前缀构造，天然兼容 Unix 根与 Windows
 	// 卷前缀（"D:\..."）。此前逐分隔符从 string(filepath.Separator)
 	// 重建的做法在盘符路径下会得到 "\D:" 而非 "D:\"。
-	full := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(key, "uploads/")))
-	if rel, relErr := filepath.Rel(root, full); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if escaped, relErr := filepath.Rel(root, full); relErr != nil || escaped == ".." || strings.HasPrefix(escaped, ".."+string(filepath.Separator)) {
 		return "", ErrInvalidKey
 	}
 	// 逐组件 Lstat 拒绝符号链接（含 root 自身与 root 的各级祖先）。
@@ -44,7 +74,7 @@ func (d *localDriver) resolve(ref Ref) (string, error) {
 		current = vol
 		parts = strings.Split(strings.TrimPrefix(root, vol), sep)
 	}
-	parts = append(parts, strings.Split(strings.TrimPrefix(key, "uploads/"), "/")...)
+	parts = append(parts, strings.Split(rel, "/")...)
 	for _, part := range parts {
 		if part == "" {
 			continue

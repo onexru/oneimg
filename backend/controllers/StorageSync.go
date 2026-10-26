@@ -188,6 +188,14 @@ func cleanupLocalUpload(image models.Image) {
 		if err != nil {
 			continue
 		}
-		_ = os.Remove(path)
+		if err = os.Remove(path); err == nil {
+			continue
+		}
+		// v3.5.6 / v3.5.7 stored objects one level deeper, under
+		// <upload root>/uploads/...; removing only the canonical path would
+		// leave those files orphaned on disk.
+		if legacy, legacyErr := config.LocalUploadPath("/uploads/" + publicPath); legacyErr == nil && legacy != path {
+			_ = os.Remove(legacy)
+		}
 	}
 }
