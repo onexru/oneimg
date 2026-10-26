@@ -100,6 +100,9 @@ func (d *telegramDriver) Upload(ctx context.Context, ref Ref, r io.Reader, o Upl
 	if err = writer.WriteField("chat_id", d.chat); err != nil {
 		return Info{}, err
 	}
+	if err = writer.WriteField("disable_content_type_detection", "true"); err != nil {
+		return Info{}, err
+	}
 	part, err := writer.CreateFormFile(field, filename)
 	if err != nil {
 		return Info{}, err
