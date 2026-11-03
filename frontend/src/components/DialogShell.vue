@@ -1,45 +1,70 @@
 <template>
-  <Teleport to="body">
-    <div class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center transition-opacity duration-300" :style="{ zIndex: layer }" @click.self="$emit('close')">
-      <div ref="dialog" :class="{ 'folder-dialog-shell': presentation === 'folder' }" class="modal bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 transform transition-all duration-300 scale-100 overflow-y-auto max-h-[90dvh]" style="max-width:min(28rem,calc(100vw - 2rem))">
-        <div class="modal-header p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-          <div class="min-w-0">
-            <h3 :id="titleId" class="modal-title text-lg font-bold text-gray-800 dark:text-white"><i v-if="icon" :class="icon" aria-hidden="true"></i>{{ title }}</h3>
-            <p v-if="subtitle" class="dialog-subtitle">{{ subtitle }}</p>
-          </div>
-          <button type="button" :aria-label="closeLabel" class="modal-close text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl font-bold" @click="$emit('close')">×</button>
-        </div>
-        <slot />
-        <div v-if="$slots.footer" class="dialog-footer flex flex-wrap justify-end gap-2 border-t border-slate-200 p-4 dark:border-white/10"><slot name="footer" /></div>
-      </div>
-    </div>
-  </Teleport>
+  <PopupModalHost
+    ref="host"
+    :title="title"
+    :subtitle="subtitle"
+    :icon="icon"
+    :width="width"
+    :close-label="closeLabel"
+    :mask-close="maskClose"
+    :footer="hasFooter"
+    :content-max-height="contentMaxHeight"
+    :initial-focus="initialFocus || ''"
+    @close="onHostClosed"
+  >
+    <slot />
+    <template v-if="hasFooter" #footer>
+      <slot name="footer" />
+    </template>
+  </PopupModalHost>
 </template>
+
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { activateDialog, nextDialogLayer } from '@/utils/overlay.js'
-const props = defineProps({ title: { type: String, default: '安全验证' }, closeLabel: { type: String, default: '关闭验证弹窗' }, subtitle: String, icon: String, presentation: String, initialFocus: String })
-const emit = defineEmits(['close'])
-const dialog = ref(null)
-const layer = nextDialogLayer()
-const titleId = `dialog-title-${Math.random().toString(36).slice(2)}`
-let deactivate
-onMounted(() => { deactivate = activateDialog(dialog.value, { labelId: titleId, layer, initialFocus: props.initialFocus, close: () => emit('close') }) })
-onBeforeUnmount(() => deactivate?.())
+/**
+ * 声明式弹窗入口，内部完全跑在 PopupModal 上。
+ *
+ * 全站弹窗只有 PopupModal 一份实现：遮罩、动画、层级、焦点陷阱、Esc、滚动锁
+ * 都由它负责。这个组件把「props + slot」翻译成 PopupModal 的调用方式，
+ * 让习惯写模板的调用方不必手搓 DOM。
+ *
+ * 保留原有 props 接口（title / subtitle / icon / presentation / initialFocus …），
+ * 因此所有调用点无需修改。presentation 仅作兼容保留，外观已由 PopupModal 统一。
+ *
+ * 关闭语义（很容易踩错）：
+ *   - `close` 事件只在淡出动画**结束后**抛给父组件，父组件这时才能 v-if=false。
+ *     提前销毁会让 Vue 把内容节点从弹窗里带走，而动画还在跑 —— 就是那个「闪一下」。
+ *   - 内容里想主动关闭，用 `requestClose()`（通过 ref 拿）或 emit('request-close')，
+ *     它们只负责「开始关闭」，不会提前通知父组件。
+ *   - 组件内部若需要一个 `close()` 处理函数，绝不能再 emit('close') 给外面，
+ *     那等于越过了动画。应该用 requestClose。
+ */
+import { computed, ref, useSlots } from 'vue';
+import PopupModalHost from '@/components/PopupModalHost.vue';
+
+defineProps({
+  title: { type: String, default: '安全验证' },
+  closeLabel: { type: String, default: '关闭验证弹窗' },
+  subtitle: String,
+  icon: String,
+  // 旧接口遗留：早期用它切换 folder 版外观，现已由 PopupModal 统一，仅为不破坏调用点保留
+  presentation: String,
+  initialFocus: String,
+  width: { type: String, default: 'md' },
+  maskClose: { type: Boolean, default: true },
+  contentMaxHeight: { type: String, default: '' },
+});
+const emit = defineEmits(['close']);
+
+const slots = useSlots();
+const hasFooter = computed(() => !!slots.footer);
+
+const host = ref(null);
+
+// 开始关闭：只播动画，不通知父组件
+const requestClose = () => host.value?.requestClose();
+
+// 动画播完后宿主才回调这里，这时再让父组件销毁才是安全的
+const onHostClosed = () => emit('close');
+
+defineExpose({ requestClose });
 </script>
-<style scoped>
-.folder-dialog-shell { border-radius: 20px; border: 1px solid rgb(148 163 184 / .22); }
-.folder-dialog-shell .modal-header { padding: 22px 24px 8px; border-bottom: 0; align-items: flex-start; gap: 12px; }
-.folder-dialog-shell .modal-title { display: flex; align-items: center; gap: 10px; font-size: 20px; line-height: 1.4; }
-.folder-dialog-shell .modal-title i { font-size: 24px; color: #0284c7; }
-.folder-dialog-shell .dialog-subtitle { color: #64748b; font-size: 13px; margin-top: 8px; line-height: 1.6; }
-.folder-dialog-shell .modal-close { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 8px; }
-.folder-dialog-shell .dialog-footer { border-top: 0; padding: 16px 24px 24px; }
-.folder-dialog-shell .dialog-footer :deep(button) { flex: 1; min-width: 0; }
-:global(.dark) .folder-dialog-shell .dialog-subtitle { color: #94a3b8; }
-@media (max-width: 480px) {
-  .folder-dialog-shell .modal-header { padding: 20px 18px 8px; }
-  .folder-dialog-shell .dialog-footer { flex-direction: column; padding: 14px 18px 20px; }
-  .folder-dialog-shell .dialog-footer :deep(button) { width: 100%; }
-}
-</style>

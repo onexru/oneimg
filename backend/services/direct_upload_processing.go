@@ -63,7 +63,10 @@ func directProcessMain(ctx context.Context, db *gorm.DB, t models.DirectUploadTa
 	if int64(len(stored)) > DirectUploadMaxBytes+1024 {
 		return directError(413, "processed_too_large", "处理后的图片超过直传大小限制", false)
 	}
-	key := directFinalKey(t, processed.OutputExt)
+	key, err := directResolveKey(ctx, db, store, t, processed.OutputExt)
+	if err != nil {
+		return err
+	}
 	h := sha256.Sum256(stored)
 	mainHash := hex.EncodeToString(h[:])
 	size := int64(len(stored))

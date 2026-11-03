@@ -1,13 +1,13 @@
 <template>
-  <DialogShell :title="isStorage ? '个人额外分配' : '用户权限'" :subtitle="user.username" close-label="关闭授权弹窗" @close="close">
+  <DialogShell ref="shellRef" :title="isStorage ? '个人额外分配' : '用户权限'" :subtitle="user.username" close-label="关闭授权弹窗" @close="onShellClosed">
     <form id="user-access-form" class="access-dialog-body p-4 space-y-4" @submit.prevent="save">
       <p v-if="loading" role="status" class="text-sm text-slate-500">正在读取最新授权与访问策略…</p>
       <template v-if="target && policy && actor">
         <p v-if="readOnlyReason" class="access-note">{{ readOnlyReason }}</p>
         <template v-if="isStorage">
           <div class="space-y-2">
-            <label v-for="bucket in bucketPage.items" :key="bucket.id" class="access-choice" :class="{ 'opacity-60': bucket.disabled }">
-              <input type="checkbox" :data-bucket-id="bucket.id" :checked="bucketChecked(bucket)" :disabled="locked || bucketLocked(bucket)" @change="toggleBucket(bucket.id, $event.target.checked)">
+            <label v-for="bucket in bucketPage.items" :key="bucket.id" class="choice-card" :class="{ 'opacity-60': bucket.disabled }">
+              <input type="checkbox" class="checkbox-modern" :data-bucket-id="bucket.id" :checked="bucketChecked(bucket)" :disabled="locked || bucketLocked(bucket)" @change="toggleBucket(bucket.id, $event.target.checked)">
               <span class="min-w-0 break-words"><span class="block font-medium">{{ bucket.name }}</span><span class="block text-xs text-slate-500">{{ bucket.type }} · {{ bucketHint(bucket) }}</span></span>
             </label>
             <p v-if="!bucketPage.items.length" class="text-sm text-slate-500">暂无可分配的{{ policy.multi_storage_sync ? '远程同步' : '额外存储' }}源。</p>
@@ -18,8 +18,8 @@
             <button type="button" class="soft-button" :disabled="page >= bucketPage.pages" @click="page++">下一页</button>
           </nav>
           <p v-if="disabledAssigned.length" class="text-xs text-amber-700 dark:text-amber-300">已停用：{{ disabledAssigned.join('、') }}</p>
-          <label v-if="selfStorage && !readOnlyReason" class="access-choice border-amber-300">
-            <input id="user-access-self-confirm" v-model="confirmSelf" type="checkbox" :disabled="locked">
+          <label v-if="selfStorage && !readOnlyReason" class="choice-card border-amber-300 dark:border-amber-500/40">
+            <input id="user-access-self-confirm" v-model="confirmSelf" type="checkbox" class="checkbox-modern" :disabled="locked">
             <span class="text-sm">我确认：保存将撤销当前账号会话，需要重新登录后核对结果。</span>
           </label>
         </template>
@@ -32,8 +32,8 @@
           <section v-for="group in primaryGroups" :key="group.title" class="space-y-2">
             <h5 class="text-xs font-semibold text-slate-500">{{ group.title }}</h5>
             <div class="grid grid-cols-2 gap-2">
-              <label v-for="item in group.items" :key="item.code" class="access-choice text-xs">
-                <input type="checkbox" :data-permission-code="item.code" :checked="codeChecked(item.code)" :disabled="locked" @change="toggleCode(item.code, $event.target.checked)">
+              <label v-for="item in group.items" :key="item.code" class="choice-card text-xs">
+                <input type="checkbox" class="checkbox-modern" :data-permission-code="item.code" :checked="codeChecked(item.code)" :disabled="locked" @change="toggleCode(item.code, $event.target.checked)">
                 <span class="break-words">{{ item.name }}</span>
               </label>
             </div>
@@ -43,8 +43,8 @@
             <section v-for="group in otherGroups" :key="group.title" class="space-y-2">
               <h5 class="text-xs font-semibold text-slate-500">{{ group.title === '图片管理' ? '其他用户图片操作（另需管理员角色）' : group.title }}</h5>
               <div class="grid grid-cols-2 gap-2">
-                <label v-for="item in group.items" :key="item.code" class="access-choice text-xs">
-                  <input type="checkbox" :data-permission-code="item.code" :checked="codeChecked(item.code)" :disabled="locked || (item.code.startsWith('image:') && Number(target.role) !== 1)" @change="toggleCode(item.code, $event.target.checked)">
+                <label v-for="item in group.items" :key="item.code" class="choice-card text-xs">
+                  <input type="checkbox" class="checkbox-modern" :data-permission-code="item.code" :checked="codeChecked(item.code)" :disabled="locked || (item.code.startsWith('image:') && Number(target.role) !== 1)" @change="toggleCode(item.code, $event.target.checked)">
                   <span class="break-words">{{ item.name }}</span>
                 </label>
               </div>
@@ -111,7 +111,9 @@ function bucketHint(bucket) {
 function toggleBucket(id, checked) { if (!locked.value) selected.value = checked ? [...new Set([...selected.value, id])] : selected.value.filter(value => value !== id); }
 function codeChecked(code) { return !!target.value?.access_summary?.all_management_permissions || selected.value.includes(code); }
 function toggleCode(code, checked) { if (!locked.value) selected.value = checked ? [...new Set([...selected.value, code])] : selected.value.filter(value => value !== code); }
-function close() { if (!busy.value) emit('close'); }
+const shellRef = ref(null);
+function close() { if (!busy.value) shellRef.value?.requestClose(); }
+function onShellClosed() { emit('close'); }
 async function load() {
   loading.value = true; error.value = '';
   try {
@@ -159,8 +161,9 @@ onBeforeUnmount(() => { disposed = true; controller.abort(); });
 
 <style scoped>
 .access-dialog-body { color: #334155; }
-.access-choice { display: flex; align-items: flex-start; gap: 8px; border: 1px solid rgb(148 163 184 / .25); border-radius: 10px; padding: 10px; min-width: 0; }
-.access-choice input { flex: 0 0 auto; margin-top: 3px; width: 16px; height: 16px; }
+
+/* 授权项与勾选框的样式在 main.css 的 .choice-card / .checkbox-modern
+   （设置页与配额弹窗共用同一套，此处不再重复定义）。 */
 .access-note { padding: 12px; border-radius: 10px; background: rgb(148 163 184 / .1); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 :global(.dark) .access-dialog-body { color: #cbd5e1; }

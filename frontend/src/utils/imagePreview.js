@@ -112,6 +112,11 @@ export function renderImagePreview(image, { multiStorageSync = false, buckets = 
           class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
           <i class="ri-markdown-fill text-xs w-4 text-center text-white"></i> Markdown
         </button>
+        <button
+          data-preview-action="copyPreviewImageLink" data-preview-args="${escapeHtml(JSON.stringify(["'bbcode'"]))}"
+          class="px-2 py-1 text-xs bg-primary shadow-md text-white dark:bg-dark-300 hover:bg-blue-800 rounded transition-colors duration-200">
+          <i class="ri-code-box-line text-xs w-4 text-center text-white"></i> BBCode
+        </button>
       </div>
       <div class="pt-2 flex flex-wrap gap-2 items-center">
         <p class="mr-1 text-xs text-secondary font-semibold">Tags：</p>

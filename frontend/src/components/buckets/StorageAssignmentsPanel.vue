@@ -1,5 +1,5 @@
 <template>
-  <DialogShell title="角色存储配置" close-label="关闭角色存储配置" @close="close">
+  <DialogShell ref="shellRef" title="角色存储配置" close-label="关闭角色存储配置" @close="onShellClosed">
     <div class="p-4 space-y-4">
       <div class="role-tabs" role="tablist" aria-label="角色">
         <button v-for="role in roleOrder" :id="`storage-role-tab-${role}`" :key="role" type="button" role="tab" :data-role-tab="role" :aria-selected="activeRole === role" :aria-controls="`storage-role-panel-${role}`" :tabindex="activeRole === role ? 0 : -1" @click="activeRole = role" @keydown="changeTab($event, role)">{{ roleNames[role] }}<span v-if="policy && dirty(role)" class="draft-dot" aria-label="未保存"></span></button>
@@ -59,7 +59,9 @@ const controller = new AbortController();
 let disposed = false;
 const anyBusy = computed(() => busyRole.value !== null);
 const choices = computed(() => policy.value?.buckets.filter(bucket => !policy.value.multi_storage_sync || bucket.type !== 'default') || []);
-function close() { if (!anyBusy.value) emit('close'); }
+const shellRef = ref(null);
+function close() { if (!anyBusy.value) shellRef.value?.requestClose(); }
+function onShellClosed() { emit('close'); }
 function changeTab(event, role) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
   event.preventDefault();

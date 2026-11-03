@@ -33,13 +33,27 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 		template = "uploads/{year}/{month}"
 	}
 	subdir := images.ImageSvc.ReplaceMagicVariables(template, header.Filename, c.GetInt("user_role"))
-	key, err := storage.Key(strings.TrimSuffix(subdir, "/") + "/" + processed.UniqueFileName)
+	name := processed.UniqueFileName
+	key, err := storage.Key(strings.TrimSuffix(subdir, "/") + "/" + name)
 	if err != nil {
 		return nil, err
 	}
+	if setting.SaveOriginalName {
+		// 保留源文件名时不带 UUID 去重，必须在写入前确认 key 未被占用，
+		// 否则同名上传会静默覆盖上一张图（两条记录指向同一 URL）。
+		// 存储无法确认占用状态时退回 UUID 命名，宁可失去可读名也不覆盖。
+		key, name, err = reserveArtifactKey(c.Request.Context(), driver, subdir, name, bucket.Type)
+		if err != nil {
+			key, name, err = uniqueArtifactName(subdir, processed.UniqueFileName, "")
+			if err != nil {
+				return nil, err
+			}
+		}
+		processed.UniqueFileName = name
+	}
 	mainURL := "/" + key
 	thumbnailURL := ""
-	thumbKey, err := storage.Key(strings.TrimSuffix(subdir, "/") + "/thumbnails/" + processed.UniqueFileName)
+	thumbKey, err := storage.Key(strings.TrimSuffix(subdir, "/") + "/thumbnails/" + name)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +71,7 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 	}
 	ctx := c.Request.Context()
 	metadata := map[string]any{}
-	info, err := driver.Upload(ctx, storage.Ref{Key: key}, bytes.NewReader(main), storage.UploadOptions{Size: int64(len(main)), ContentType: storageContentType(processed.MimeType, setting.EncryptedStorage), FileName: processed.UniqueFileName, Private: setting.EncryptedStorage})
+	info, err := driver.Upload(ctx, storage.Ref{Key: key}, bytes.NewReader(main), storage.UploadOptions{Size: int64(len(main)), ContentType: storageContentType(processed.MimeType, setting.EncryptedStorage), FileName: name, Private: setting.EncryptedStorage})
 	storage.MergeArtifactMetadata(metadata, info, false)
 	if err != nil {
 		if cleanupErr := compensateUpload(driver, storage.ArtifactRef(key, metadata, false)); cleanupErr != nil {
@@ -66,7 +80,7 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 		return nil, fmt.Errorf("上传主图失败: %w", err)
 	}
 	if len(thumb) > 0 {
-		info, thumbErr := driver.Upload(ctx, storage.Ref{Key: thumbKey}, bytes.NewReader(thumb), storage.UploadOptions{Size: int64(len(thumb)), ContentType: storageContentType(http.DetectContentType(processed.ThumbnailBytes), setting.EncryptedStorage), FileName: "thumbnail_" + processed.UniqueFileName, Private: setting.EncryptedStorage})
+		info, thumbErr := driver.Upload(ctx, storage.Ref{Key: thumbKey}, bytes.NewReader(thumb), storage.UploadOptions{Size: int64(len(thumb)), ContentType: storageContentType(http.DetectContentType(processed.ThumbnailBytes), setting.EncryptedStorage), FileName: "thumbnail_" + name, Private: setting.EncryptedStorage})
 		storage.MergeArtifactMetadata(metadata, info, true)
 		if thumbErr == nil {
 			thumbnailURL = "/" + thumbKey
@@ -83,7 +97,7 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 		if db == nil || db.DB == nil {
 			err = fmt.Errorf("数据库未初始化")
 		} else {
-			row := models.ImageTeleGram{TGFileId: storage.MetadataString(metadata, "tg_file_id"), TGThumbnailFileId: storage.MetadataString(metadata, "tg_thumbnail_file_id"), TGMessageId: storage.MetadataInt(metadata, "tg_message_id"), TGThumbnailMessageId: storage.MetadataInt(metadata, "tg_thumbnail_message_id"), FileName: processed.UniqueFileName}
+			row := models.ImageTeleGram{TGFileId: storage.MetadataString(metadata, "tg_file_id"), TGThumbnailFileId: storage.MetadataString(metadata, "tg_thumbnail_file_id"), TGMessageId: storage.MetadataInt(metadata, "tg_message_id"), TGThumbnailMessageId: storage.MetadataInt(metadata, "tg_thumbnail_message_id"), FileName: name}
 			err = db.DB.Create(&row).Error
 		}
 		if err != nil {
@@ -98,5 +112,5 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 			return nil, fmt.Errorf("保存Telegram图片信息失败")
 		}
 	}
-	return &interfaces.ImageUploadResult{Success: true, Message: "上传成功", FileName: processed.UniqueFileName, FileSize: int64(len(processed.CompressedBytes)), ThumbnailSize: publishedThumbnailSize(thumbnailURL, processed.ThumbnailBytes), MimeType: processed.MimeType, URL: mainURL, ThumbnailURL: thumbnailURL, Storage: bucket.Type, CreatedAt: time.Now().Format("2006-01-02 15:04:05"), Width: processed.Width, Height: processed.Height}, nil
+	return &interfaces.ImageUploadResult{Success: true, Message: "上传成功", FileName: name, FileSize: int64(len(processed.CompressedBytes)), ThumbnailSize: publishedThumbnailSize(thumbnailURL, processed.ThumbnailBytes), MimeType: processed.MimeType, URL: mainURL, ThumbnailURL: thumbnailURL, Storage: bucket.Type, CreatedAt: time.Now().Format("2006-01-02 15:04:05"), Width: processed.Width, Height: processed.Height}, nil
 }

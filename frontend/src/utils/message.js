@@ -8,7 +8,7 @@ class Message {
     message: '', // 普通字符串使用 textContent；仅显式 DOM 节点支持富内容
     duration: 3000, // 自动关闭时长（毫秒），0表示不自动关闭
     position: 'top-right', // 显示位置：top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
-    offset:75, // 距离边界的偏移量（像素）
+    offset: null, // 距离边界的偏移量（像素）；null 表示跟随 CSS 变量 --msg-offset-*/--msg-max-width 自适应
     zIndex: OVERLAY_LAYERS.toast, // 消息高于预览、弹窗和加载层
     showClose: false, // 是否显示关闭按钮
     onClose: null // 关闭回调函数
@@ -44,6 +44,11 @@ class Message {
     hide: {
       ...FEEDBACK_STYLE.hidden,
       transform: 'translateY(-10px)'
+    },
+    // 移动端差异样式（≤768px 时由 syncResponsiveStyles 切换）
+    mobileBase: {
+      padding: '10px 12px',
+      maxWidth: 'var(--msg-max-width, calc(100% - 32px))'
     },
     // 类型样式
     types: {
@@ -138,6 +143,83 @@ class Message {
   }
 
   /**
+   * 读取 --msg-offset-* 自适应偏移量（未显式配置 offset 时使用）。
+   * calc/px 值原样返回，可直接赋给 top/left/right。
+   * @param {'x'|'y'} axis
+   * @returns {string}
+   */
+  static adaptiveOffset(axis) {
+    const name = axis === 'y' ? '--msg-offset-y' : '--msg-offset-x';
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || (axis === 'y' ? '75px' : '75px');
+  }
+
+  /**
+   * 根据当前视口同步一条通知的响应式样式（max-width / padding / 偏移）。
+   * offset 为数字时调用方显式指定了偏移，跳过 CSS 变量改写。
+   * @param {HTMLElement} dom
+   * @param {Object} config
+   */
+  static syncResponsiveStyles(dom, config) {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (isMobile) {
+      this.applyStyles(dom, this.styles.mobileBase);
+      // 移动端下所有位置统一按 --msg-offset-x 留边，水平不再额外缩进
+      if (typeof config.offset !== 'number') {
+        dom.style.top = '';
+        dom.style.bottom = '';
+        dom.style.left = '';
+        dom.style.right = '';
+        const [vertical, horizontal] = config.position.split('-');
+        dom.style[vertical] = 'var(--msg-offset-y)';
+        if (horizontal === 'center') {
+          dom.style.left = '50%';
+        } else {
+          dom.style[horizontal] = 'var(--msg-offset-x)';
+        }
+        this.restack(dom, config);
+      }
+    } else {
+      this.applyStyles(dom, {
+        padding: this.styles.base.padding,
+        maxWidth: '380px'
+      });
+      if (typeof config.offset !== 'number') {
+        const [vertical, horizontal] = config.position.split('-');
+        dom.style[vertical] = this.adaptiveOffset('y');
+        if (horizontal === 'center') {
+          dom.style.left = '50%';
+        } else {
+          dom.style[horizontal] = this.adaptiveOffset('x');
+        }
+        this.restack(dom, config);
+      }
+    }
+  }
+
+  /**
+   * 按当前同位置实例重新计算该通知的堆叠偏移。
+   * 基准偏移可能是 CSS 变量（自适应）或固定像素（显式 offset），
+   * 因此统一用 calc 表达叠加量，避免 parseFloat 读不出 var() 值。
+   * @param {HTMLElement} dom
+   * @param {Object} config
+   */
+  static restack(dom, config) {
+    const samePositionInstances = this.instances.filter(
+      item => item.dom.dataset.position === config.position && item.dom !== dom
+    );
+    if (samePositionInstances.length === 0) return;
+    const [vertical] = config.position.split('-');
+    const explicit = typeof config.offset === 'number';
+    const base = explicit ? `${config.offset}px` : 'var(--msg-offset-y)';
+    let totalHeight = 0;
+    samePositionInstances.forEach(instance => {
+      totalHeight += instance.dom.offsetHeight + 12;
+    });
+    dom.style[vertical] = `calc(${base} + ${totalHeight}px)`;
+  }
+
+  /**
    * 应用样式到元素
    * @param {HTMLElement} el - 目标元素
    * @param {Object} styles - 样式对象
@@ -178,6 +260,26 @@ class Message {
       }
     }, 10);
 
+    // 视口变化时同步响应式样式（宽度 / 内边距 / 偏移）
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const handleResize = () => {
+      this.syncResponsiveStyles(messageDom, config);
+      const [, horizontal] = config.position.split('-');
+      if (horizontal === 'center') {
+        // 通知此刻处于显示态（动画已完成）才保持 translateY(0)；
+        // 刚创建还在隐藏态时保留 -10px 起始位移，避免闪现。
+        const shown = getComputedStyle(messageDom).opacity === '1';
+        messageDom.style.transform = shown
+          ? 'translateX(-50%) translateY(0)'
+          : 'translateX(-50%) translateY(-10px)';
+      }
+    };
+    handleResize();
+    mediaQuery.addEventListener('change', handleResize);
+
+    // 存储媒体查询处理函数，便于后续移除
+    messageDom.resizeHandler = handleResize;
+
     // 自动关闭
     let timer = null;
     if (config.duration > 0) {
@@ -186,7 +288,7 @@ class Message {
       }, config.duration);
     }
 
-    // 存储实例
+    // 存储实例（push 之后再做一次响应式同步，restack 才能看到兄弟实例）
     const instance = {
       dom: messageDom,
       config,
@@ -194,6 +296,9 @@ class Message {
       timer
     };
     this.instances.push(instance);
+    if (typeof config.offset !== 'number') {
+      this.syncResponsiveStyles(messageDom, config);
+    }
 
     return instance;
   }
@@ -302,21 +407,6 @@ class Message {
       });
     }
 
-    // 响应式调整（最大宽度）
-    const mediaQuery = window.matchMedia('(max-width: 768px)');
-    const handleResize = () => {
-      if (mediaQuery.matches) {
-        messageDom.style.maxWidth = 'calc(100% - 32px)';
-      } else {
-        messageDom.style.maxWidth = '380px';
-      }
-    };
-    handleResize();
-    mediaQuery.addEventListener('change', handleResize);
-
-    // 存储媒体查询处理函数，便于后续移除
-    messageDom.resizeHandler = handleResize;
-
     return messageDom;
   }
 
@@ -326,16 +416,19 @@ class Message {
    * @param {Object} config - 配置项
    */
   static calculatePosition(dom, config) {
-    const { position, offset } = config;
+    const { position } = config;
     const [vertical, horizontal] = position.split('-');
+    // offset 未显式指定（null/undefined）时使用 CSS 变量自适应；
+    // 显式数字则按调用方要求固定像素。
+    const explicit = typeof config.offset === 'number';
 
     // 基础位置样式
-    dom.style[vertical] = `${offset}px`;
+    dom.style[vertical] = explicit ? `${config.offset}px` : this.adaptiveOffset('y');
 
     // 水平位置
     switch (horizontal) {
       case 'left':
-        dom.style.left = `${offset}px`;
+        dom.style.left = typeof config.offset === 'number' ? `${config.offset}px` : this.adaptiveOffset('x');
         dom.style.transform = 'translateY(-10px)';
         break;
       case 'center':
@@ -343,24 +436,13 @@ class Message {
         dom.style.transform = 'translateX(-50%) translateY(-10px)';
         break;
       case 'right':
-        dom.style.right = `${offset}px`;
+        dom.style.right = typeof config.offset === 'number' ? `${config.offset}px` : this.adaptiveOffset('x');
         dom.style.transform = 'translateY(-10px)';
         break;
     }
 
     // 处理同位置的堆叠（上方/下方间距12px）
-    const samePositionInstances = this.instances.filter(
-      item => item.dom.dataset.position === position && item.dom !== dom
-    );
-
-    if (samePositionInstances.length > 0) {
-      let totalHeight = 0;
-      samePositionInstances.forEach(instance => {
-        totalHeight += instance.dom.offsetHeight + 12;
-      });
-
-      dom.style[vertical] = `${offset + totalHeight}px`;
-    }
+    this.restack(dom, config);
   }
 
   /**
@@ -411,21 +493,27 @@ class Message {
     const samePositionInstances = this.instances.filter(
       item => item.dom.dataset.position === position
     );
+    if (samePositionInstances.length === 0) return;
 
     let totalHeight = 0;
     const [vertical, horizontal] = position.split('-');
-    const offset = this.defaults.offset;
+    const explicit = typeof samePositionInstances[0].config.offset === 'number'
+      ? samePositionInstances[0].config.offset
+      : null;
 
     samePositionInstances.forEach((instance, index) => {
       const dom = instance.dom;
-      const config = instance.config;
 
       // 水平位置保持不变
       if (horizontal === 'center') {
         dom.style.left = '50%';
         dom.style.transform = 'translateX(-50%) translateY(0)';
       } else {
-        dom.style[horizontal] = `${offset}px`;
+        if (explicit !== null) {
+          dom.style[horizontal] = `${explicit}px`;
+        } else {
+          dom.style[horizontal] = 'var(--msg-offset-x)';
+        }
         dom.style.transform = 'translateY(0)';
       }
 
@@ -436,7 +524,10 @@ class Message {
         totalHeight += samePositionInstances[index - 1].dom.offsetHeight + 12;
       }
 
-      dom.style[vertical] = `${offset + totalHeight}px`;
+      const baseY = explicit !== null ? explicit : 'var(--msg-offset-y)';
+      dom.style[vertical] = index === 0
+        ? baseY
+        : `calc(${baseY} + ${totalHeight}px)`;
     });
   }
 

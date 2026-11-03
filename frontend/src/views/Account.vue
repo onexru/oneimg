@@ -1,342 +1,239 @@
 <template>
-    <div class="page-shell text-gray-800 dark:text-gray-200">
-        <section class="page-header">
-            <div>
-                <h1 class="page-title">账户设置</h1>
-            </div>
-        </section>
+  <div class="page-shell">
+    <section class="page-header">
+      <div class="page-actions">
+        <span class="stat-inline">当前账号 <strong>{{ currentUsername || '—' }}</strong></span>
+      </div>
+    </section>
 
-        <!-- 主要内容 -->
-        <div class="pb-16">
-            <!-- 动态网格布局：管理员双列，普通用户单列居中 -->
-            <div class="grid gap-6" :class="isAdmin ? 'grid-cols-[repeat(auto-fit,minmax(320px,1fr))]' : 'grid-cols-1 max-w-2xl mx-auto'">
-
-                <div class="section-card mx-auto overflow-hidden w-full m-4">
-                    <div class="panel-content p-6 md:p-8">
-                        <h2 class="panel-title flex items-center text-xl font-semibold mb-8">
-                            <span class="panel-icon mr-2 text-2xl">
-                                <i class="ri-shield-user-line"></i>
-                            </span>
-                            账户设置
-                        </h2>
-                        
-                        <!-- 账户修改表单 -->
-                        <form @submit.prevent="updateAccount" class="account-form space-y-6">
-                            <!-- 新用户名：仅管理员可见 -->
-                            <div v-if="isAdmin" class="setting-group">
-                                <label 
-                                    class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" 
-                                    for="newUsername"
-                                >
-                                    新用户名（留空则不修改）
-                                </label>
-                                <input 
-                                    id="newUsername"
-                                    v-model="accountForm.newUsername"
-                                    type="text" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    placeholder="留空则不修改用户名"
-                                    minlength="3"
-                                    maxlength="20"
-                                />
-                            </div>
-                            
-                            <!-- 当前密码 -->
-                            <div class="setting-group">
-                                <label 
-                                    class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" 
-                                    for="currentPassword"
-                                >
-                                    当前密码 <span class="text-red-500">*</span>
-                                </label>
-                                <input 
-                                    id="currentPassword"
-                                    v-model="accountForm.currentPassword"
-                                    type="password" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    placeholder="请输入当前密码以确认修改"
-                                    required
-                                />
-                            </div>
-                            
-                            <!-- 新密码 -->
-                            <div class="setting-group">
-                                <label 
-                                    class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" 
-                                    for="newPassword"
-                                >
-                                    新密码（留空则不修改）
-                                </label>
-                                <input 
-                                    id="newPassword"
-                                    v-model="accountForm.newPassword"
-                                    type="password" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    placeholder="留空则不修改密码（至少6位）"
-                                    minlength="6"
-                                />
-                            </div>
-                            
-                            <!-- 确认新密码 -->
-                            <div class="setting-group">
-                                <label 
-                                    class="setting-label block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" 
-                                    for="confirmPassword"
-                                >
-                                    确认新密码
-                                </label>
-                                <input 
-                                    id="confirmPassword"
-                                    v-model="accountForm.confirmPassword"
-                                    type="password" 
-                                    class="setting-input w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary focus:border-primary dark:focus:ring-primary/70 dark:focus:border-primary/70 transition-colors outline-none"
-                                    placeholder="请再次输入新密码"
-                                />
-                            </div>
-                            
-                            <!-- 提交按钮 -->
-                            <div class="setting-group pt-2">
-                                <button 
-                                    type="submit" 
-                                    :disabled="isUpdatingAccount"
-                                    class="setting-btn accent w-full py-3 px-6 bg-primary hover:bg-primary/90 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                                >
-                                    <span v-if="isUpdatingAccount" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                    <span>保存修改</span>
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Github版本卡片：仅管理员可见 -->
-                <div v-if="isAdmin" class="section-card mx-auto overflow-hidden w-full m-4">
-                    <div class="panel-content p-6 md:p-8">
-                        <div class="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-4 dark:border-white/10">
-                            <div>
-                                <h2 class="panel-title flex items-center text-xl font-semibold">
-                                    <span class="panel-icon mr-2 text-2xl">
-                                        <i class="ri-github-fill"></i>
-                                    </span>
-                                    版本信息
-                                </h2>
-                            </div>
-                            <span class="inline-flex shrink-0 items-center rounded-full border border-slate-200/80 bg-slate-50 px-3 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400">GitHub Release</span>
-                        </div>
-                        <!-- 加载中状态 -->
-                        <div v-if="isLoadingVersion" class="py-10 text-center">
-                            <span class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block"></span>
-                            <p class="mt-3 text-gray-600 dark:text-gray-400">正在检查最新版本...</p>
-                        </div>
-                        <!-- 版本加载成功 -->
-                        <div v-else-if="latestVersion" class="space-y-4 pt-5">
-                            <div class="grid gap-3 sm:grid-cols-3">
-                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
-                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">版本号</p>
-                                    <p class="mt-2 text-2xl font-semibold text-primary">{{ latestVersion.tag_name }}</p>
-                                </div>
-                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
-                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">发布名称</p>
-                                    <p class="mt-2 truncate text-sm font-medium text-slate-700 dark:text-slate-200">{{ latestVersion.name || '最新稳定版本' }}</p>
-                                </div>
-                                <div class="rounded-[18px] border border-slate-200/80 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950">
-                                    <p class="text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">发布时间</p>
-                                    <p class="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">{{ formatReleaseDate(latestVersion.published_at) }}</p>
-                                </div>
-                            </div>
-                            <div class="rounded-[20px] border border-dashed border-slate-300/90 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-slate-950/70">
-                                <div class="flex items-center justify-between gap-3">
-                                    <p class="text-sm font-medium text-slate-800 dark:text-slate-100">更新日志</p>
-                                    <a 
-                                        :href="latestVersion.html_url" 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        class="inline-flex items-center rounded-full border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary hover:text-white"
-                                    >
-                                        前往更新
-                                    </a>
-                                </div>
-                                <div class="mt-3 max-h-[320px] overflow-auto rounded-[16px] bg-white px-4 py-3 text-sm leading-6 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-                                    <pre class="whitespace-pre-wrap break-words font-sans">{{ latestVersion.body || '暂无更新日志' }}</pre>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- 加载失败状态 -->
-                        <div v-else class="py-10 text-center text-gray-600 dark:text-gray-400">
-                            <i class="ri-error-warning-line text-2xl mb-2"></i>
-                            <p>版本信息加载失败，请稍后重试</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <!-- 改密表单：单列铺满，与下方「登录会话」「登录历史」同宽，整页对齐 -->
+    <div class="surface">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 class="surface-title">
+            <i class="ri-shield-user-line text-primary" aria-hidden="true"></i>
+            账户设置
+          </h2>
+          <p class="surface-subtitle">修改登录用户名或密码。保存后需要重新登录。</p>
         </div>
-        <AccountSessions />
-        <AccountLoginHistory />
+      </div>
+
+      <form class="space-y-4" @submit.prevent="updateAccount">
+        <!-- 新用户名：仅管理员可见（普通用户无改名权限） -->
+        <div v-if="isAdmin">
+          <label class="field-label" for="newUsername">新用户名</label>
+          <input
+            id="newUsername"
+            v-model="accountForm.newUsername"
+            type="text"
+            class="input-modern"
+            placeholder="留空则不修改"
+            minlength="3"
+            maxlength="20"
+            autocomplete="username"
+          />
+          <p class="field-hint">3–20 个字符，留空表示不修改当前用户名（{{ currentUsername || '—' }}）。</p>
+        </div>
+
+        <!-- 当前密码：任何修改都必须先验证 -->
+        <div>
+          <label class="field-label" for="currentPassword">
+            当前密码 <span class="text-red-500" aria-hidden="true">*</span>
+          </label>
+          <input
+            id="currentPassword"
+            v-model="accountForm.currentPassword"
+            type="password"
+            class="input-modern"
+            placeholder="请输入当前密码以确认修改"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+
+        <!-- 新密码 + 确认：并排，窄屏堆叠 -->
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="field-label" for="newPassword">新密码</label>
+            <input
+              id="newPassword"
+              v-model="accountForm.newPassword"
+              type="password"
+              class="input-modern"
+              placeholder="留空则不修改"
+              minlength="6"
+              autocomplete="new-password"
+            />
+            <p class="field-hint">至少 8 个字符。</p>
+          </div>
+          <div>
+            <label class="field-label" for="confirmPassword">确认新密码</label>
+            <input
+              id="confirmPassword"
+              v-model="accountForm.confirmPassword"
+              type="password"
+              class="input-modern"
+              placeholder="再次输入新密码"
+              autocomplete="new-password"
+            />
+            <!-- 只有两栏都填了且不一致时才提示，避免还没输入就报错 -->
+            <p v-if="passwordMismatch" class="field-hint text-amber-600 dark:text-amber-400">
+              两次输入的新密码不一致。
+            </p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 pt-4 dark:border-white/10">
+          <p class="text-xs text-slate-500 dark:text-slate-400">留空的项目不会被修改。</p>
+          <button type="submit" class="primary-button" :disabled="isUpdatingAccount || !canSubmit">
+            <i v-if="isUpdatingAccount" class="ri-loader-4-line animate-spin" aria-hidden="true"></i>
+            <span>{{ isUpdatingAccount ? '保存中…' : '保存修改' }}</span>
+          </button>
+        </div>
+      </form>
     </div>
+
+    <!-- 会话与历史：桌面并排，避免纵向拉得过长；窄屏自动堆叠。
+         两块都由组件自带 .surface，这里只负责栅格，不再额外加 mt-*。
+
+         高度约束是必须的：两个子组件都是 `flex h-full flex-col` + 列表 `flex-1`，
+         如果这一行没有确定高度，flex-1 会让列表把所有 100 条全铺开、整页被撑到几千像素。
+         但**只在并排时**加高度：堆叠成两行时，同一高度会被两块分掉，各自只剩一半，
+         列表会被压到 0 高度。所以这里用 xl: 前缀，窄屏交给内容自然高度。 -->
+    <div class="grid gap-4 xl:h-[min(34rem,max(22rem,calc(100vh-24rem)))] xl:grid-cols-2">
+      <AccountSessions />
+      <AccountLoginHistory />
+    </div>
+  </div>
 </template>
 
 <script setup>
-import AccountSessions from "@/components/account/AccountSessions.vue";
-import AccountLoginHistory from "@/components/account/AccountLoginHistory.vue";
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import message from '@/utils/message.js'
+import AccountSessions from '@/components/account/AccountSessions.vue';
+import AccountLoginHistory from '@/components/account/AccountLoginHistory.vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import Message from '@/utils/message.js';
 
-const router = useRouter()
+const router = useRouter();
 
-// 获取用户信息和角色判断
-const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
-const isAdmin = computed(() => userInfo?.role === 1)
+// 读取一次即可：只在挂载时用于展示与角色判断，不需要响应式跟随
+const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+const currentUsername = storedUser?.username || '';
+// 游客 role 为 2，进不到本页；管理员 role 为 1
+const isAdmin = computed(() => storedUser?.role === 1);
 
-// 表单数据
 const accountForm = ref({
+  newUsername: '',
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+});
+const isUpdatingAccount = ref(false);
+
+const passwordMismatch = computed(() => {
+  const { newPassword, confirmPassword } = accountForm.value;
+  return Boolean(newPassword) && Boolean(confirmPassword) && newPassword !== confirmPassword;
+});
+
+// 有任意一项改动且必填项已填，才允许提交（避免点了才发现没填当前密码）
+const canSubmit = computed(() => {
+  const { newUsername, currentPassword, newPassword } = accountForm.value;
+  const hasChange = Boolean(newUsername.trim()) || Boolean(newPassword);
+  return hasChange && Boolean(currentPassword);
+});
+
+onMounted(() => {
+  // 游客没有账户设置页
+  if (Number(storedUser?.role) === 2) router.replace('/');
+});
+
+const resetForm = () => {
+  accountForm.value = {
     newUsername: '',
     currentPassword: '',
     newPassword: '',
-    confirmPassword: ''
-})
+    confirmPassword: '',
+  };
+};
 
-// 加载状态
-const isUpdatingAccount = ref(false)
-const isLoadingVersion = ref(true)
-const latestVersion = ref(null)
-
-// 格式化发布时间
-const formatReleaseDate = (dateStr) => {
-    if (!dateStr) return ''
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
-
-// 获取Github最新版本信息
-const getLatestVersion = async () => {
-    // 非管理员不请求版本信息
-    if (!isAdmin.value) {
-        isLoadingVersion.value = false
-        return
-    }
-
-    try {
-        const res = await fetch('https://api.github.com/repos/onexru/oneimg/releases/latest')
-        if (res.ok) {
-            const data = await res.json()
-            latestVersion.value = data
-        } else {
-            throw new Error('版本接口请求失败')
-        }
-    } catch (err) {
-        message.error('版本信息加载失败')
-        console.error('版本请求异常：', err)
-    } finally {
-        isLoadingVersion.value = false
-    }
-}
-
-// 页面挂载时自动请求版本信息
-onMounted(() => {
-    getLatestVersion()
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    if (userInfo?.role === 2) {
-        router.replace('/')
-    }
-})
-
-// 更新账户信息
 const updateAccount = async () => {
-    const { newUsername, currentPassword, newPassword, confirmPassword } = accountForm.value
-    
-    // 检查是否有任何修改
-    const hasUsernameChange = newUsername && newUsername.trim() !== ''
-    const hasPasswordChange = newPassword && newPassword.trim() !== ''
-    
-    if (!hasUsernameChange && !hasPasswordChange) {
-        message.error('请输入要修改的用户名或密码')
-        return
+  const { newUsername, currentPassword, newPassword, confirmPassword } = accountForm.value;
+  const hasUsernameChange = newUsername && newUsername.trim() !== '';
+  const hasPasswordChange = newPassword && newPassword.trim() !== '';
+
+  if (!hasUsernameChange && !hasPasswordChange) {
+    Message.error('请输入要修改的用户名或密码');
+    return;
+  }
+  if (hasUsernameChange) {
+    if (newUsername.length < 3) {
+      Message.error('用户名长度至少为 3 位');
+      return;
     }
-    
-    // 验证用户名（如果要修改）
-    if (hasUsernameChange) {
-        if (newUsername.length < 3) {
-            message.error('用户名长度至少为3位')
-            return
-        }
-        
-        if (newUsername.length > 20) {
-            message.error('用户名长度不能超过20位')
-            return
-        }
+    if (newUsername.length > 20) {
+      Message.error('用户名长度不能超过 20 位');
+      return;
     }
-    
-    // 验证密码（如果要修改）
-    if (hasPasswordChange) {
-        if (newPassword.length < 8) {
-            message.error('新密码长度至少为8位')
-            return
-        }
-        
-        if (newPassword !== confirmPassword) {
-            message.error('两次输入的新密码不一致')
-            return
-        }
+  }
+  if (hasPasswordChange) {
+    if (newPassword.length < 8) {
+      Message.error('新密码长度至少为 8 位');
+      return;
     }
-    
-    // 验证当前密码
-    if (!currentPassword) {
-        message.error('请输入当前密码以确认修改')
-        return
+    if (newPassword !== confirmPassword) {
+      Message.error('两次输入的新密码不一致');
+      return;
     }
-    
+  }
+  if (!currentPassword) {
+    Message.error('请输入当前密码以确认修改');
+    return;
+  }
+
+  isUpdatingAccount.value = true;
+  try {
+    const response = await fetch('/api/account/change', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({
+        new_username: newUsername,
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+
+    let result = {};
     try {
-        isUpdatingAccount.value = true
-        
-        const response = await fetch('/api/account/change', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({
-                new_username: newUsername,
-                current_password: currentPassword,
-                new_password: newPassword
-            })
-        })
-        
-        const result = await response.json()
-        
-        if (!response.ok || (result.code !== 200 && result.success !== true)) {
-            // 未授权处理
-            if (response.status === 401) {
-                return message.error(result.message || '当前密码错误或登录已过期，请确认后重试')
-            }
-            // 权限处理
-            if (response.status === 403) {
-                return message.error(result.message || '无权执行此操作')
-            }
-            throw new Error(result.message || '修改失败')
-        }
-        
-        localStorage.removeItem('userInfo')
-        localStorage.removeItem('authToken')
-        message.success(result.message || '修改成功，请重新登录')
-
-        // 清空表单
-        accountForm.value = {
-            newUsername: '',
-            currentPassword: '',
-            newPassword: '',
-            confirmPassword: ''
-        }
-        
-        // 跳转到登录页重新登录
-        setTimeout(() => {
-            router.push('/login')
-        }, 1000)
-
-    } catch (error) {
-        message.error(error.message || '更新失败')
-    } finally {
-        isUpdatingAccount.value = false
+      result = await response.json();
+    } catch {
+      result = {};
     }
-}
+
+    if (!response.ok || (result.code !== 200 && result.success !== true)) {
+      if (response.status === 401) {
+        Message.error(result.message || '当前密码错误或登录已过期，请确认后重试');
+        return;
+      }
+      if (response.status === 403) {
+        Message.error(result.message || '无权执行此操作');
+        return;
+      }
+      throw new Error(result.message || '修改失败');
+    }
+
+    // 改密/改名后旧会话在服务端已失效，本地身份必须清掉重新登录
+    localStorage.removeItem('userInfo');
+    localStorage.removeItem('authToken');
+    Message.success(result.message || '修改成功，请重新登录');
+    resetForm();
+    setTimeout(() => router.push('/login'), 1000);
+  } catch (error) {
+    Message.error(error.message || '更新失败');
+  } finally {
+    isUpdatingAccount.value = false;
+  }
+};
 </script>

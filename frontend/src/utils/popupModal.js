@@ -10,6 +10,8 @@ class PopupModal {
       type: 'default',
       width: 'auto',
       showClose: true,
+      closeLabel: '关闭弹窗',
+      showFooter: true,
       mask: true,
       maskClose: true,
       zIndex: nextDialogLayer(),
@@ -20,7 +22,14 @@ class PopupModal {
       formFields: [],
       formSubmit: null,
       onOpen: null,
-      onClose: null
+      onClose: null,
+      // 关闭动画「开始时」的回调，与 onClose（动画结束）区分开
+      onCloseStart: null,
+      // 以下为 Vue 宿主模式（PopupModalShell）使用的扩展项
+      icon: '',
+      subtitle: '',
+      confirmText: '',
+      contentMaxHeight: ''
     };
 
     this.config = { ...this.defaults, ...options };
@@ -37,38 +46,57 @@ class PopupModal {
   }
 
   createElements() {
-    const widthMap = {
-      sm: ['w-[300px]'], md: ['w-[500px]'], lg: ['w-[700px]'], full: ['w-[90%]'],
-      auto: ['w-[calc(100%-20px)]', 'min-w-[320px]', 'max-w-[500px]']
-    };
+    // 宽度必须受视口约束：md 是 500px，在 390px 手机屏上会横向溢出。
+    // 用内联 min()，不依赖 Tailwind 任意值对嵌套 calc 的解析。
+    const widthMap = { sm: 380, md: 500, lg: 700, full: '90vw', auto: 500 };
+    const width = widthMap[this.config.width] ?? 500;
 
     this.mask = document.createElement('div');
     this.mask.id = `${this.config.id}-mask`;
-    this.mask.className = 'fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm transition-opacity duration-300 opacity-0 pointer-events-none';
+    this.mask.className = 'fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] transition-opacity duration-300 opacity-0 pointer-events-none';
     this.mask.style.zIndex = this.config.zIndex - 1;
     document.body.appendChild(this.mask);
 
     this.modal = document.createElement('div');
     this.modal.id = this.config.id;
-    this.modal.className = 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-95 opacity-0 transition-all duration-300 pointer-events-none rounded-xl bg-white dark:bg-dark-200 shadow-lg dark:shadow-dark-lg overflow-hidden';
+    // flex 纵向 + max-h：内容超长时只有中间区滚动，标题和底部按钮始终可见。
+    // 之前是整体 max-h，长表单会把「保存」按钮顶到屏幕外。
+    this.modal.className = `fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-95 opacity-0 transition-all duration-300 pointer-events-none flex flex-col max-h-[min(90dvh,calc(100dvh-24px))] rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900`;
     this.modal.style.zIndex = this.config.zIndex;
-    // applyFeedbackStyles(this.modal, { maxWidth: 'calc(100vw - 20px)', minWidth: '0', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' });
-    this.modal.classList.add(...(widthMap[this.config.width] || widthMap.auto));
+    this.modal.style.width = typeof width === 'number' ? `min(${width}px, calc(100vw - 24px))` : `min(${width}, calc(100vw - 24px))`;
 
     this.header = document.createElement('div');
-    this.header.className = 'px-6 py-4 border-b border-light-200 dark:border-dark-100 flex justify-between items-center';
-    
+    this.header.className = 'px-6 py-4 border-b border-light-200 dark:border-dark-100 flex justify-between items-center gap-3';
+
+    const heading = document.createElement('div');
+    heading.className = 'min-w-0';
+
     this.titleEl = document.createElement('h3');
-    this.titleEl.className = 'font-semibold text-lg text-dark-300 dark:text-light-100 w-[50%] truncate';
-    this.titleEl.textContent = this.config.title;
+    this.titleEl.className = 'font-semibold text-lg text-dark-300 dark:text-light-100 truncate';
     this.titleEl.id = `${this.config.id}-title`;
-    this.header.appendChild(this.titleEl);
+    if (this.config.icon) {
+      const icon = document.createElement('i');
+      icon.className = `${this.config.icon} mr-1.5 align-[-2px] text-primary`;
+      icon.setAttribute('aria-hidden', 'true');
+      this.titleEl.appendChild(icon);
+    }
+    this.titleEl.appendChild(document.createTextNode(this.config.title));
+    heading.appendChild(this.titleEl);
+
+    // 副标题：说明「这个弹窗会影响什么」，不是所有弹窗都需要
+    if (this.config.subtitle) {
+      this.subtitleEl = document.createElement('p');
+      this.subtitleEl.className = 'mt-1 text-[13px] leading-5 text-secondary';
+      this.subtitleEl.textContent = this.config.subtitle;
+      heading.appendChild(this.subtitleEl);
+    }
+    this.header.appendChild(heading);
 
     if (this.config.showClose) {
       this.closeBtn = document.createElement('button');
       this.closeBtn.type = 'button';
-      this.closeBtn.setAttribute('aria-label', '关闭弹窗');
-      this.closeBtn.className = 'w-8 h-8 flex items-center justify-center text-secondary hover:text-danger transition-colors';
+      this.closeBtn.setAttribute('aria-label', this.config.closeLabel || '关闭弹窗');
+      this.closeBtn.className = 'w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-secondary hover:text-danger transition-colors';
       this.closeBtn.innerHTML = '<i class="ri-close-fill font-bold text-[1.35rem]"></i>';
       this.closeBtn.addEventListener('click', () => this.close());
       this.header.appendChild(this.closeBtn);
@@ -76,21 +104,39 @@ class PopupModal {
     this.modal.appendChild(this.header);
 
     this.content = document.createElement('div');
-    this.content.className = 'px-6 py-5 max-h-[60vh] overflow-y-auto';
     this.content.style.minHeight = '0';
     this.content.style.overflowWrap = 'anywhere';
-    
-    if (this.config.type === 'form') {
-      this.renderFormContent();
+    this.content.style.overflowY = 'auto';
+    // 用 flex:1 吃掉剩余高度，比写死 60vh 更贴合实际可用空间：
+    // 矮屏（手机横屏）不会把内容压成一条缝，高屏也不会提前出现滚动条。
+    this.content.style.flex = '1 1 auto';
+    if (this.config.contentMaxHeight) this.content.style.maxHeight = this.config.contentMaxHeight;
+
+    if (this.config.contentEl) {
+      // Vue 宿主模式：内容区交给外部渲染，内边距由内容自己控制
+      this.content.className = 'min-h-0';
+      this.content.appendChild(this.config.contentEl);
     } else {
-      this.content.innerHTML = this.config.content;
+      this.content.className = 'px-6 py-5';
+      if (this.config.type === 'form') {
+        this.renderFormContent();
+      } else {
+        this.content.innerHTML = this.config.content;
+      }
     }
     this.modal.appendChild(this.content);
 
-    this.footer = document.createElement('div');
-    this.footer.className = 'px-6 py-4 border-t border-light-200 dark:border-dark-100 flex flex-wrap justify-end gap-3';
-    this.renderButtons();
-    this.modal.appendChild(this.footer);
+    if (this.config.showFooter) {
+      this.footer = document.createElement('div');
+      this.footer.className = 'px-6 py-4 border-t border-light-200 dark:border-dark-100 flex flex-wrap justify-end gap-3';
+      if (this.config.footerEl) {
+        // 同上：按钮由外部渲染，避免再写一套按钮样式
+        this.footer.appendChild(this.config.footerEl);
+      } else {
+        this.renderButtons();
+      }
+      this.modal.appendChild(this.footer);
+    }
 
     document.body.appendChild(this.modal);
   }
@@ -168,6 +214,8 @@ class PopupModal {
       input.value = this.state.formData[field.name] || '';
       if (field.required) input.required = true;
       if (field.disabled) input.disabled = true;
+      // 输入长度限制交给浏览器原生 maxlength，避免用户在超长内容上白填一遍
+      if (field.maxlength) input.maxLength = field.maxlength;
 
       input.addEventListener('change', (e) => {
         this.state.formData[field.name] = e.target.value;
@@ -235,8 +283,13 @@ class PopupModal {
 
   open() {
     if (this.state.isOpen) return;
+    // 复用实例时，上次关闭的 onClose 可能还没执行就被取消了；
+    // 这里补发一次，保证「每次 open 都有对应的 close 回调」这个约定不被打破。
+    if (this.closeModalTimer) {
+      clearTimeout(this.closeModalTimer);
+      if (typeof this.config.onClose === 'function') this.config.onClose(this);
+    }
     clearTimeout(this.closeMaskTimer);
-    clearTimeout(this.closeModalTimer);
     this.modal.style.zIndex = Math.max(nextDialogLayer(), Number(this.config.zIndex) || OVERLAY_LAYERS.dialog);
     this.mask.style.zIndex = Number(this.modal.style.zIndex) - 1;
     if (!this.modal.isConnected) document.body.appendChild(this.modal);
@@ -286,11 +339,16 @@ class PopupModal {
     this.closeModalTimer = setTimeout(() => {
       this.modal.classList.add('pointer-events-none');
       this.modal.remove();
+      // 通知外部「已关闭」必须等动画结束。
+      // 之前是在这里同步回调，父组件立刻 v-if=false，Vue 卸载时把内容节点带走，
+      // 而 300ms 的淡出还在跑 —— 用户看到一个空壳在慢慢消失，就是那个「闪一下」。
+      if (typeof this.config.onClose === 'function') this.config.onClose(this);
     }, 300);
 
     this.state.isOpen = false;
-    
-    if (typeof this.config.onClose === 'function') this.config.onClose(this);
+
+    // 需要立即响应的场景（比如清空当前预览图引用）用这个，不参与动画
+    if (typeof this.config.onCloseStart === 'function') this.config.onCloseStart(this);
     this.modal.classList.add('pointer-events-none');
     this.mask.classList.add('pointer-events-none');
   }
@@ -300,13 +358,17 @@ class PopupModal {
       this.config.title = options.title;
       this.titleEl.textContent = options.title;
     }
-    if (options.content && this.config.type !== 'form') {
+    if (options.subtitle !== undefined && this.subtitleEl) {
+      this.config.subtitle = options.subtitle;
+      this.subtitleEl.textContent = options.subtitle;
+    }
+    if (options.content && this.config.type !== 'form' && !this.config.contentEl) {
       this.config.content = options.content;
       this.content.innerHTML = options.content;
     }
     if (options.buttons) {
       this.config.buttons = options.buttons;
-      this.renderButtons();
+      if (this.footer) this.renderButtons();
     }
     if (options.formFields && this.config.type === 'form') {
       this.config.formFields = options.formFields;
@@ -337,6 +399,8 @@ class PopupModal {
     if (this.maskClickHandler) {
       this.mask.removeEventListener('click', this.maskClickHandler);
     }
+    // 已被销毁就不要再走一遍关闭流程，否则 onClose 会在组件卸载后再 emit 一次
+    if (this.config.onClose) this.config.onClose = null;
     this.close();
     setTimeout(() => {
       if (this.mask && this.mask.parentNode) this.mask.parentNode.removeChild(this.mask);

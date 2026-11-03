@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"oneimg/backend/database"
 	"oneimg/backend/models"
+	"oneimg/backend/storage"
+	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/publicurl"
 	"oneimg/backend/utils/storagepolicy"
 	"path"
@@ -112,11 +115,11 @@ func directResponse(db *gorm.DB, t models.DirectUploadTask) (DirectUploadRespons
 }
 
 func directSnapshot(s models.Settings) models.DirectUploadSettings {
-	return models.DirectUploadSettings{CompressImage: s.CompressImage, SaveWebp: s.SaveWebp, Thumbnail: s.Thumbnail, EncryptedStorage: s.EncryptedStorage, WatermarkEnable: s.WatermarkEnable, WatermarkText: s.WatermarkText, WatermarkPos: s.WatermarkPos, WatermarkSize: s.WatermarkSize, WatermarkColor: s.WatermarkColor, WatermarkOpac: s.WatermarkOpac}
+	return models.DirectUploadSettings{CompressImage: s.CompressImage, SaveWebp: s.SaveWebp, Thumbnail: s.Thumbnail, EncryptedStorage: s.EncryptedStorage, WatermarkEnable: s.WatermarkEnable, WatermarkText: s.WatermarkText, WatermarkPos: s.WatermarkPos, WatermarkSize: s.WatermarkSize, WatermarkColor: s.WatermarkColor, WatermarkOpac: s.WatermarkOpac, SaveOriginalName: s.SaveOriginalName, FileName: s.FileName, DefaultPath: s.DefaultPath}
 }
 
 func directProcessingSettings(s models.DirectUploadSettings) models.Settings {
-	return models.Settings{CompressImage: s.CompressImage, SaveWebp: s.SaveWebp, Thumbnail: false, EncryptedStorage: s.EncryptedStorage, WatermarkEnable: s.WatermarkEnable, WatermarkText: s.WatermarkText, WatermarkPos: s.WatermarkPos, WatermarkSize: s.WatermarkSize, WatermarkColor: s.WatermarkColor, WatermarkOpac: s.WatermarkOpac}
+	return models.Settings{CompressImage: s.CompressImage, SaveWebp: s.SaveWebp, Thumbnail: false, EncryptedStorage: s.EncryptedStorage, WatermarkEnable: s.WatermarkEnable, WatermarkText: s.WatermarkText, WatermarkPos: s.WatermarkPos, WatermarkSize: s.WatermarkSize, WatermarkColor: s.WatermarkColor, WatermarkOpac: s.WatermarkOpac, SaveOriginalName: s.SaveOriginalName, FileName: s.FileName}
 }
 
 func directValidRequest(r CreateDirectUploadRequest, s models.Settings) error {
@@ -176,6 +179,78 @@ func directQuota(tx *gorm.DB, bucket int, delta int64) error {
 	return nil
 }
 
+// directFinalKey 是直传对象的默认 key 布局：uploads/direct/<yyyy/mm>/<task id>。
+// key 由任务 ID 派生，天然唯一且与任务一一对应，便于清理与重试。
 func directFinalKey(t models.DirectUploadTask, ext string) string {
 	return path.Join("uploads", "direct", t.CreatedAt.UTC().Format("2006/01"), t.ID+ext)
+}
+
+// directReadableKey 返回「保存源文件名」时期望的可读 key（默认目录 + 源文件名）。
+// 未开启该设置时返回空串，调用方沿用 directFinalKey。
+func directReadableKey(t models.DirectUploadTask, ext string) string {
+	if !t.Settings.SaveOriginalName {
+		return ""
+	}
+	dir := t.Settings.DefaultPath
+	if strings.TrimSpace(dir) == "" {
+		dir = "uploads/{year}/{month}"
+	}
+	dir = (&images.ImageService{}).ReplaceMagicVariables(dir, t.Filename, t.Role)
+	key, err := storage.Key(strings.TrimPrefix(dir, "/") + "/" + images.OriginalStem(t.Filename) + ext)
+	if err != nil {
+		return ""
+	}
+	return key
+}
+
+// directMaxNameAttempts 限制同名编号的探测次数，避免异常情况下长时间占用 worker。
+const directMaxNameAttempts = 20
+
+// directResolveKey 决定本次直传最终写入的 key。
+//
+// 开启「保存源文件名」时按可读名落盘，重名则编号（name.webp → name-2.webp）。
+// 探测三项：其它任务已预留的 final_key、已落库的图片 URL、以及存储里的实际对象。
+// 直传处理由 processNextDirectUpload 串行执行，因此这里的“探测再写入”不会与
+// 另一个直传任务交错。若存储无法确认（网络/权限），回退到按任务 ID 派生 key，
+// 保证不覆盖任何既有对象。
+func directResolveKey(ctx context.Context, db *gorm.DB, store directObjectStore, t models.DirectUploadTask, ext string) (string, error) {
+	// 重试同一次处理时必须复用上次已确定的 key：那个对象可能已经写入成功，
+	// 只是后续步骤失败。换名会在存储里留下孤儿对象，且 final_key 无法清理它。
+	if t.FinalKey != "" {
+		return t.FinalKey, nil
+	}
+	base := directReadableKey(t, ext)
+	if base == "" {
+		return directFinalKey(t, ext), nil
+	}
+	dir, name := path.Dir(base), path.Base(base)
+	extPart := path.Ext(name)
+	stem := strings.TrimSuffix(name, extPart)
+	for n := 1; n <= directMaxNameAttempts; n++ {
+		candidate := name
+		if n > 1 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, n, extPart)
+		}
+		key := path.Join(dir, candidate)
+		var count int64
+		if err := db.Model(&models.DirectUploadTask{}).Where("final_key = ? AND id <> ?", key, t.ID).Count(&count).Error; err != nil {
+			return directFinalKey(t, ext), nil
+		}
+		if count > 0 {
+			continue
+		}
+		if err := db.Model(&models.Image{}).Where("url = ?", "/"+key).Count(&count).Error; err != nil {
+			return directFinalKey(t, ext), nil
+		}
+		if count > 0 {
+			continue
+		}
+		if _, err := store.Head(ctx, key); err == nil {
+			continue
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			return directFinalKey(t, ext), nil
+		}
+		return key, nil
+	}
+	return directFinalKey(t, ext), nil
 }

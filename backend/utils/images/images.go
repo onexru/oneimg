@@ -12,7 +12,6 @@ import (
 	"mime/multipart"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/watermark"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -119,15 +118,17 @@ func (s *ImageService) ProcessImage(
 	}
 
 	// Always use the actual encoded extension; never publish user-controlled
-	// directories or overwrite an existing logical image with an original name.
-	stem := strings.TrimSuffix(filepath.Base(strings.ReplaceAll(originalFileName, "\\", "/")), filepath.Ext(originalFileName))
+	// directories. 开启“保存源文件名”时保留源文件名（只做安全消毒，不再追加
+	// UUID 后缀），否则按“上传文件名称”模板生成并在末尾接 UUID 去重。
+	ext := outputExt[finalMimeType]
+	stem := OriginalStem(originalFileName)
+	fileName := stem + ext
 	if !setting.SaveOriginalName {
 		pattern := setting.FileName
 		if pattern == "" { pattern = "{random}" }
-		stem = s.ReplaceMagicVariables(pattern, originalFileName, userRole)
+		stem = safeFilenameStem(s.ReplaceMagicVariables(pattern, originalFileName, userRole))
+		fileName = stem + "_" + uuid.NewString() + ext
 	}
-	stem = safeFilenameStem(stem)
-	fileName := stem + "_" + uuid.NewString() + outputExt[finalMimeType]
 
 	// 8. 组装返回结果
 	return &ProcessedImage{
@@ -391,13 +392,11 @@ func (s *ImageService) ReplaceMagicVariables(pattern string, originalName string
 		pattern = strings.ReplaceAll(pattern, "{uuid}", uuid.New().String())
 	}
 
-	// 原始文件名（不含扩展名）。替换值必须过 safeFilenameStem：原始
-	// 文件名是客户端可控输入，未消毒直接进对象 key 可注入 "/"（嵌套
-	// 目录）、":"、bidi 覆盖符等；storage.Key 的兜底校验发生在图片
-	// 处理之后，尽早消毒更稳妥。
-	ext := filepath.Ext(originalName)
-	nameWithoutExt := strings.TrimSuffix(originalName, ext)
-	pattern = strings.ReplaceAll(pattern, "{filename}", safeFilenameStem(nameWithoutExt))
+	// 原始文件名（不含扩展名）。替换值由 OriginalStem 统一消毒：原始文件名是
+	// 客户端可控输入，未消毒直接进对象 key 可注入 "/"（嵌套目录）、":"、bidi
+	// 覆盖符等；storage.Key 的兜底校验发生在图片处理之后，尽早消毒更稳妥。
+	// 与「保存源文件名」共用同一口径，避免两处出现不同的可读名。
+	pattern = strings.ReplaceAll(pattern, "{filename}", OriginalStem(originalName))
 
 	return pattern
 }

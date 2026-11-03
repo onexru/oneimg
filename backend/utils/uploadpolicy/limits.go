@@ -25,16 +25,6 @@ func TagLength(s models.Settings) int {
 func RandomLimit(s models.Settings) int {
 	return bounded(s.RandomImageLimit, config.DefaultRandomImageLimit, config.HardRandomImageLimit)
 }
-func PowTimeoutSeconds(s models.Settings) int {
-	return bounded(s.PowVerifyTimeoutSeconds, config.DefaultPowVerifyTimeoutSeconds, config.HardPowVerifyTimeoutSeconds)
-}
-func PowURL(s models.Settings) string {
-	if strings.TrimSpace(s.PowVerifyURL) == "" {
-		return config.LegacyPowVerifyURL
-	}
-	return strings.TrimSpace(s.PowVerifyURL)
-}
-
 // RequestBytes keeps the existing hard per-file raster ceiling plus multipart overhead.
 func RequestBytes(s models.Settings) int64 { return int64(MaxFiles(s))*(32<<20) + (1 << 20) }
 func ValidateCount(s models.Settings, count int) error {

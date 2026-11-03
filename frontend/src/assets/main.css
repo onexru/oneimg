@@ -7,17 +7,64 @@
 @layer base {
   :root {
     color-scheme: light;
-    --app-sidebar-width: 240px;
-    --app-header-height: 72px;
+    --app-sidebar-width: 236px;
+    --app-header-height: 66px;
     --app-header-height-mobile: 58px;
+    /* 内容区左侧让位。默认与侧栏同宽；未登录时由 NavBar 置 0。 */
+    --app-content-inset: var(--app-sidebar-width);
+
+    /* ===== 设计 token =====
+       重构前项目里并存 7 种圆角（11/16/18/20/24/28）、7 种任意字号
+       （10/11/13/15/22/24/30），以及 9 个「带边框的白盒子」类——其中 7 个
+       是零引用的死代码。这里收敛成三档圆角 + 五档字号 + 一套间距节奏，
+       所有页面只从下面这几个类里取样式，不再各写各的。 */
+    --radius-sm: 10px;   /* 行内小控件、徽标、输入框 */
+    --radius-md: 14px;   /* 卡片、面板、按钮 */
+    --radius-lg: 20px;   /* 页面级大容器 */
+    --radius-pill: 999px;
+
+    /* 页面横向留白：窄屏 12 / 平板 20 / 桌面 24，与 App.vue 的 px-* 对齐 */
+    --page-gutter: 12px;
+
+    /* 纵向节奏：区块间距 16、紧凑 10、宽松 24 */
+    --gap-block: 16px;
+    --gap-tight: 10px;
+    --gap-loose: 24px;
+
+    /* Message 通知的自适应偏移：PC 固定 75px（顶部让出 66px 头部 +
+       9px 呼吸，水平离右缘一条舒适距离）；窄屏切换到移动端头部高度
+       （58px + 8px）与两侧对称的 16px 边距，由 message.js 直接引用。 */
+    --msg-offset-y: 75px;
+    --msg-offset-x: 75px;
+    --msg-max-width: 380px;
+  }
+
+  @media (min-width: 640px) {
+    :root { --page-gutter: 20px; }
+  }
+  @media (min-width: 768px) {
+    :root { --page-gutter: 24px; }
+  }
+
+  @media (max-width: 768px) {
+    :root {
+      --msg-offset-y: calc(var(--app-header-height-mobile) + 8px);
+      --msg-offset-x: 16px;
+      /* 两侧各留 --msg-offset-x，宽度自适应视口，避免贴死另一侧 */
+      --msg-max-width: calc(100% - 2 * var(--msg-offset-x));
+    }
   }
 
   .dark {
     color-scheme: dark;
   }
 
+  /* 不设全局 scroll-behavior:smooth。
+     它会让所有滚动都带缓动，包括弹窗开关时页面位置的自动调整，
+     看起来就是「页面在抖」。需要平滑滚动的场景（图库翻页）已显式传
+     behavior:'smooth'，不受这里影响。 */
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
 
   body {
@@ -31,8 +78,79 @@
     @apply bg-primary/20 text-slate-900 dark:text-white;
   }
 
+  /* ===== 焦点样式统一 =====
+     浏览器默认的 :focus-visible 轮廓是 `1px auto rgb(16,16,16)`，即一圈硬黑边；
+     深色主题下尤其突兀，看起来像「点了个按钮突然多出黑框」。
+     这里统一改成主题色的柔和光圈：
+       - 用 box-shadow 而非 outline，能贴合圆角（outline 在圆角元素上仍是方的）
+       - outline: none 只去掉默认轮廓，下面立刻用光圈补回可见性，不是「取消焦点提示」
+       - 负 offset 让光圈向内收，不撑破紧凑的列表行
+     注意：任何组件若自行声明 focus-visible 样式（如 .app-checkbox），
+     选择器特异性更高，会覆盖这里，这是预期行为。 */
+  :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(37 99 235 / 0.45);
+  }
+
+  /* 已经被 .surface / .input-modern 等自带边框的控件，光圈稍微收一点，
+     避免与自身边框叠加成粗边 */
+  .dark :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    box-shadow: 0 0 0 2px rgb(96 165 250 / 0.55);
+  }
+
   * {
     @apply border-slate-200/80 dark:border-white/10;
+  }
+
+  /* ===================== 主题切换揭示动画 =====================
+     深色/浅色切换时，页面上几十个卡片的边框与文字色都是瞬间跳变，
+     只给 body 加 transition-colors 只能让背景自己渐变，整体仍像「闪一下」。
+     这里用 View Transitions 做一次从点击位置扩散的圆形揭示：
+     旧画面快照留在底层，新画面快照裁在圆内，圆半径从 0 扩到视口对角线。
+
+     NavBar 在切换前把圆心/半径写进 --theme-reveal-*，并用
+     data-theme-reveal="dark|light" 标记目标主题（揭示层底色要用新主题色，
+     否则圆里露出来的还是旧色）。切换结束后该属性被移除。 */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    /* 关掉默认的交叉淡入 —— 我们要的是「揭示」，不是「溶解」 */
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  /* group 层默认还有一段 250ms 的尺寸/位置过渡（用于 morph 场景）。
+     这里新旧画面尺寸完全一致，留着只会让整块多一层淡入，和揭示叠在一起发灰。 */
+  ::view-transition-group(root) {
+    animation: none;
+  }
+
+  /* 旧画面始终整块不动，作为被揭示的背景 */
+  ::view-transition-old(root) {
+    z-index: 0;
+  }
+
+  /* 新画面从圆心开始扩散 */
+  ::view-transition-new(root) {
+    z-index: 1;
+    clip-path: circle(0 at var(--theme-reveal-x, 50%) var(--theme-reveal-y, 0%));
+    animation: theme-reveal 0.52s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  /* 反向（深→浅）稍微慢一点收尾，避免亮色突变刺眼 */
+  html[data-theme-reveal='light'] ::view-transition-new(root) {
+    animation-duration: 0.58s;
+  }
+
+  @keyframes theme-reveal {
+    to { clip-path: circle(var(--theme-reveal-r, 150vmax) at var(--theme-reveal-x, 50%) var(--theme-reveal-y, 0%)); }
+  }
+
+  /* 系统开启「减少动态效果」时不做揭示，直接切 */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-new(root) {
+      animation: none;
+      clip-path: none;
+    }
   }
 }
 
@@ -52,124 +170,199 @@
     box-shadow: 0 20px 60px rgba(2, 6, 23, 0.45);
   }
 
+  /* ===================== 页面骨架 =====================
+     所有业务页共用同一套结构，避免每页各写各的：
+       .page-shell   页面根，负责纵向节奏与最小宽度
+       .page-header  操作条：只放右侧动作/统计，不再有大标题
+       .surface      通用白盒（卡片/面板/工具栏都归到这一档）
+     */
+
   .page-shell {
-    @apply space-y-4 md:space-y-5;
+    @apply flex min-w-0 flex-1 flex-col;
+    gap: var(--gap-block);
   }
 
+  /* 页面最上方不再放 h1 大标题：导航与侧栏已经说明了「你在哪」，
+     每页再顶一行大字只是重复占高度。这里退化成一条横向操作带 ——
+     有按钮/统计就靠右排，什么都没有时整块不渲染（见各页 v-if）。 */
   .page-header {
-    @apply flex flex-col gap-3 md:gap-4 md:flex-row md:items-end md:justify-between;
+    @apply flex min-h-9 flex-wrap items-center justify-end gap-2;
   }
 
-  .page-title {
-    @apply text-[22px] font-semibold tracking-tight text-slate-900 dark:text-white sm:text-[24px] md:text-[30px];
+  .page-actions {
+    @apply flex flex-wrap items-center gap-2;
   }
 
-  .page-subtitle {
-    @apply mt-1.5 max-w-2xl text-[13px] leading-6 text-slate-500 dark:text-slate-400 sm:text-sm;
+  /* 说明性文字保留但改为紧凑样式，用于确实需要解释的页（如图库游客提示） */
+  .page-note {
+    @apply w-full rounded-[var(--radius-sm)] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500
+      dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
+  }
+  /* 页头右侧的操作区：按钮组、统计小卡都放这里 */
+  .page-actions {
+    @apply flex flex-wrap items-center gap-2;
   }
 
-  .section-card {
-    @apply rounded-[16px] border border-slate-200/80 bg-white p-3 shadow-sm sm:p-3.5 md:rounded-[20px] md:p-5 dark:border-white/10 dark:bg-slate-900;
+  /* ---- 通用白盒：替代原 section-card / content-panel / page-surface /
+     control-panel / control-group / workflow-panel / toolbar-surface /
+     quick-stat / metric-card 九个近似类 ---- */
+  .surface {
+    @apply border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900;
+    border-radius: var(--radius-md);
+    padding: 12px;
+  }
+  @media (min-width: 640px) {
+    .surface { padding: 14px; }
+  }
+  @media (min-width: 768px) {
+    .surface { padding: 16px; }
   }
 
-  .page-surface {
-    @apply rounded-[16px] border border-slate-200/80 bg-white shadow-sm sm:rounded-[20px] md:rounded-[24px] dark:border-white/10 dark:bg-slate-900;
+  /* 浅底版本：用于嵌套在白盒内部的分区，或工具栏这类不需要再抬一层的块 */
+  .surface-sunken {
+    @apply border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-slate-950;
   }
 
-  .soft-button {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white;
+  .surface-flush {
+    padding: 0;
   }
 
-  .primary-button {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-dark;
+  .surface-lg {
+    border-radius: var(--radius-lg);
   }
 
-  .danger-button {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-600;
+  /* 面板标题：统一各页的分区标题样式 */
+  .surface-title {
+    @apply flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white;
   }
 
-  .input-modern {
-    @apply w-full min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-200/70 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-500 dark:focus:ring-slate-800;
+  .surface-subtitle {
+    @apply mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400;
   }
 
+  /* ---- 统计小卡 ---- */
   .stat-tile {
-    @apply rounded-[16px] border border-slate-200/80 bg-slate-50 px-3.5 py-3 dark:border-white/10 dark:bg-slate-950;
+    @apply border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-white/10 dark:bg-slate-950;
+    border-radius: var(--radius-md);
   }
 
+  /* 顶部操作条里的行内统计：标签和数值并排、与按钮同高，
+     避免统计卡把整条页头撑到 65px，而按钮页只有 36px。 */
+  .stat-inline {
+    @apply inline-flex h-9 items-center gap-1.5 border border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500
+      dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
+    border-radius: var(--radius-sm);
+  }
+
+  .stat-inline strong {
+    @apply text-[13px] font-semibold text-slate-900 dark:text-white;
+  }
+
+  .stat-label {
+    @apply text-[11px] font-medium tracking-wide text-slate-400 dark:text-slate-500;
+  }
+
+  /* ---- 表单控件 ---- */
   .field-label {
-    @apply mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300;
+    @apply mb-1.5 block text-[13px] font-medium text-slate-700 dark:text-slate-300;
   }
 
   .field-hint {
     @apply mt-1.5 text-xs leading-5 text-slate-500 dark:text-slate-400;
   }
 
-  .toolbar-surface {
-    @apply rounded-[16px] border border-slate-200/80 bg-slate-50 p-3 md:p-3.5 dark:border-white/10 dark:bg-slate-950;
-  }
-
   .panel-label {
-    @apply text-[11px] font-medium uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500;
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500;
   }
 
-  .workflow-panel {
-    @apply rounded-[18px] border border-slate-200/80 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-950;
+  /* ---- 面板标题（设置页各卡片共用）----
+     此前组件里写了 .panel-title / .panel-icon 但全站没有定义，实际只靠
+     内联的 text-lg sm:text-xl 与 text-2xl 撑着：标题 20px、图标 24px，
+     图标比标题还大且是裸描边，看不出「这是一个区块的入口」。
+     这里把图标收进 32px 浅色圆角底板，标题回到 16px，层级立刻清楚。 */
+  .panel-title {
+    @apply flex items-center gap-2.5 text-base font-semibold text-slate-900 dark:text-white;
   }
 
-  .workspace-split {
-    @apply grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:gap-5;
+  .panel-icon {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center bg-primary/10 text-base text-primary
+      dark:bg-primary/20 dark:text-blue-300;
+    border-radius: var(--radius-sm);
   }
 
-  .workspace-stack {
-    @apply space-y-4;
+  /* 表单分组：label + 控件 + 提示 作为一个整体。
+     此前组件里到处写 setting-group 但全站无定义，纯裸 div；
+     这里只给「组内元素纵向贴合」，组间节奏交给父级 space-y。 */
+  .setting-group {
+    @apply block;
+  }
+  .setting-group > * + * {
+    @apply mt-1.5;
+  }
+  /* 组内紧跟 label 的控件不要额外顶距（label 自带 mb-1.5） */
+  .setting-group > .field-label + * {
+    margin-top: 0;
   }
 
-  .dashboard-strip {
-    @apply grid gap-2.5 lg:grid-cols-3;
+  /* ---- 按钮 ---- */
+  .soft-button {
+    @apply inline-flex min-h-9 items-center justify-center gap-2 border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white;
+    border-radius: var(--radius-sm);
   }
 
-  .toolbar-grid {
-    @apply grid gap-2.5 xl:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.85fr)_minmax(0,1.4fr)];
+  .primary-button {
+    @apply inline-flex min-h-9 items-center justify-center gap-2 bg-primary px-3.5 py-2 text-sm font-medium text-white transition hover:bg-primary-dark;
+    border-radius: var(--radius-sm);
   }
 
-  .quick-stat {
-    @apply rounded-[16px] border border-slate-200/80 bg-white px-3.5 py-3 dark:border-white/10 dark:bg-slate-900;
+  .danger-button {
+    @apply inline-flex min-h-9 items-center justify-center gap-2 bg-red-500 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-red-600;
+    border-radius: var(--radius-sm);
   }
 
-  .quick-stat-value {
-    @apply mt-1.5 text-base font-semibold text-slate-900 dark:text-white;
+  .input-modern {
+    @apply min-h-10 w-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary/50 focus:ring-4 focus:ring-primary/10 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-primary/60;
+    border-radius: var(--radius-sm);
   }
 
-  .workspace-board {
-    @apply grid gap-3 lg:gap-4 2xl:grid-cols-[280px_minmax(0,1fr)];
+  /* ===== 控制台结果流 =====
+     每张图独立成卡片，卡片之间留间距。
+     之前是所有条目塞在一个大卡片里、靠细线分隔，
+     层级上「一块区域」和「一张图」混在一起，看不出单条边界。 */
+  .home-result-list {
+    @apply flex min-w-0 flex-col gap-2;
   }
 
-  .workspace-board-compact {
-    @apply grid gap-3 xl:grid-cols-[minmax(0,1.05fr)_minmax(260px,0.95fr)] 2xl:grid-cols-[280px_minmax(0,1fr)];
+  /* ===== 页脚 =====
+     不用卡片：一条细线上方的横向信息带，两边分别是站名与备案号。
+     与内容区共用边距和侧栏偏移，保证左边线对齐。
+     高度不写死：登录/注册页要按「视口 - 顶栏 - 页脚」算剩余高度，
+     页脚高度会随备案号折行、断点变化，写死必然在某个尺寸露出滚动条。
+     所以由 App.vue 在布局完成后实测并写入 --app-footer-height。 */
+  .app-footer-wrap {
+    @apply px-3 pb-3 sm:px-5 md:px-6 lg:ml-[var(--app-content-inset)];
   }
-
-  .control-panel {
-    @apply rounded-[18px] border border-slate-200/80 bg-slate-50 p-3 shadow-sm sm:p-3.5 dark:border-white/10 dark:bg-slate-950;
+  .app-footer {
+    @apply mx-auto flex min-h-11 flex-col gap-1.5 border-t border-slate-200 pt-3
+      text-[11px] text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:gap-3
+      dark:border-white/10 dark:text-slate-400;
   }
-
-  .control-group {
-    @apply rounded-[16px] border border-slate-200/80 bg-white p-3 dark:border-white/10 dark:bg-slate-900;
+  .app-footer-brand {
+    @apply flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1;
   }
-
-  .control-group-title {
-    @apply text-sm font-semibold text-slate-900 dark:text-white;
+  .app-footer-name {
+    @apply text-[13px] font-semibold text-slate-700 transition-colors hover:text-primary dark:text-slate-200 dark:hover:text-primary-light;
   }
-
-  .control-group-hint {
-    @apply mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400;
+  .app-footer-copy {
+    @apply text-[11px] text-slate-400 dark:text-slate-500;
   }
-
-  .content-panel {
-    @apply rounded-[18px] border border-slate-200/80 bg-white p-3 shadow-sm sm:p-3.5 dark:border-white/10 dark:bg-slate-900 md:p-4;
+  /* 备案号：外链一律 noopener + nofollow，指向官方查询入口 */
+  .app-footer-legal {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1;
   }
-
-  .home-panel-compact {
-    @apply p-2.5 sm:p-3 md:p-3.5;
+  .app-footer-beian {
+    @apply inline-flex items-center gap-1.5 rounded text-[11px] text-slate-500 no-underline transition-colors
+      hover:text-primary dark:text-slate-400 dark:hover:text-primary-light;
   }
 
   .hero-metrics {
@@ -177,7 +370,8 @@
   }
 
   .metric-card {
-    @apply rounded-[16px] border border-slate-200/80 bg-slate-50 px-3 py-2.5 sm:px-3.5 sm:py-3 dark:border-white/10 dark:bg-slate-950;
+    @apply border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-white/10 dark:bg-slate-950;
+    border-radius: var(--radius-md);
   }
 
   .metric-card-muted {
@@ -185,59 +379,168 @@
   }
 
   .metric-value {
-    @apply mt-1.5 text-base font-semibold text-slate-900 dark:text-white sm:text-lg;
+    @apply mt-1.5 text-base font-semibold text-slate-900 dark:text-white;
   }
 
-  .result-stream {
-    @apply grid gap-2.5;
+  /* ===== 最近上传：一张图一张卡片 =====
+     左右布局：左缩略图、右信息（元信息在上、文件名在下）、最右两个图标按钮。
+     卡片本身是独立边界，所以不再需要分隔线。 */
+  .recent-card {
+    @apply flex min-w-0 items-center gap-2.5 border border-slate-200/80 bg-white p-2.5 transition-colors
+      hover:border-slate-300
+      dark:border-white/10 dark:bg-slate-900 dark:hover:border-white/20;
+    border-radius: var(--radius-md);
   }
 
-  .result-card {
-    @apply rounded-[18px] border border-slate-200/80 bg-slate-50 p-2.5 transition dark:border-white/10 dark:bg-slate-950;
+  /* 缩略图：56px 方块，正好容纳右侧「13px 文件名 + 11px 元信息」两行 */
+  .recent-thumb {
+    @apply relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden border border-slate-200 bg-slate-100
+      dark:border-white/10 dark:bg-slate-800;
+    border-radius: 8px;
   }
 
-  .result-card-compact {
-    @apply p-2;
+  .recent-info {
+    @apply flex min-w-0 flex-1 flex-col justify-center gap-0.5;
   }
 
-  .result-card-mobile-safe {
-    @apply overflow-hidden;
+  /* 文件名在元信息上方，可点击预览，长名截断并保留 tooltip */
+  .recent-name {
+    @apply min-w-0 truncate text-left text-[13px] font-medium text-slate-900 transition-colors
+      hover:text-primary dark:text-slate-100 dark:hover:text-primary-light;
   }
 
-  .result-card-layout {
-    @apply flex flex-col gap-2.5 sm:flex-row;
+  .recent-card-tools {
+    @apply flex shrink-0 items-center gap-1;
   }
 
-  .result-card-media {
-    @apply relative aspect-square w-full cursor-pointer overflow-hidden rounded-[18px] border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 sm:w-[88px] sm:min-w-[88px] sm:max-w-[88px];
+  .recent-meta-line {
+    @apply flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400;
   }
 
-  .result-card-media-large {
-    width: 198px;
-    min-width: 198px;
-    max-width: 198px;
-    height: 198px;
-    aspect-ratio: 1 / 1;
+  /* 用 2px 圆点代替「·」，不受字体 fallback 影响 */
+  .recent-dot {
+    @apply h-0.5 w-0.5 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600;
   }
 
-  .result-card-action {
-    @apply inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-0 text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-white/20 dark:hover:text-white;
+  .recent-storage-inline {
+    @apply inline-flex min-w-0 items-center gap-1 text-slate-500 dark:text-slate-400;
   }
 
-  .result-meta-pill {
-    @apply rounded-full border border-slate-200 bg-white px-2 py-1 dark:border-white/10 dark:bg-slate-900;
+  /* 复制格式胶囊分段控件：三个选项直接可见，选中态用品牌色实心，
+     外层浅底把它们视觉上收成一组，避免和右侧两个操作按钮混淆。 */
+  .recent-format-group {
+    @apply inline-flex shrink-0 items-center gap-0.5 border border-slate-200 bg-slate-100/80 p-0.5
+      dark:border-white/10 dark:bg-slate-950/60;
+    border-radius: var(--radius-pill);
   }
 
-  .result-links-grid {
-    @apply grid gap-1.5 lg:grid-cols-3;
+  .recent-format-pill {
+    /* 高度与右侧复制/删除按钮对齐（按钮 32px，外层描边 1px + 内边距 2px），
+       否则一组胶囊会显得比按钮矮一截。 */
+    @apply inline-flex h-[26px] items-center justify-center px-2 text-[11px] font-medium text-slate-500 transition-colors
+      hover:text-slate-900 dark:text-slate-400 dark:hover:text-white;
+    border-radius: var(--radius-pill);
   }
 
-  .result-links-grid-mobile {
-    @apply grid-cols-1;
+  .recent-format-pill.is-active {
+    @apply bg-white text-primary shadow-sm dark:bg-slate-800 dark:text-primary-light;
+  }
+
+  /* 数量角标：与格式胶囊同高。
+     胶囊总高 = 内胶囊(26/22px) + 外层上下 padding(2px×2) + 描边(1px×2)
+     窄屏时内胶囊缩到 22，所以这里也要跟着用变量，不能各自写死。 */
+  .recent-count {
+    @apply inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2.5
+      text-xs text-slate-500
+      dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
+    height: 32px;
+  }
+
+  .recent-icon-btn {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white text-[13px] text-slate-500 transition
+      hover:border-slate-300 hover:text-slate-900
+      dark:border-white/10 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-white/20 dark:hover:text-white;
+    border-radius: var(--radius-sm);
+  }
+
+  .recent-icon-btn-danger {
+    @apply border-red-200/70 bg-red-50/70 text-red-500 hover:border-red-300 hover:bg-red-50 hover:text-red-600
+      dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:border-red-500/40 dark:hover:text-red-200;
   }
 
   .imageflow-dropzone {
-    @apply rounded-[20px] border border-dashed border-slate-300 bg-slate-50 px-3 py-8 transition-all sm:px-4 sm:py-10 dark:border-white/10 dark:bg-slate-950/80;
+    @apply rounded-[var(--radius-lg)] border border-dashed border-slate-300 bg-slate-50 px-3 py-2 transition-all sm:px-4 dark:border-white/10 dark:bg-slate-950/80;
+  }
+
+  /* ===== 上传卡的只读信息胶囊 =====
+     存储与分类在这里只负责「显示当前值」，不提供切换 ——
+     切换入口统一收在设置弹窗里，避免上传时误改配置。 */
+  .upload-chip {
+    @apply inline-flex h-8 min-w-0 max-w-[180px] items-center gap-1.5 border border-slate-200 bg-slate-50 px-2.5
+      text-[12px] text-slate-500
+      dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
+    border-radius: var(--radius-pill);
+  }
+
+  .upload-chip i {
+    @apply shrink-0 text-[13px] text-slate-400 dark:text-slate-500;
+  }
+
+  .upload-chip-text {
+    @apply truncate font-medium text-slate-700 dark:text-slate-200;
+  }
+
+  /* 设置：纯图标按钮，与左侧两个选择器同高同宽（32px）。
+     非原图时右上角点一个小圆点，不占额外宽度却能让状态可见。 */
+  .upload-icon-setting {
+    @apply relative inline-flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white
+      text-[15px] text-slate-500 transition
+      hover:border-slate-300 hover:text-slate-900
+      dark:border-white/10 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-white/20 dark:hover:text-white;
+    border-radius: var(--radius-sm);
+  }
+
+  .upload-icon-setting.is-dirty {
+    @apply border-primary/40 text-primary dark:border-primary/40 dark:text-primary-light;
+  }
+
+  .upload-icon-setting-dot {
+    @apply absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary dark:bg-primary-light;
+  }
+
+  /* 质量滑块：统一各内核的轨道与滑块外观 */
+  .upload-quality-range {
+    @apply h-1.5 cursor-pointer appearance-none rounded-full bg-slate-200 dark:bg-slate-700;
+  }
+  .upload-quality-range::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-full border-2 border-white bg-primary shadow;
+    cursor: pointer;
+  }
+  .upload-quality-range::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full border-2 border-white bg-primary shadow;
+    cursor: pointer;
+  }
+
+  .upload-quality-preset {
+    @apply rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 transition
+      hover:border-slate-300 hover:text-slate-900
+      dark:border-white/10 dark:text-slate-400 dark:hover:text-white;
+  }
+  .upload-quality-preset.is-active {
+    @apply border-primary/40 bg-primary/10 text-primary dark:text-primary-light;
+  }
+
+  /* 上传标签多选胶囊：未选中是描边，选中是主色实底，
+     选中时补一个勾号，不靠颜色也能区分状态。 */
+  .upload-tag-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1
+      text-[11px] text-slate-600 transition
+      hover:border-slate-300 hover:text-slate-900
+      dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white;
+  }
+
+  .upload-tag-chip.is-active {
+    @apply border-primary bg-primary text-white dark:border-primary dark:bg-primary dark:text-white;
   }
 
   .gallery-toolbar-grid {
@@ -313,7 +616,7 @@
   }
 
   .gallery-summary-pill {
-    @apply rounded-[16px] border border-slate-200/80 bg-slate-50 px-3 py-2 text-sm text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
+    @apply rounded-[var(--radius-md)] border border-slate-200/80 bg-slate-50 px-3 py-2 text-sm text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400;
   }
 
   .gallery-summary-inline {
@@ -344,8 +647,111 @@
     @apply absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5 dark:bg-slate-200;
   }
 
+  /* ---- 统一复选框 ----
+     原生 checkbox 在各浏览器里都是 13-16px 的小方块，描边细、选中态只是一个
+     小勾，放在「整行说明文字」或「带描述的卡片」里既不显眼也不好点。
+     这里用 appearance:none 重画：18px 圆角方框 + 主色填充 + 白色对勾。
+     对勾用边框旋转 45° 画，不引入图标字体，能跟随 transform 做动画。
+
+     用法：给 <input type="checkbox" class="checkbox-modern"> 即可。
+     需要「整块可点 + 选中时整块高亮」时，外层用 .choice-card 包一层。 */
+  .checkbox-modern {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1.5px solid rgb(148 163 184 / .8);
+    background-color: #fff;
+    cursor: pointer;
+    position: relative;
+    transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+
+  .checkbox-modern:checked,
+  .checkbox-modern:indeterminate {
+    border-color: var(--color-primary, rgb(37 99 235));
+    background-color: var(--color-primary, rgb(37 99 235));
+  }
+
+  .checkbox-modern::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 1.5px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) scale(.4);
+    opacity: 0;
+    transition: opacity .12s ease, transform .16s cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  .checkbox-modern:checked::after {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+  }
+
+  /* 半选态画横杠而不是对勾：表达「部分选中」 */
+  .checkbox-modern:indeterminate::after {
+    opacity: 1;
+    transform: none;
+    left: 3.5px;
+    top: 7px;
+    width: 8px;
+    height: 0;
+    border-width: 0 0 2px 0;
+  }
+
+  .checkbox-modern:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+  }
+
+  .checkbox-modern:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(37 99 235 / .4);
+  }
+
+  .dark .checkbox-modern {
+    background-color: rgb(30 41 59);
+    border-color: rgb(148 163 184 / .55);
+  }
+
+  .dark .checkbox-modern:checked,
+  .dark .checkbox-modern:indeterminate {
+    background-color: rgb(37 99 235);
+    border-color: rgb(59 130 246);
+  }
+
+  .dark .checkbox-modern:focus-visible {
+    box-shadow: 0 0 0 2px rgb(96 165 250 / .5);
+  }
+
+  /* 整块可点的选项卡：悬停轻微加深、选中时整块高亮。
+     用 :has() 把状态提升到容器 —— 只有 18px 的勾选框变化，
+     在长列表里几乎看不出选了什么。 */
+  .choice-card {
+    @apply flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 px-3.5 py-3 transition dark:border-white/10;
+  }
+
+  .choice-card:hover:not(:has(input:disabled)) {
+    @apply border-slate-300 bg-slate-50 dark:border-white/20 dark:bg-white/5;
+  }
+
+  .choice-card:has(input:checked) {
+    @apply border-primary/45 bg-primary/[0.06] dark:border-primary/50 dark:bg-primary/10;
+    box-shadow: inset 0 0 0 1px rgb(37 99 235 / .12);
+  }
+
+  .choice-card:has(input:disabled) {
+    @apply cursor-not-allowed opacity-60;
+  }
+
   .setting-row {
-    @apply flex flex-col items-start gap-2.5 rounded-[18px] border border-slate-200/80 bg-slate-50 px-3.5 py-3 md:flex-row md:items-start md:justify-between md:gap-3 dark:border-white/10 dark:bg-slate-950;
+    @apply flex flex-col items-start gap-2.5 rounded-[var(--radius-md)] border border-slate-200/80 bg-slate-50 px-3.5 py-3 md:flex-row md:items-start md:justify-between md:gap-3 dark:border-white/10 dark:bg-slate-950;
   }
 
   .setting-row-title {
@@ -356,54 +762,74 @@
     @apply mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400;
   }
 
+  /* ---- 设置页分类页签 ----
+     横向页签 + 右侧全局统计同处一条。这条会吸顶，所以背景必须不透明
+     （.surface 的白底 + 吸顶时需要盖住下方内容，故补 shadow 做分离）。 */
+  .settings-tabbar {
+    @apply flex items-center gap-3 overflow-hidden;
+    padding: 6px 8px;
+  }
+
+  .settings-tab {
+    @apply cursor-pointer whitespace-nowrap text-slate-600 transition-colors
+      hover:bg-slate-100 hover:text-slate-900
+      dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white;
+    border-radius: var(--radius-sm);
+  }
+
+  /* 选中态用浅主色底 + 主色文字，而不是反色黑块：
+     设置页整体是白底表单，反色块会把页签做成「按钮」，抢走对表单的注意力。
+     深色下不能用 primary/15 的底再配 primary-light 的字 —— 实测对比度只有 1.4，
+     蓝底蓝字几乎糊在一起；改为更亮的 blue-300 文字 + 更浅的底色。 */
+  .settings-tab-active {
+    @apply bg-primary/10 font-semibold text-primary-dark hover:bg-primary/15 hover:text-primary-dark
+      dark:bg-primary/25 dark:text-blue-300 dark:hover:bg-primary/30 dark:hover:text-blue-200;
+  }
+
+  /* .link-field 仍被图库页使用，保留；旧的 result-card* 响应式规则已随组件重写一并移除 */
   .link-field {
-    @apply relative flex items-center gap-2 rounded-[16px] border border-slate-200/80 bg-slate-50 px-2.5 py-2.5 text-sm text-slate-600 transition hover:border-slate-300 hover:bg-white md:px-3 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-white/20 dark:hover:bg-slate-900;
+    @apply relative flex items-center gap-2 rounded-[var(--radius-md)] border border-slate-200/80 bg-slate-50 px-2.5 py-2.5 text-sm text-slate-600 transition hover:border-slate-300 hover:bg-white md:px-3 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-white/20 dark:hover:bg-slate-900;
   }
 
   @media (max-width: 639px) {
-    .result-card-layout {
-      @apply gap-2;
+    /* 窄屏下卡片的操作区会挤，缩到 30px 让文件名多留几个字 */
+    .recent-card-tools {
+      @apply gap-0.5;
     }
 
-    .result-card-media-large {
-      margin-left: auto;
-      margin-right: auto;
+    .recent-icon-btn {
+      @apply h-[30px] w-[30px];
     }
 
-    .result-meta-pill {
-      @apply px-1.5 py-0.5;
+    .recent-format-pill {
+      @apply h-[22px] px-1.5 text-[10px];
     }
 
-    .result-card-action {
-      @apply h-8 w-8 rounded-lg;
+    /* 胶囊在窄屏变矮（22+4+2=28），数量角标同步，保持两者等高 */
+    .recent-count {
+      height: 28px;
+      @apply px-2 text-[11px];
     }
 
-    .result-links-grid-mobile .link-field {
-      @apply min-w-0 px-2 py-2 text-xs;
+    /* 窄屏只是略微收小，不压成 36px —— 太小的缩略图认不出图 */
+    .recent-thumb {
+      @apply h-12 w-12;
     }
 
-    .result-links-grid-mobile .link-field span:last-child {
-      @apply min-w-0 flex-1;
-    }
-
+    /* 窄屏卡片更紧凑，复选框热区略收小 */
     .gallery-card-checkbox {
-      @apply h-6 w-6;
+      width: 24px;
+      height: 24px;
     }
 
-    .gallery-card-checkbox input {
-      @apply h-3.5 w-3.5;
+    .gallery-card-checkbox .app-checkbox {
+      width: 16px;
+      height: 16px;
+      background-size: 11px 11px;
     }
 
     .gallery-image-card-head {
       @apply px-2 py-1.5;
-    }
-
-    .gallery-card-badges {
-      @apply gap-1;
-    }
-
-    .gallery-card-badge {
-      @apply px-1.5 py-0.5 text-[10px];
     }
 
     .gallery-image-card .image-info {
@@ -424,39 +850,108 @@
   }
 
   .gallery-image-card {
-    @apply relative cursor-pointer overflow-hidden rounded-[18px] border border-slate-200/80 bg-white transition-all duration-200 dark:border-white/10 dark:bg-slate-900;
+    @apply relative cursor-pointer overflow-hidden rounded-[var(--radius-md)] border border-slate-200/80 bg-white transition-all duration-200 dark:border-white/10 dark:bg-slate-900;
   }
 
   .gallery-image-card-compact {
-    @apply rounded-[16px];
+    @apply rounded-[var(--radius-md)];
   }
 
-  .gallery-image-card-head {
-    @apply flex items-center justify-between gap-2 border-b border-slate-200/70 px-2.5 py-2 dark:border-white/10;
+  /* ===== 复选框 =====
+     原生 checkbox 直接交给浏览器画，边框、圆角、勾的形状各平台都不一样，
+     跟页面这套圆角 + 品牌色的体系对不上。这里统一接管：
+       - appearance:none 抹掉原生外观
+       - 勾用内联 SVG 当背景，颜色可控，不依赖字体或伪元素
+       - 选中态填充品牌色，深色模式下自动反色
+     尺寸用 CSS 变量，列表/网格两种视图只改尺寸不改样式。 */
+  .app-checkbox {
+    @apply relative shrink-0 cursor-pointer appearance-none border transition-colors duration-150;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    border: 1.5px solid rgb(203 213 225);
+    background-color: #fff;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 12px 12px;
   }
 
-  .gallery-card-badges {
-    @apply flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden;
+  .app-checkbox:hover {
+    border-color: rgb(148 163 184);
   }
 
-  .gallery-card-badges .image-role {
-    @apply shrink-0;
+  .app-checkbox:checked {
+    border-color: #2563eb;
+    background-color: #2563eb;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 5'/%3E%3C/svg%3E");
   }
 
-  .gallery-card-badge {
-    @apply inline-flex min-w-0 max-w-full items-center truncate rounded-full px-2 py-1 text-[11px] sm:text-xs;
+  /* 部分选中（全选框在有部分勾选时用），画一条横线而不是勾 */
+  .app-checkbox:indeterminate {
+    border-color: #2563eb;
+    background-color: #2563eb;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M4 8h8'/%3E%3C/svg%3E");
   }
 
-  .gallery-card-badge-dark {
-    @apply bg-slate-900 text-white dark:bg-white dark:text-slate-900;
+  .app-checkbox:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 0.28);
   }
 
+  .app-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .dark .app-checkbox {
+    border-color: rgb(71 85 105);
+    background-color: rgb(15 23 42);
+  }
+
+  .dark .app-checkbox:hover {
+    border-color: rgb(100 116 139);
+  }
+
+  .dark .app-checkbox:checked,
+  .dark .app-checkbox:indeterminate {
+    border-color: #3b82f6;
+    background-color: #3b82f6;
+  }
+
+  /* 图库卡片：label 只做定位和点击热区，不再画底托。
+     复选框自己是 18px 方块 + 边框，再套一圈 28px 的描边圆等于两层壳，
+     视觉上像「圈里有个方块」，很脏。 */
   .gallery-card-checkbox {
-    @apply relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 shadow-sm dark:border-white/10 dark:bg-slate-950;
+    @apply relative z-20 flex shrink-0 items-center justify-center;
+    width: 28px;
+    height: 28px;
   }
 
-  .gallery-card-checkbox input {
-    @apply h-4 w-4 cursor-pointer rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600 dark:bg-gray-800;
+  /* 网格视图：浮在缩略图左上角，给个浅底保证在任意图片上都看得清 */
+  .gallery-card-grid .gallery-card-checkbox {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background-color: rgb(255 255 255 / 0.86);
+    backdrop-filter: blur(2px);
+  }
+
+  .dark .gallery-card-grid .gallery-card-checkbox {
+    background-color: rgb(2 6 23 / 0.72);
+  }
+
+  /* 全选栏：跟卡片用同一套复选框，只是小一号 */
+  .gallery-select-all {
+    @apply inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600 dark:text-slate-300;
+  }
+
+  .gallery-select-all .app-checkbox {
+    width: 16px;
+    height: 16px;
+    background-size: 11px 11px;
   }
 
   .gallery-image-info-compact {

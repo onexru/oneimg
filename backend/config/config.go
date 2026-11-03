@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -54,6 +55,17 @@ type Config struct {
 
 	// 配置加密
 	ConfigSecret string
+
+	// 反向代理信任列表（IP/CIDR）。
+	//
+	// 语义是「安全默认」：留空 = 不信任任何代理，客户端 IP 一律取 TCP 连接的对端
+	// 地址，任何 X-Forwarded-For / X-Real-IP 都被忽略。只有把反代的出口地址
+	// 显式列进来，才会采信这些头。
+	//
+	// 反代部署时list为空会导致所有访客被当成同一个 IP（反代自己），
+	// 30 次/分钟的全站预算被共享 —— 一个访客刷满，全站都登不进来。
+	// 详见 routes.trustedProxies。
+	TrustedProxies []string
 }
 
 // 全局配置实例
@@ -323,9 +335,47 @@ func NewConfig() {
 		DbConnMaxLifetime: positiveEnvDuration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
 		DbConnMaxIdleTime: positiveEnvDuration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
 		UploadRoot:        getEnv("UPLOAD_ROOT", "./uploads"),
+		TrustedProxies:    parseTrustedProxies(getEnv("TRUSTED_PROXIES", "")),
 	}
 
 	log.Println("✅ 配置初始化完成")
+}
+
+// parseTrustedProxies 解析 TRUSTED_PROXIES（逗号分隔的 IP / CIDR）。
+//
+// 安全默认：**任何无法确认是合法 IP 或 CIDR 的条目都会拒绝启动**，而不是
+// 悄悄跳过 —— 否则写错一个字符，应用会以「不信任任何代理」的姿态启动，
+// 表面上一切正常，实际所有访客共用一个 IP 预算，反代部署下 30 次/分钟是
+// 全站共享（一个访客刷满就全站登录 429）。
+//
+// 空值/纯空白返回 nil，表示不信任任何代理（直连部署的正确配置）。
+func parseTrustedProxies(raw string) []string {
+	var out []string
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if !proxyEntryValid(entry) {
+			log.Fatalf("TRUSTED_PROXIES 条目无效: %q（应为 IP 或 CIDR，多个用英文逗号分隔）", entry)
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// proxyEntryValid 判断单个条目是否是合法的 IP 或 CIDR。
+// 抽成独立函数是为了让测试能直接断言判据，而不必杀进程验证 log.Fatalf。
+func proxyEntryValid(entry string) bool {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return false
+	}
+	if net.ParseIP(entry) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(entry)
+	return err == nil
 }
 
 // normalizeTLSMode 规范化 DB_TLS_MODE，接受 libpq 风格别名；未知取值拒绝启动。

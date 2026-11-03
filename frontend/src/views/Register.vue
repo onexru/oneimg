@@ -1,8 +1,11 @@
 <template>
-    <div class="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
+    <!-- 撑满 main 的剩余高度，而不是用 100vh 去减一串估算值。
+         顶栏、页脚、main 的内边距都会随断点变化，任何一处估错就会凭空多出滚动条；
+         main 本身是 flex 容器，这里只要 flex-1 就能拿到准确的可视高度。 -->
+    <div class="flex min-h-0 flex-1 items-center justify-center p-4">
         <!-- 全局加载遮罩 -->
         <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px] lg:ml-[255px]">
+            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-[450px] w-full m-[15px]">
                 <!-- 加载动画 -->
                 <div class="loading-spinner w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
                 <h3 class="loading-title text-lg font-bold text-center text-gray-800 dark:text-white mb-2">{{ loadingTitle }}</h3>
@@ -15,7 +18,7 @@
         </div>
 
         <!-- 注册卡片 -->
-        <div class="card glass-panel w-full max-w-md overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
+        <div class="card glass-panel w-full max-w-[450px] overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
             <div class="card-body p-6">
                 <div class="mb-8 text-center">
                     <div class="flex justify-end">
@@ -158,7 +161,7 @@ import { ref, computed, onMounted, onUnmounted, watch, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import message from '@/utils/message.js';
 import DialogShell from '@/components/DialogShell.vue';
-import { loadVerificationScript, mountLegacyPowWidget, effectiveVerificationMethod } from '@/utils/verification.js';
+import { loadVerificationScript, effectiveVerificationMethod } from '@/utils/verification.js';
 import { authErrorMessage } from '@/utils/authFeedback.js';
 
 const router = useRouter();
@@ -193,20 +196,15 @@ const retryVerification = () => {
     setTimeout(createVerificationWidget, 0);
 };
 const isPowReady = ref(false);
-let powCheckInterval = null;
 
 // 登录配置（复用登录接口的配置）
 const loginConfig = reactive({
-    pow_verify: false,
-    pow_local_fallback: false,
-    pow_script_url: '',
-    pow_widget_url: '',
     verify_method: 'none',
     turnstile_site_key: '',
     start_register: false
 });
 
-// 当前验证方式（兼容旧版 pow_verify；forcedVerifyMethod 用于 Turnstile 不可用时的本地回退）
+// 当前验证方式（forcedVerifyMethod 用于 Turnstile 不可用时的本地回退）
 const forcedVerifyMethod = ref('');
 const verifyMethod = () => forcedVerifyMethod.value || effectiveVerificationMethod(loginConfig);
 const needsVerification = () => verifyMethod() !== 'none';
@@ -366,21 +364,9 @@ const createVerificationWidget = () => {
         createTurnstileWidget(container);
     } else if (method === 'cappow') {
         createCappowWidget(container);
-    } else {
-        createOnlinePowWidget(container, run);
     }
 };
 
-// 在线 POW：公开配置指定脚本与 challenge 地址，服务端 verifier 地址仍独立。
-const createOnlinePowWidget = (container, run) => {
-    const isCurrent = () => showModal.value && run === verificationRun && verifyMethod() === 'pow' && !verificationError.value;
-    mountLegacyPowWidget(container, loginConfig, {
-        isCurrent,
-        onReady: handlePowLoaded,
-        onSolve: handlePowSuccess,
-        onError: verificationFailed,
-    }).catch(error => { if (isCurrent()) verificationFailed(error); });
-};
 // Cloudflare Turnstile
 const createTurnstileWidget = (container) => {
     window.__turnstileRegisterCallback = (token) => {
@@ -402,7 +388,6 @@ const createTurnstileWidget = (container) => {
             verificationFailed(new Error('验证组件未就绪，请重新加载'));
             return;
         }
-        clearInterval(powCheckInterval);
         window.turnstile.render(container, {
             sitekey,
             callback: window.__turnstileRegisterCallback,
@@ -444,7 +429,6 @@ const createCappowWidget = (container) => {
     });
 
     loadCapWidgetScript(() => {
-        clearInterval(powCheckInterval);
         clearTimeout(verificationTimer);
         isPowReady.value = true;
         clearLoadingState();
@@ -456,27 +440,6 @@ const loadCapWidgetScript = cb => {
     loadVerificationScript('cap-widget-script', '/cap/cap.min.js', () => !!customElements.get('cap-widget'))
         .then(() => { if (showModal.value) cb(); }).catch(verificationFailed);
 };
-// POW组件加载就绪处理
-const handlePowLoaded = () => {
-    clearInterval(powCheckInterval);
-    clearTimeout(verificationTimer);
-    isPowReady.value = true;
-    loadingProgress.value = 80;
-    clearLoadingState();
-    // DialogShell remains visible while loading or retrying.
-};
-
-// POW验证成功
-const handlePowSuccess = async (e) => {
-    closeModal();
-    const token = e.detail.token;
-    setLoadingState('验证通过', '正在提交注册请求...', 90);
-
-    setTimeout(() => {
-        putRegister({ powToken: token });
-    }, 500);
-};
-
 // cap-pow 验证成功
 const handleCapSolve = async (e) => {
     closeModal();
@@ -501,7 +464,6 @@ const closeModal = () => {
 
 // 清理验证组件和事件
 const cleanupVerificationEvent = () => {
-    clearInterval(powCheckInterval);
     const container = document.getElementById('verify-container');
     if (container) {
         container.innerHTML = '';
@@ -561,7 +523,7 @@ const putRegister = async (verify = {}) => {
                 usernameError.value = errMsg;
             } else if (errMsg.includes('密码')) {
                 passwordError.value = errMsg;
-            } else if (errMsg.includes('pow') || errMsg.includes('POW') || errMsg.includes('人机验证')) {
+            } else if (errMsg.includes('人机验证')) {
                 message.error(errMsg);
             } else if (errMsg.includes('未开放') || errMsg.includes('禁止')) {
                 message.error(errMsg);
@@ -579,7 +541,7 @@ const putRegister = async (verify = {}) => {
     }
 };
 
-// 获取登录配置（检查 pow_verify 和 start_register）
+// 获取登录配置（人机验证方式与注册开关）
 const getLoginSettings = async () => {
     try {
         const response = await fetch('/api/settings/login', {
@@ -590,11 +552,7 @@ const getLoginSettings = async () => {
         });
         const result = await response.json();
         if (response.ok && result.code === 200) {
-            loginConfig.pow_verify = result.data.pow_verify || false;
-            loginConfig.pow_local_fallback = result.data.pow_local_fallback === true;
-            loginConfig.pow_script_url = result.data.pow_script_url ?? '';
-            loginConfig.pow_widget_url = result.data.pow_widget_url ?? '';
-            loginConfig.verify_method = result.data.verify_method || (result.data.pow_verify ? 'pow' : 'none');
+            loginConfig.verify_method = effectiveVerificationMethod(result.data);
             loginConfig.turnstile_site_key = result.data.turnstile_site_key || '';
             loginConfig.start_register = result.data.start_register || false;
         }

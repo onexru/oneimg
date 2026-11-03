@@ -18,6 +18,10 @@ type User struct {
 	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	AuthVersion uint64 `json:"-" gorm:"not null;default:0"`
+	// QuotaBytes 是单个账号的上传配额（字节）。nil 表示「未设置」，
+	// 此时跟随 settings.default_user_quota；指针而非 0 哨兵，是为了能
+	// 表达「显式设为 0 = 不限」这个与「未设置」完全不同的语义。
+	QuotaBytes *int64 `json:"quota_bytes" gorm:"column:quota_bytes;default:null"`
 }
 
 // 角色与超级管理员约定。

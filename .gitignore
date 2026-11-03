@@ -34,3 +34,8 @@ __pycache__/
 /rg.json
 /evil.svg
 /tiny.png
+
+# Agent session folders and local test scripts (v4.0.0)
+.workbuddy/
+.hs/
+*.session

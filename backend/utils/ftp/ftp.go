@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/jlaffaye/ftp"
+
+	"oneimg/backend/utils/safefetch"
 )
 
 // FTPConfig FTP 配置结构体
@@ -66,9 +69,19 @@ func (f *FTPUtil) GetClient() (*ftp.ServerConn, error) {
 	defer cancel()
 
 	// 组合配置项：上下文 + 超时
+	//
+	// 用自定义 Dialer 挂 safefetch.DialControl：控制器层已经做过一次
+	// 解析期校验，但域名可以在两次解析之间改指向（DNS rebinding）——
+	// 第一次解析到公网通过校验、真正 dial 时却连到 127.0.0.1。
+	// Control 拿到的是即将拨号的 IP，在这里再拦一次才能封死这条路径。
+	dialer := &net.Dialer{
+		Timeout: time.Duration(f.config.Timeout) * time.Second,
+		Control: safefetch.DialControl,
+	}
 	conn, err := ftp.Dial(addr,
 		ftp.DialWithContext(ctx),
 		ftp.DialWithTimeout(time.Duration(f.config.Timeout)*time.Second),
+		ftp.DialWithDialer(*dialer),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("FTP连接失败: %w", err)

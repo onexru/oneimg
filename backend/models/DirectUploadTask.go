@@ -2,8 +2,9 @@ package models
 
 import "time"
 
-// DirectUploadSettings intentionally contains only image-processing options.
-// Never persist Settings, credentials, signed URLs, or arbitrary bucket config here.
+// DirectUploadSettings intentionally contains only image-processing and naming
+// options. Never persist Settings, credentials, signed URLs, or arbitrary bucket
+// config here.
 type DirectUploadSettings struct {
 	CompressImage    bool
 	SaveWebp         bool
@@ -15,6 +16,12 @@ type DirectUploadSettings struct {
 	WatermarkSize    int
 	WatermarkColor   string
 	WatermarkOpac    float64
+	// Naming options are snapshotted so a direct upload keeps the name and path
+	// the admin had configured when the task was created, and so the final key
+	// can be decided before the object is written.
+	SaveOriginalName bool
+	FileName         string
+	DefaultPath      string
 }
 
 // DirectUploadTask is both the durable queue and the quota reservation ledger.

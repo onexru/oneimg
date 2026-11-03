@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"oneimg/backend/utils/safefetch"
 )
 
 type Config struct {
@@ -47,6 +50,15 @@ func (c *WebDAVClient) httpClient() *http.Client {
 		Timeout: c.config.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
+		},
+		// 连接期再校验一次目标 IP。
+		// 控制器层已做过解析期校验，但 DNS rebinding 可以让域名在两次解析
+		// 之间改指向内网；Control 拿到的是即将拨号的 IP，是最后一道闸。
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: c.config.Timeout,
+				Control: safefetch.DialControl,
+			}).DialContext,
 		},
 	}
 }

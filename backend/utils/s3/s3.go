@@ -2,11 +2,15 @@ package s3
 
 import (
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"oneimg/backend/models"
 	utilsBuckets "oneimg/backend/utils/buckets"
+	"oneimg/backend/utils/safefetch"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -85,6 +89,15 @@ func NewS3Client(setting models.Settings, buckets models.Buckets) (*minio.Client
 		Secure:       useSSL,
 		Region:       region,
 		BucketLookup: lookup,
+		// 连接期再校验目标 IP：控制器层已做解析期校验，但 DNS rebinding
+		// 可以让域名在两次解析之间改指向内网。Control 拿到的是即将拨号的 IP。
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: 30 * time.Second,
+				Control: safefetch.DialControl,
+			}).DialContext,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
 	})
 
 	if err != nil {

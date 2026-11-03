@@ -32,7 +32,7 @@ defineEmits(['open', 'edit', 'delete']);
 .folder-action { width:2.25rem; height:2.25rem; border-radius:.4rem; }
 .folder-action:hover { background:rgb(148 163 184 / .15); }
 .folder-action:disabled { opacity:.4; cursor:not-allowed; }
-button:focus-visible { outline:2px solid #3b82f6; outline-offset:-2px; }
+button:focus-visible { outline:none; box-shadow:0 0 0 2px rgb(37 99 235 / .45); }
 .folder-grid { border:1px solid rgb(226 232 240 / .7); border-radius:.75rem; flex-wrap:wrap; }
 .folder-grid .folder-open { flex-basis:100%; }
 .folder-grid .folder-actions { margin-left:auto; padding-bottom:.35rem; }

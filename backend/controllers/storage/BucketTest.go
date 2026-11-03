@@ -1,0 +1,529 @@
+package storage
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
+	"gorm.io/gorm"
+
+	"oneimg/backend/database"
+	"oneimg/backend/middlewares"
+	"oneimg/backend/models"
+	utilsBuckets "oneimg/backend/utils/buckets"
+	ftpclient "oneimg/backend/utils/ftp"
+	"oneimg/backend/utils/result"
+	s3client "oneimg/backend/utils/s3"
+	"oneimg/backend/utils/safefetch"
+	"oneimg/backend/utils/secureconfig"
+	webdavclient "oneimg/backend/utils/webdav"
+)
+
+const bucketConnectionTestTimeout = 25 * time.Second
+
+var bucketConnectionTestSlots = make(chan struct{}, 4)
+
+var bucketConfigKeys = map[string][]string{
+	"s3":       {"s3_endpoint", "s3_access_key", "s3_secret_key", "s3_bucket"},
+	"r2":       {"r2_endpoint", "r2_access_key", "r2_secret_key", "r2_bucket", "r2_cdn_domain", "r2_cdn_mode"},
+	"ftp":      {"ftp_host", "ftp_port", "ftp_user", "ftp_pass"},
+	"webdav":   {"webdav_url", "webdav_user", "webdav_pass"},
+	"telegram": {"tg_bot_token", "tg_receivers"},
+	"default":  {"storagePath"},
+}
+
+// TestBucketConnection 使用未保存的表单配置或已存储的存储桶配置执行连接测试。
+func TestBucketConnection(c *gin.Context) {
+	select {
+	case bucketConnectionTestSlots <- struct{}{}:
+		defer func() { <-bucketConnectionTestSlots }()
+	default:
+		c.JSON(http.StatusTooManyRequests, result.Error(429, "当前测试任务较多，请稍后重试"))
+		return
+	}
+
+	var params map[string]any
+	decoder := json.NewDecoder(io.LimitReader(c.Request.Body, 1<<20))
+	if err := decoder.Decode(&params); err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, "请求参数无效"))
+		return
+	}
+
+	// 测试「已保存的存储桶」需要 storage:update，而不是 storage:create。
+	// 路由上挂的是 AnyPermission(create, update)，那只够新建表单的连通性预检；
+	// 一旦 id>0，测试就会用到库内已存的地址与口令，属于对现有配置的操作，
+	// 必须与「改这个桶」同权限。否则只持有创建权限的账号可以借测试接口
+	// 探测/使用他人的远程存储。
+	if bucketID, err := bucketTestID(params["id"]); err == nil && bucketID > 0 {
+		if !canTestExistingBucket(c) {
+			c.JSON(http.StatusForbidden, result.Error(403, "测试已保存的存储需要权限: "+models.GetPermissionName("storage:update")))
+			return
+		}
+	}
+
+	bucket, err := buildBucketConnectionCandidate(params)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, result.Error(status, err.Error()))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), bucketConnectionTestTimeout)
+	defer cancel()
+	detail, err := testBucketConnection(ctx, bucket)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, result.Error(502, "连接测试失败："+sanitizeBucketTestError(err, bucket.Config)))
+		return
+	}
+
+	c.JSON(http.StatusOK, result.Success("连接测试成功", gin.H{
+		"type":   bucket.Type,
+		"detail": detail,
+	}))
+}
+
+// bucketEndpointKeys 决定「连到哪个地址」的字段。
+//
+// 已有存储桶做连接测试时，这些字段一律取库内值、忽略请求体。原因：
+// 测试会带着库里**解密后的口令**向该地址发起真实连接（WebDAV 用 BasicAuth 发
+// Username/Password，FTP 发 USER/PASS）。若允许请求覆盖端点，持有
+// storage:create 的账号就能枚举 id（/api/buckets 对任意登录用户开放，只返回
+// id/name/type），把 webdav_url 改成自己的服务器，从而白拿到库内全部远程存储口令。
+var bucketEndpointKeys = map[string]map[string]struct{}{
+	"s3":       {"s3_endpoint": {}},
+	"r2":       {"r2_endpoint": {}},
+	"webdav":   {"webdav_url": {}},
+	"ftp":      {"ftp_host": {}, "ftp_port": {}},
+	"telegram": {}, // 端点由 TG API 固定，无从覆盖
+	"default":  {"storagePath": {}},
+}
+
+// canTestExistingBucket 判断当前用户能否测试「已保存的」存储桶。
+// 超管天然可以；其余用户必须有 storage:update（与「改这个桶」同权）。
+func canTestExistingBucket(c *gin.Context) bool {
+	user, ok := middlewares.GetCurrentUser(c)
+	if !ok {
+		return false
+	}
+	if user.ID == models.SuperAdminID {
+		return true
+	}
+	return user.Permission.HasPermission("storage:update")
+}
+
+// buildBucketConnectionCandidate 组装待测试的存储配置。
+//
+// existingID > 0 时走「已保存桶」分支：配置完全取自数据库，请求体只作为
+// 非端点字段的补充，端点字段强制沿用库内值。这样连接测试无法被用作
+// 「用库内口令连到攻击者地址」的跳板。
+func buildBucketConnectionCandidate(params map[string]any) (models.Buckets, error) {
+	var existing models.Buckets
+	bucketID, err := bucketTestID(params["id"])
+	if err != nil {
+		return existing, err
+	}
+	if bucketID > 0 {
+		db := database.GetDB()
+		if db == nil {
+			return existing, errors.New("数据库未初始化")
+		}
+		if err := db.DB.First(&existing, bucketID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return existing, fmt.Errorf("存储桶不存在: %w", err)
+			}
+			return existing, fmt.Errorf("读取存储桶失败: %w", err)
+		}
+	}
+
+	bucketType := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", params["type"])))
+	if bucketType == "<nil>" {
+		bucketType = ""
+	}
+	if bucketType == "" {
+		bucketType = existing.Type
+	}
+	if _, ok := bucketConfigKeys[bucketType]; !ok {
+		return existing, errors.New("不支持的存储类型")
+	}
+	if existing.Id > 0 && existing.Type != bucketType {
+		return existing, errors.New("已存储的存储桶类型不能修改")
+	}
+
+	incoming, err := extractBucketTestConfig(params, bucketType, existing.Id == 0)
+	if err != nil {
+		return existing, err
+	}
+	config := incoming
+	if existing.Id > 0 {
+		// 端点字段一律不接受请求体覆盖，只保留库内值。
+		if endpoints, ok := bucketEndpointKeys[bucketType]; ok {
+			for key := range endpoints {
+				delete(incoming, key)
+			}
+		}
+		config, err = mergeBucketConfig(existing.Config, incoming)
+		if err != nil {
+			return existing, errors.New("解密已有存储配置失败")
+		}
+	}
+	if err := validateBucketTestConfig(bucketType, config); err != nil {
+		return existing, err
+	}
+	// 出站前拦内网地址：连接测试会用库内凭据真实连过去（WebDAV 发 BasicAuth、
+	// FTP 发 USER/PASS），且会写入测试文件。地址可指向 127.0.0.1 / 10.x /
+	// 169.254.169.254 时，既是内网探测面，也是往内网存储写文件的手段。
+	if err := validateStorageEndpoint(bucketType, config); err != nil {
+		return existing, err
+	}
+
+	return models.Buckets{
+		Id:     existing.Id,
+		Name:   existing.Name,
+		Type:   bucketType,
+		Config: config,
+	}, nil
+}
+
+func bucketTestID(value any) (int, error) {
+	if value == nil {
+		return 0, nil
+	}
+	switch typed := value.(type) {
+	case float64:
+		if typed < 0 || typed != float64(int(typed)) {
+			return 0, errors.New("存储桶 ID 无效")
+		}
+		return int(typed), nil
+	case int:
+		if typed < 0 {
+			return 0, errors.New("存储桶 ID 无效")
+		}
+		return typed, nil
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return 0, nil
+		}
+		parsed, err := strconv.Atoi(typed)
+		if err != nil || parsed < 0 {
+			return 0, errors.New("存储桶 ID 无效")
+		}
+		return parsed, nil
+	default:
+		return 0, errors.New("存储桶 ID 无效")
+	}
+}
+
+func extractBucketTestConfig(params map[string]any, bucketType string, isNew bool) (map[string]any, error) {
+	config := make(map[string]any)
+	for _, key := range bucketConfigKeys[bucketType] {
+		value, exists := params[key]
+		if !exists {
+			continue
+		}
+		if key == "ftp_port" {
+			port, err := bucketTestPort(value)
+			if err != nil {
+				return nil, err
+			}
+			config[key] = port
+			continue
+		}
+		config[key] = value
+	}
+	if bucketType == "ftp" && isNew {
+		if _, ok := config["ftp_port"]; !ok {
+			config["ftp_port"] = 21
+		}
+	}
+	return config, nil
+}
+
+func bucketTestPort(value any) (int, error) {
+	var port int
+	switch typed := value.(type) {
+	case float64:
+		if typed != float64(int(typed)) {
+			return 0, errors.New("FTP 端口必须是整数")
+		}
+		port = int(typed)
+	case int:
+		port = typed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return 0, errors.New("FTP 端口不能为空")
+		}
+		parsed, err := strconv.Atoi(typed)
+		if err != nil {
+			return 0, errors.New("FTP 端口无效")
+		}
+		port = parsed
+	default:
+		return 0, errors.New("FTP 端口无效")
+	}
+	if port < 1 || port > 65535 {
+		return 0, errors.New("FTP 端口必须在 1-65535 之间")
+	}
+	return port, nil
+}
+
+func validateBucketTestConfig(bucketType string, config map[string]any) error {
+	if bucketType == "default" {
+		return nil
+	}
+	for _, key := range bucketConfigKeys[bucketType] {
+		if key == "r2_cdn_domain" || key == "r2_cdn_mode" {
+			continue
+		}
+		if key == "ftp_port" {
+			if secureconfig.GetInt(config, key) < 1 {
+				return errors.New("ftp_port 为必填项")
+			}
+			continue
+		}
+		if strings.TrimSpace(secureconfig.GetString(config, key)) == "" {
+			return fmt.Errorf("%s 为必填项", key)
+		}
+	}
+	if bucketType == "r2" {
+		if _, _, err := utilsBuckets.R2CDNConfig(config); err != nil {
+			return err
+		}
+	}
+	return validateStorageProvider(bucketType, config)
+}
+
+func testBucketConnection(ctx context.Context, bucket models.Buckets) (string, error) {
+	switch bucket.Type {
+	case "default":
+		return testLocalStorage()
+	case "s3", "r2":
+		return testS3CompatibleStorage(ctx, bucket)
+	case "ftp":
+		return testFTPStorage(bucket)
+	case "webdav":
+		return testWebDAVStorage(ctx, bucket)
+	case "telegram":
+		return testTelegramStorage(ctx, bucket)
+	default:
+		return "", errors.New("不支持的存储类型")
+	}
+}
+
+func testLocalStorage() (string, error) {
+	file, err := os.CreateTemp(".", ".oneimg-storage-test-*")
+	if err != nil {
+		return "", fmt.Errorf("本地目录不可写: %w", err)
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if _, err := file.WriteString("oneimg storage connection test"); err != nil {
+		file.Close()
+		return "", fmt.Errorf("本地文件写入失败: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("本地文件关闭失败: %w", err)
+	}
+	if err := os.Remove(name); err != nil {
+		return "", fmt.Errorf("本地测试文件清理失败: %w", err)
+	}
+	return "本地目录可读写", nil
+}
+
+func testS3CompatibleStorage(ctx context.Context, bucket models.Buckets) (detail string, resultErr error) {
+	client, err := s3client.NewS3Client(models.Settings{}, bucket)
+	if err != nil {
+		return "", err
+	}
+	bucketName := ""
+	if bucket.Type == "s3" {
+		bucketName = utilsBuckets.ConvertToS3Bucket(bucket.Config).S3Bucket
+	} else {
+		bucketName = utilsBuckets.ConvertToR2Bucket(bucket.Config).R2Bucket
+	}
+	key := ".oneimg-connection-test/" + uuid.NewString() + ".txt"
+	content := []byte("oneimg storage connection test " + uuid.NewString())
+	if _, err := client.PutObject(ctx, bucketName, key, bytes.NewReader(content), int64(len(content)), minio.PutObjectOptions{}); err != nil {
+		return "", fmt.Errorf("测试对象写入失败: %s", translateS3Error(err))
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.RemoveObject(cleanupCtx, bucketName, key, minio.RemoveObjectOptions{}); err != nil {
+			resultErr = errors.Join(resultErr, errors.New("测试对象清理失败，请检查存储删除权限"))
+		}
+	}()
+	if bucket.Type == "r2" {
+		domain, mode, err := utilsBuckets.R2CDNConfig(bucket.Config)
+		if err != nil {
+			return "", err
+		}
+		if domain != "" {
+			target, err := utilsBuckets.R2CDNObjectURL(domain, key)
+			if mode == utilsBuckets.R2CDNSignedProxy {
+				signed, signErr := client.PresignedGetObject(ctx, bucketName, key, time.Minute, nil)
+				if signErr != nil {
+					return "", errors.New("CDN 测试签名生成失败")
+				}
+				target, err = utilsBuckets.R2CDNSignedURL(domain, signed)
+			}
+			if err != nil {
+				return "", err
+			}
+			response, err := safefetch.GetNoRedirect(ctx, target, 10*time.Second)
+			if err != nil {
+				return "", errors.New("存储可写，但 CDN 访问失败，请检查域名、证书及回源配置")
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				return "", fmt.Errorf("存储可写，但 CDN 返回 HTTP %d，请检查访问方式和回源配置", response.StatusCode)
+			}
+			body, err := safefetch.ReadLimited(response.Body, 4096)
+			if err != nil || !bytes.Equal(body, content) {
+				return "", errors.New("CDN 返回的内容与测试对象不一致，请检查路径前缀及回源桶")
+			}
+			return "已验证对象写入、CDN 读取与删除权限", nil
+		}
+	}
+	return "已验证对象写入与删除权限", nil
+}
+
+func testFTPStorage(bucket models.Buckets) (string, error) {
+	config := utilsBuckets.ConvertToFTPBucket(bucket.Config)
+	client := ftpclient.NewFTPUtil(ftpclient.FTPConfig{
+		Host: config.FTPHost, Port: config.FTPPort, User: config.FTPUser, Password: config.FTPPass, Timeout: 8,
+	})
+	defer client.Close()
+	remotePath := ".oneimg-connection-test-" + uuid.NewString() + ".txt"
+	if err := client.UploadImage(remotePath, []byte("oneimg storage connection test"), "text/plain"); err != nil {
+		return "", err
+	}
+	if err := client.DeleteImage(remotePath); err != nil {
+		return "", fmt.Errorf("写入成功，但测试文件清理失败: %w", err)
+	}
+	return "已验证 FTP 登录、写入与删除权限", nil
+}
+
+func testWebDAVStorage(ctx context.Context, bucket models.Buckets) (string, error) {
+	config := utilsBuckets.ConvertToWebDavBucket(bucket.Config)
+	client := webdavclient.Client(webdavclient.Config{
+		BaseURL: config.WebdavURL, Username: config.WebdavUser, Password: config.WebdavPass, Timeout: 15 * time.Second,
+	})
+	remotePath := ".oneimg-connection-test-" + uuid.NewString() + ".txt"
+	if err := client.WebDAVUpload(ctx, remotePath, strings.NewReader("oneimg storage connection test")); err != nil {
+		return "", err
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.WebDAVDelete(cleanupCtx, remotePath); err != nil {
+		return "", fmt.Errorf("写入成功，但测试文件清理失败: %w", err)
+	}
+	return "已验证 WebDAV 认证、写入与删除权限", nil
+}
+
+func testTelegramStorage(ctx context.Context, bucket models.Buckets) (string, error) {
+	config := utilsBuckets.ConvertToTelegramBucket(bucket.Config)
+	if err := callTelegramTestAPI(ctx, config.TGBotToken, "getMe", nil); err != nil {
+		return "", fmt.Errorf("Bot Token 校验失败: %w", err)
+	}
+	if err := callTelegramTestAPI(ctx, config.TGBotToken, "getChat", map[string]string{"chat_id": config.TGReceivers}); err != nil {
+		return "", fmt.Errorf("Chat ID 校验失败: %w", err)
+	}
+	return "已验证 Bot Token 与 Chat ID 访问权限（未发送消息）", nil
+}
+
+func callTelegramTestAPI(ctx context.Context, token, method string, payload any) error {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/"+method, body)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := (&http.Client{Timeout: 12 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var apiResponse struct {
+		OK          bool   `json:"ok"`
+		ErrorCode   int    `json:"error_code"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&apiResponse); err != nil {
+		return fmt.Errorf("Telegram API 响应无效（HTTP %d）", response.StatusCode)
+	}
+	if response.StatusCode != http.StatusOK || !apiResponse.OK {
+		return fmt.Errorf("Telegram API 错误 [%d]: %s", apiResponse.ErrorCode, apiResponse.Description)
+	}
+	return nil
+}
+
+func sanitizeBucketTestError(err error, config map[string]any) string {
+	message := err.Error()
+	for key, value := range config {
+		if !secureconfig.IsBucketSensitiveKey(key) {
+			continue
+		}
+		secret := strings.TrimSpace(fmt.Sprintf("%v", value))
+		if len(secret) >= 3 {
+			message = strings.ReplaceAll(message, secret, "***")
+		}
+	}
+	runes := []rune(message)
+	if len(runes) > 500 {
+		message = string(runes[:500]) + "..."
+	}
+	return message
+}
+
+func translateS3Error(err error) string {
+	var minioErr minio.ErrorResponse
+	if errors.As(err, &minioErr) {
+		switch minioErr.StatusCode {
+		case 401:
+			return "认证失败：Access Key 或 Secret Key 错误"
+		case 403:
+			if strings.Contains(minioErr.Code, "AccessDenied") {
+				return "权限不足：该密钥没有读写此存储桶的权限"
+			}
+			return "认证失败：密钥错误或签名不匹配"
+		case 400:
+			if strings.Contains(minioErr.Code, "InvalidAccessKeyId") {
+				return "认证失败：Access Key ID 无效"
+			}
+			return fmt.Sprintf("请求错误(400): %s", minioErr.Message)
+		case 404:
+			if minioErr.Code == "NoSuchBucket" {
+				return "存储桶不存在，请检查名称拼写或区域是否正确"
+			}
+			return "网络错误：找不到指定的存储节点"
+		case 502, 503, 504:
+			return "存储服务网络异常或超时，请检查 Endpoint 地址是否可达"
+		}
+		// 如果有具体的错误码，一并返回
+		if minioErr.Code != "" {
+			return fmt.Sprintf("%s (错误码: %s)", minioErr.Message, minioErr.Code)
+		}
+	}
+	return err.Error()
+}

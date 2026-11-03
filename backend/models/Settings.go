@@ -12,14 +12,17 @@ type Settings struct {
 	SaveWebp                bool   `gorm:"column:save_webp;default:true" json:"save_webp"`            // 是否保存webp格式（默认保存）
 	Thumbnail               bool   `gorm:"column:thumbnail;default:true" json:"thumbnail"`            // 是否生成缩略图（默认生成）
 	Tourist                 bool   `gorm:"column:tourist;default:false" json:"tourist"`               // 是否允许游客上传（默认允许）
-	TGNotice                bool   `gorm:"column:tg_notice;default:false" json:"tg_notice"`           // 是否启用TG通知（默认关闭）
-	PowVerify               bool   `gorm:"column:pow_verify;default:false" json:"pow_verify"`         // 是否启用POW验证（默认关闭，旧版开关，兼容用）
-	PowVerifyURL            string `gorm:"column:pow_verify_url;default:'https://cha.eta.im/api/validate'" json:"pow_verify_url"`
-	PowScriptURL            string `gorm:"column:pow_script_url;default:'https://cha.eta.im/static/js/pow.min.js'" json:"pow_script_url"`
-	PowWidgetURL            string `gorm:"column:pow_widget_url;default:'https://cha.eta.im/'" json:"pow_widget_url"`
-	PowVerifyTimeoutSeconds int    `gorm:"column:pow_verify_timeout_seconds;default:5" json:"pow_verify_timeout_seconds"`
-	PowLocalFallback        bool   `gorm:"column:pow_local_fallback;default:false" json:"pow_local_fallback"`    // Explicitly use local cap-pow instead of the legacy provider.
-	VerifyMethod            string `gorm:"column:verify_method;default:''" json:"verify_method"`                 // 人机验证方式：''|none|pow|turnstile|cappow（空则按 pow_verify 兼容解析）
+	TGNotice                bool   `gorm:"column:tg_notice;default:false" json:"tg_notice"` // 是否启用TG通知（默认关闭）
+	// 以下 pow_* 字段为「在线 POW 验证」下线后的历史遗留列。
+	// 保留字段是为了不与既有数据库产生列差异（GORM 不会删列），
+	// 但它们既不返回前端、也不参与鉴权：所有读取路径已改为走 VerifyMethod。
+	PowVerify               bool   `gorm:"column:pow_verify;default:false" json:"-"`         // 已废弃：旧版 POW 开关
+	PowVerifyURL            string `gorm:"column:pow_verify_url;default:''" json:"-"`        // 已废弃：在线 POW 验证地址
+	PowScriptURL            string `gorm:"column:pow_script_url;default:''" json:"-"`        // 已废弃：在线 POW 脚本地址
+	PowWidgetURL            string `gorm:"column:pow_widget_url;default:''" json:"-"`        // 已废弃：在线 POW challenge 地址
+	PowVerifyTimeoutSeconds int    `gorm:"column:pow_verify_timeout_seconds;default:5" json:"-"` // 已废弃：在线 POW 超时
+	PowLocalFallback        bool   `gorm:"column:pow_local_fallback;default:false" json:"-"`  // 已废弃：在线 POW 本地回退开关
+	VerifyMethod            string `gorm:"column:verify_method;default:''" json:"verify_method"` // 人机验证方式：''|none|turnstile|cappow（空则视为 none）
 	TurnstileSiteKey        string `gorm:"column:turnstile_site_key;default:''" json:"turnstile_site_key"`       // Cloudflare Turnstile 站点公钥
 	TurnstileSecret         string `gorm:"column:turnstile_secret_key;default:''" json:"turnstile_secret_key"`   // Cloudflare Turnstile 密钥（敏感，加密存储）
 	CappowDifficulty        int    `gorm:"column:cappow_difficulty;default:4" json:"cappow_difficulty"`          // cap-pow 本地难度（目标 hex 前缀长度，1-8）
@@ -64,6 +67,12 @@ type Settings struct {
 	TagMaxLength     int    `gorm:"column:tag_max_length;default:10" json:"tag_max_length"`
 	RandomImageLimit int    `gorm:"column:random_image_limit;default:20" json:"random_image_limit"`
 	MaxFileSize      int    `gorm:"column:max_file_size;default:10485760" json:"max_file_size"` // 文件最大上传大小
+	// DefaultUserQuota 是单个账号的总上传配额（字节），0 表示不限。
+	//
+	// 只约束「按用户累计的已用空间」，与存储桶自身的 capacity 是两件事：
+	// 桶容量管物理后端，这个管账号额度。单个用户可在 users.quota_bytes 覆盖，
+	// 覆盖后完全以该值为准（不再与默认值取小）。
+	DefaultUserQuota int64 `gorm:"column:default_user_quota;default:10737418240" json:"default_user_quota"`
 	AllowedTypes     string `gorm:"column:allowed_types;default:'image/jpeg,image/png,image/gif,image/webp'" json:"allowed_types"`
 	DefaultPath      string `gorm:"column:default_path;default:'/uploads/{year}/{moon}'" json:"default_path"` // 默认上传路径，魔法变量 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {random} 随机 {uuid} UUID {role} 角色（1 为管理员, 2 为游客）
 	FileName         string `gorm:"column:file_name;default:'{random}'" json:"file_name"`                     // 上传文件名称，魔法变量 {random} 随机数 {year} 年 {month} 月 {day} 日 {hour} 小时 {minute} 分钟 {second} 秒
@@ -94,23 +103,51 @@ type Settings struct {
 }
 
 // 人机验证方式常量。
+// 人机验证方式。在线 POW 已下线，不再保留该取值。
 const (
 	VerifyMethodNone      = "none"
-	VerifyMethodPOW       = "pow"
 	VerifyMethodTurnstile = "turnstile"
 	VerifyMethodCappow    = "cappow"
 )
 
 // EffectiveVerifyMethod 返回实际生效的人机验证方式。
-// 新字段 verify_method 为空时，兼容旧版 pow_verify 开关。
+//
+// 只认 VerifyMethod 字段；旧库里可能残留 'pow'（在线 POW 已移除）或空串，
+// 这两种情况一律回落到 none —— 否则登录会卡在一个早已不存在的验证方式上。
+// 遇到这种情况建议管理员在后台重新选择一次验证方式。
+//
+// 注意：这里**不含** Turnstile 配置完整性回退，因为那需要运行时状态
+// （服务端是否观测到密钥错误）。需要最终生效方式时用
+// controllers.EffectiveVerifyMethod，它在本函数之上叠加了回退。
 func EffectiveVerifyMethod(s Settings) string {
-	if s.VerifyMethod != "" {
-		return s.VerifyMethod
+	switch s.VerifyMethod {
+	case VerifyMethodTurnstile:
+		return VerifyMethodTurnstile
+	case VerifyMethodCappow:
+		return VerifyMethodCappow
+	case VerifyMethodNone:
+		return VerifyMethodNone
+	default:
+		return VerifyMethodNone
 	}
-	if s.PowVerify {
-		return VerifyMethodPOW
-	}
-	return VerifyMethodNone
+}
+
+// ValidTurnstileSiteKey 宽松校验 Cloudflare Turnstile 站点公钥格式
+// （0x 前缀 + 足够长度）。只用于识别明显错误的占位/乱填公钥，
+// 阈值放宽以避免误判合法公钥。
+func ValidTurnstileSiteKey(k string) bool {
+	k = strings.TrimSpace(k)
+	return strings.HasPrefix(k, "0x") && len(k) >= 16
+}
+
+// TurnstileConfigComplete 判断 Turnstile 的静态配置是否齐全：
+// 公钥格式合法且密钥非空。这是「配置不完整就回退本地验证」的判据之一，
+// 不含运行时状态（密钥被 Cloudflare 判定无效由控制器另行标记）。
+//
+// 放在 models 而不是 controllers，是为了让 middlewares 也能复用 ——
+// CSP 需要知道实际生效的验证方式才能决定是否放行 'wasm-unsafe-eval'。
+func TurnstileConfigComplete(s Settings) bool {
+	return strings.TrimSpace(s.TurnstileSecret) != "" && ValidTurnstileSiteKey(s.TurnstileSiteKey)
 }
 
 // TableName 指定表名（避免GORM自动复数）

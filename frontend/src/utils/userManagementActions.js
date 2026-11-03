@@ -2,6 +2,7 @@ import { readApiResponse } from './apiFeedback.js';
 import { createDialogScope } from './dialogScope.js';
 import message from './message.js';
 import { escapeHtml } from './html.js';
+import { formatBytes, bytesToGb, gbToBytes } from './byteSize.js';
 const SuperAdminID = 1;
 const RoleAdmin = 1;
 const RoleUser = 3;
@@ -339,5 +340,129 @@ const resetPassword = async (user) => {
 }
 
 
-return { disposeDialogs, openCreateModal, openDeleteModal, openRoleModal, handleResetPassword };
+// 上传配额弹窗。
+//
+// 三种状态需要能区分，且必须能表达「回到跟随默认」：
+//   - 填数字 + 提交      → 设为该账号的绝对配额
+//   - 填 0 + 提交        → 不限
+//   - 勾「跟随系统默认」 → 清除个体配额（后端写 NULL）
+// 若只用输入框，用户无法表达第三种 —— 填什么都等于「设置」，删空又和 0 混淆。
+function openQuotaDialog(user, { defaultQuota, fetchUsers }) {
+  closeDropdown();
+  const current = user.quota || {};
+  const isCustom = Boolean(current.quota_custom);
+  const currentGb = current.quota_bytes > 0 ? bytesToGb(current.quota_bytes) : 0;
+  const defaultGb = defaultQuota > 0 ? bytesToGb(defaultQuota) : 0;
+  const defaultLabel = defaultQuota > 0 ? formatBytes(defaultQuota) : '不限';
+
+  const modal = new PopupModal({
+    title: '设置上传配额',
+    content: `
+      <div class="space-y-4">
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          用户 <strong class="text-slate-900 dark:text-white">${escapeHtml(user.username)}</strong>
+          已用 <strong class="text-slate-900 dark:text-white">${formatBytes(current.used_bytes)}</strong>
+        </p>
+
+        <label class="choice-card">
+          <input id="quota-follow-default" type="checkbox" class="checkbox-modern mt-0.5" ${isCustom ? '' : 'checked'} />
+          <span class="text-sm text-slate-700 dark:text-slate-200">
+            跟随系统默认配额
+            <span class="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">当前系统默认：${escapeHtml(defaultLabel)}</span>
+          </span>
+        </label>
+
+        <div id="quota-custom-fields" class="${isCustom ? '' : 'opacity-50'}">
+          <label class="field-label block mb-1.5" for="quota-gb">自定义配额</label>
+          <!-- 输入框收窄并带单位后缀：配额是个位数/两位数的 GB 值，
+               铺满 450px 会让「这里只需要填一个数字」的信号变弱。 -->
+          <div class="flex items-center gap-2">
+            <input
+              id="quota-gb"
+              type="number"
+              min="0"
+              step="0.01"
+              class="input-modern w-32 shrink-0 tabular-nums"
+              value="${currentGb}"
+              ${isCustom ? '' : 'disabled'}
+            />
+            <span class="text-sm text-slate-500 dark:text-slate-400">GB</span>
+            <span class="text-xs text-slate-400 dark:text-slate-500">0 表示不限</span>
+          </div>
+        </div>
+
+        <p id="quota-error" class="hidden text-xs text-red-600 dark:text-red-400"></p>
+      </div>
+    `,
+    buttons: [
+      { text: '取消', type: 'default', callback: (m) => m.close() },
+      {
+        text: '保存',
+        type: 'primary',
+        callback: async (m) => {
+          const follow = m.content.querySelector('#quota-follow-default');
+          const gbInput = m.content.querySelector('#quota-gb');
+          const errorEl = m.content.querySelector('#quota-error');
+          const showError = (text) => {
+            errorEl.textContent = text;
+            errorEl.classList.remove('hidden');
+          };
+          errorEl.classList.add('hidden');
+
+          // follow=true 时发送 null：后端据此写 NULL（清除个体配额）。
+          // 注意不能发送 undefined —— JSON.stringify 会直接丢掉该字段，
+          // 后端无法区分「显式清除」和「没传」。
+          let payload;
+          if (follow.checked) {
+            payload = { quota_bytes: null };
+          } else {
+            const raw = gbInput.value.trim();
+            if (raw === '') return showError('请填写配额，或勾选「跟随系统默认配额」');
+            const gb = Number(raw);
+            if (!Number.isFinite(gb) || gb < 0) return showError('配额必须是不小于 0 的数字');
+            payload = { quota_bytes: gbToBytes(gb) };
+          }
+
+          try {
+            const res = await fetch(`/api/users/quota/${user.id}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: JSON.stringify(payload),
+            });
+            const result = await readApiResponse(res, '保存配额失败');
+            if (res.ok && result.code === 200) {
+              message.success(result.message || '配额已更新');
+              m.close();
+              fetchUsers();
+            } else {
+              showError(result.message || '保存失败');
+            }
+          } catch (err) {
+            showError(err.message || '网络错误，请重试');
+          }
+        },
+      },
+    ],
+  });
+
+  // 勾选/取消勾选时切换输入框可用状态。
+  // 绑在 PopupModal 渲染完成后：content 里的元素在 open() 之前还不存在。
+  modal.open();
+  const follow = modal.content.querySelector('#quota-follow-default');
+  const fields = modal.content.querySelector('#quota-custom-fields');
+  const gbInput = modal.content.querySelector('#quota-gb');
+  if (follow && fields && gbInput) {
+    const sync = () => {
+      gbInput.disabled = follow.checked;
+      fields.classList.toggle('opacity-50', follow.checked);
+    };
+    follow.addEventListener('change', sync);
+    sync();
+  }
+}
+
+return { disposeDialogs, openCreateModal, openDeleteModal, openRoleModal, openQuotaDialog, handleResetPassword };
 }

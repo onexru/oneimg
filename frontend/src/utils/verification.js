@@ -1,33 +1,22 @@
-/** Compatibility defaults are shared by login and registration, never derived from the server verifier URL. */
-export const LEGACY_POW_SCRIPT_URL = 'https://cha.eta.im/static/js/pow.min.js';
-export const LEGACY_POW_WIDGET_URL = 'https://cha.eta.im/';
+/**
+ * 验证组件共用的脚本加载器。登录与注册共用，避免两处各写一份超时/重试逻辑。
+ *
+ * 注意：在线 POW（外部 pow-widget）已下线，这里只保留 Turnstile 与 cap-pow
+ * 需要的通用加载能力。服务端不再返回 pow_* 配置，因此前端也不再有
+ * 「按管理员配置切换外部验证提供方」的路径。
+ */
 
-function providerURL(value, fallback) {
-  if (value === undefined || value === null || value === '') return fallback;
-  if (typeof value !== 'string') throw new Error('在线 POW 提供方配置无效，请联系管理员');
-  const raw = value.trim();
-  if (!raw) return fallback;
-  if (raw.length > 2048 || !raw.startsWith('https://') || /[\s\\]/.test(raw)) {
-    throw new Error('在线 POW 提供方地址无效，请联系管理员');
-  }
-  let url;
-  try { url = new URL(raw); } catch { throw new Error('在线 POW 提供方地址无效，请联系管理员'); }
-  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || raw.includes('?') || raw.includes('#') || (url.port && url.port !== '443')) {
-    throw new Error('在线 POW 提供方必须使用无凭据、查询参数或片段的 HTTPS 地址，请联系管理员');
-  }
-  return url.href;
-}
+// 人机验证方式只有三种，与后端 models.VerifyMethod* 保持一致
+export const VERIFICATION_METHODS = Object.freeze(['none', 'turnstile', 'cappow']);
 
+/**
+ * 归一化服务端返回的验证方式。
+ * 旧库可能残留 'pow'（在线 POW 已移除）或空值，统一回落到 none ——
+ * 否则前端会去找一个早已不存在的 pow-widget，界面卡在「验证中」。
+ */
 export function effectiveVerificationMethod(config = {}) {
-  const method = config.verify_method || (config.pow_verify ? 'pow' : 'none');
-  return method === 'pow' && config.pow_local_fallback === true ? 'cappow' : method;
-}
-
-export function legacyPowProvider(config = {}) {
-  return {
-    scriptURL: providerURL(config.pow_script_url, LEGACY_POW_SCRIPT_URL),
-    widgetURL: providerURL(config.pow_widget_url, LEGACY_POW_WIDGET_URL),
-  };
+  const method = typeof config.verify_method === 'string' ? config.verify_method : '';
+  return VERIFICATION_METHODS.includes(method) ? method : 'none';
 }
 
 /** Bounded, URL-aware loading. Custom elements cannot be replaced safely in a live document. */
@@ -42,10 +31,6 @@ export function loadVerificationScript(id, src, ready, timeout = 12000) {
   }
   if (inFlight) return inFlight.promise;
   if (ready()) {
-    // Do not silently reuse another provider's already-registered pow-widget.
-    if (id === 'online-pow-script' && !previous && document.getElementById(id)?.src !== source) {
-      return Promise.reject(new Error('验证提供方已更改，请刷新页面后重试'));
-    }
     loadedSources.set(id, source);
     return Promise.resolve();
   }
@@ -70,23 +55,4 @@ export function loadVerificationScript(id, src, ready, timeout = 12000) {
   const tracked = promise.finally(() => pending.delete(id));
   pending.set(id, { source, promise: tracked });
   return tracked;
-}
-
-/** Mount only for the current dialog attempt; stale loads/events cannot submit authentication. */
-export async function mountLegacyPowWidget(container, config, { isCurrent, onReady, onSolve, onError }) {
-  const { scriptURL, widgetURL } = legacyPowProvider(config);
-  await loadVerificationScript('online-pow-script', scriptURL, () => !!customElements.get('pow-widget'));
-  if (!isCurrent() || !container.isConnected) return null;
-  const widget = document.createElement('pow-widget');
-  widget.id = 'pow';
-  widget.setAttribute('data-pow-api-endpoint', widgetURL);
-  const current = callback => event => {
-    if (isCurrent() && widget.isConnected) callback(event);
-  };
-  widget.addEventListener('load', current(onReady));
-  widget.addEventListener('ready', current(onReady));
-  widget.addEventListener('solve', current(onSolve));
-  widget.addEventListener('error', current(() => onError(new Error('验证服务不可用，请重试'))));
-  container.appendChild(widget);
-  return widget;
 }

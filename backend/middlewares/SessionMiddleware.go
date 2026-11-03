@@ -116,6 +116,36 @@ func (s *DBSessionStore) Save(r *http.Request,w http.ResponseWriter,sess *gs.Ses
  http.SetCookie(w,gs.NewCookie(sess.Name(),encoded,sess.Options)); return nil
 }
 
+// staticAssetPrefixes 不会读写会话的路径前缀。
+//
+// 这些请求只是取构建产物/上传文件，与登录态无关；但它们同样经过全局
+// SessionMiddleware，而 store.Get 必然执行一次 auth_states 主键查询。
+// 于是每个静态请求都要打一次 DB —— 攻击者无需登录，用最廉价的静态请求
+// 就能把数据库 QPS 放大到与 HTTP QPS 同量级。
+// 这里直接跳过会话装载，让静态请求回到「纯文件读取」的成本。
+var staticAssetPrefixes = []string{
+	"/assets/",
+	"/cap/",
+	"/uploads/",
+	"/favicon.ico",
+	"/theme-init.js",
+}
+
+// isStaticAssetRequest 判断是否无需会话的静态请求。
+// 只对 GET/HEAD 生效：静态资源没有写方法，其它方法仍按原路径走完整校验。
+func isStaticAssetRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	path := r.URL.Path
+	for _, prefix := range staticAssetPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // Construct once during router setup, after database migrations, without a
 // process-global mutable store. Independent routers cannot overwrite each other.
 func SessionMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -126,6 +156,11 @@ func SessionMiddleware(cfg *config.Config) gin.HandlerFunc {
  store:=NewDBSessionStore(db.DB,cfg.SessionSecret,isHTTPS(cfg.AppURL))
  middleware:=sessions.Sessions(SessionCookie,store)
  return func(c *gin.Context) {
+  // 静态资源完全跳过会话中间件：既不做「探测 store.Get 可用性」，
+  // 也不调用 middleware(c)（后者最终会走到 DBSessionStore.New，
+  // 那里有一次 auth_states 主键查询 + 一次 auth_sessions 查询）。
+  // 这些处理函数只读文件，不读 session，跳过对行为无影响。
+  if isStaticAssetRequest(c.Request) { c.Next(); return }
   if _,err:=store.Get(c.Request,SessionCookie); err!=nil {
    c.AbortWithStatusJSON(503,AuthResponse{Code:503,Message:"会话服务暂不可用"}); return
   }

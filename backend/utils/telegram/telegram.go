@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -320,6 +321,31 @@ func (c *Config) SendMsg(msg Message, placeholderData PlaceholderData) error {
 	return fmt.Errorf("重试%d次后仍发送失败: %w", c.Retry, lastErr)
 }
 
+// redactRequestError 把出站请求错误转成可安全落日志的文案。
+//
+// client.Do 返回的 *url.Error 形如：
+//
+//	Post "https://api.telegram.org/bot<TOKEN>/sendMessage": dial tcp ...: i/o timeout
+//
+// 整串字符串里带着 Bot Token。上层（sendTGNotification）会 log.Println(err)，
+// 于是一旦 TG API 不可达 / DNS 故障，token 就落进日志文件；拿到日志的人
+// 可以完全冒充这个 Bot，若同一 token 还用于存储桶则连图片存储一并沦陷。
+//
+// 这里只保留「哪一步 + 哪类错误」，URL 与 token 一律不进错误文本。
+// 需要排查时看服务端日志里的这一步标签就够定位，不需要看到密钥。
+func redactRequestError(op string, err error) error {
+	var dnsErr *net.DNSError
+	var netErr net.Error
+	switch {
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return fmt.Errorf("%s超时，请检查网络或 Telegram API 可达性", op)
+	case errors.As(err, &dnsErr):
+		return fmt.Errorf("%s失败：域名解析失败", op)
+	default:
+		return fmt.Errorf("%s失败：网络请求未完成（详细信息已省略，避免泄露凭据）", op)
+	}
+}
+
 func (c *Config) sendRequest(apiURL string, msgBytes []byte) error {
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(msgBytes))
 	if err != nil {
@@ -330,7 +356,7 @@ func (c *Config) sendRequest(apiURL string, msgBytes []byte) error {
 	client := &http.Client{Timeout: c.Timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("发送请求失败: %w", err)
+		return redactRequestError("发送请求", err)
 	}
 	defer resp.Body.Close()
 
@@ -426,7 +452,7 @@ func (c *Config) uploadPhotoByBytesRequest(apiURL string, requestBody *bytes.Buf
 	client := &http.Client{Timeout: c.Timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("发送请求失败: %w", err)
+		return "", 0, redactRequestError("发送请求", err)
 	}
 	defer resp.Body.Close()
 
@@ -509,7 +535,7 @@ func (c *Config) uploadDocumentByBytesOnce(chatID string, data []byte, filename 
 	client := &http.Client{Timeout: c.Timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("发送请求失败: %w", err)
+		return "", 0, redactRequestError("发送请求", err)
 	}
 	defer resp.Body.Close()
 

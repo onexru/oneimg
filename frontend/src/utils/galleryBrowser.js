@@ -31,8 +31,14 @@ export function galleryImageParams({ management = false, authenticated = false, 
   }
   return params;
 }
+// 三种视图合法值：list / grid / masonry。未知值一律回退 list，
+// 避免旧版本存下的脏值让页面渲染出一个空容器。
+export const GALLERY_VIEW_MODES = ['list', 'grid', 'masonry'];
 export function galleryViewPreference(storage, management = false) {
-  try { return storage.getItem(`oneimg-gallery-view-${management ? 'all' : 'mine'}`) === 'grid' ? 'grid' : 'list'; }
+  try {
+    const saved = storage.getItem(`oneimg-gallery-view-${management ? 'all' : 'mine'}`);
+    return GALLERY_VIEW_MODES.includes(saved) ? saved : 'list';
+  }
   catch { return 'list'; }
 }
 export function galleryUploader(image) {

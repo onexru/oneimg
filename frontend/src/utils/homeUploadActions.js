@@ -3,7 +3,8 @@ import { fileValidationMessage } from './uploadValidation.js';
 import { uploadOutcome } from './batchResults.js';
 import { boundedPage, RECENT_IMAGE_LIMIT } from './renderBounds.js';
 import { xhrUpload, mergeImages, safeMessage } from './directUpload.js';
-export function createHomeUploadActions({ API_BASE_URL, isDragOver, isUploading, fileInput, resumeTask, handleResumeFile, clientUploadLimits, uploadConfig, storageConfigLoaded, directEnabled, startDirectFiles, legacyUploading, uploadingCount, uploadProgress, getUploadFolderId = () => 0, multiStorageSync, selectedBucket, recentImages, loadRecentImages, isDisposed, onSingleUpload = () => {} }) {
+import { compressImages, QUALITY_MAX } from './imageCompress.js';
+export function createHomeUploadActions({ API_BASE_URL, isDragOver, isUploading, fileInput, resumeTask, handleResumeFile, clientUploadLimits, uploadConfig, storageConfigLoaded, directEnabled, startDirectFiles, legacyUploading, uploadingCount, uploadProgress, getUploadFolderId = () => 0, multiStorageSync, selectedBucket, recentImages, loadRecentImages, isDisposed, onSingleUpload = () => {}, uploadQuality = { value: QUALITY_MAX }, onUploaded = async () => {} }) {
 let legacyController;
 const authHeaders = () => ({});
 const handleDragOver = () => {
@@ -118,6 +119,20 @@ const uploadFiles = async (files) => {
 
   files = validateFiles(files);
   if (!files.length) return;
+
+  // 质量档位在浏览器端生效：校验通过后、上传分流前统一压缩，
+  // 直传与普通上传两条路径都能吃到这个设置。
+  const quality = uploadQuality.value;
+  if (quality < QUALITY_MAX) {
+    isUploading.value = true;
+    try {
+      files = await compressImages(files, quality);
+    } finally {
+      isUploading.value = false;
+    }
+    if (isDisposed()) return;
+  }
+
   if (directEnabled()) { await startDirectFiles(files); return; }
   legacyUploading.value = true;
   legacyController = new AbortController();
@@ -141,6 +156,10 @@ const uploadFiles = async (files) => {
     if (isDisposed()) return;
     const outcome = uploadOutcome(result, files.length);
     recentImages.value = boundedPage(mergeImages(recentImages.value, outcome.images), RECENT_IMAGE_LIMIT);
+    // 上传成功后再补打标签：后端上传接口不接收 tag，只能走 /api/images/tags
+    if (!isDisposed() && outcome.images.length) {
+      try { await onUploaded(outcome.images); } catch { /* 打标失败不影响上传结果 */ }
+    }
     await loadRecentImages();
     if (outcome.failed) {
       const detail = outcome.errors.map(item => `${item.filename || item.file || '文件'}：${item.message || item.error || '上传失败'}`).join('；');

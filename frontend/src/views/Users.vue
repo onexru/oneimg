@@ -1,18 +1,17 @@
 <template>
   <div class="page-shell">
-    <section class="page-header mb-6">
-      <div>
-        <h1 class="page-title">用户管理</h1>
+    <section class="page-header">
+      <div class="page-actions">
+        <button class="primary-button" @click="openCreateModal">
+          <i class="ri-add-line"></i>
+          新增用户
+        </button>
       </div>
-      <button class="primary-button" @click="openCreateModal">
-        <i class="ri-add-line"></i>
-        新增用户
-      </button>
     </section>
 
 
     <!-- 工具栏 -->
-    <div class="toolbar-surface flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="surface surface-sunken flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="relative flex-1">
         <i class="ri-search-line absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"></i>
         <input
@@ -57,18 +56,18 @@
     </div>
 
     <!-- 加载骨架 -->
-    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mt-4">
-      <div v-for="i in 8" :key="i" class="section-card h-[190px] animate-pulse overflow-hidden">
+    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+      <div v-for="i in 8" :key="i" class="surface h-[190px] animate-pulse overflow-hidden">
         <div class="h-full bg-slate-200 dark:bg-slate-800 rounded-[16px]"></div>
       </div>
     </div>
 
-    <div v-else-if="loadError" class="section-card mt-4 p-5" role="alert">
+    <div v-else-if="loadError" class="surface p-5" role="alert">
       <p class="text-sm text-red-600">{{ loadError }}</p>
       <button class="soft-button mt-3" @click="fetchUsers">重试</button>
     </div>
     <!-- 空数据 -->
-    <div v-else-if="users.length === 0" class="section-card flex flex-col items-center justify-center py-20 text-center mt-4">
+    <div v-else-if="users.length === 0" class="surface flex flex-col items-center justify-center py-16 text-center">
       <div class="flex items-center justify-center size-16 rounded-full bg-slate-100 dark:bg-slate-800 mb-4">
         <i class="ri-user-line text-2xl text-slate-400 dark:text-slate-500"></i>
       </div>
@@ -79,8 +78,9 @@
     </div>
 
     <!-- 用户卡片列表 -->
-    <div v-else class="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-6">
-      <UserCard v-for="user in users" :key="user.id" v-bind="{ user, SuperAdminID, activeDropdown, getAvatarColor, getInitials, formatDate, closeDropdown, setDropdownRef, toggleDropdown, openRoleModal, openStorageDialog, openPermissionsDialog, handleResetPassword, openDeleteModal }" />
+    <!-- auto-fill：与存储管理同理，auto-fit 在只有一个用户时会把卡片拉成整行 -->
+    <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(min(400px,100%),1fr))] gap-6">
+      <UserCard v-for="user in users" :key="user.id" v-bind="{ user, SuperAdminID, activeDropdown, getAvatarColor, getInitials, formatDate, closeDropdown, setDropdownRef, toggleDropdown, openRoleModal, openStorageDialog, openPermissionsDialog, openQuotaDialog, handleResetPassword, openDeleteModal, canManageQuota }" />
     </div>
 
     <UserAccessDialog v-if="accessDialog" :key="`${accessDialog.user.id}-${accessDialog.mode}`" v-bind="accessDialog" @close="accessDialog = null" @saved="onAccessSaved" />
@@ -134,6 +134,10 @@ const users = ref([])
 const total = ref(0)
 const accessDialog = ref(null)
 const multiStorageSync = ref(false)
+// 系统默认配额（字节），随用户列表一起下发，用于配额弹窗里的「跟随默认」提示。
+const defaultUserQuota = ref(0)
+// 是否显示「上传配额」入口：超管或持任一 setting:* 权限码。
+const canManageQuota = ref(false)
 const totalPages = ref(0)
 const page = ref(1)
 const loading = ref(true)
@@ -251,6 +255,8 @@ async function fetchUsers() {
     if (res.ok && result.code === 200) {
       if (!Array.isArray(result.data?.list) || !Number.isSafeInteger(result.data.total) || typeof result.data.multi_storage_sync !== 'boolean') throw new Error('用户列表响应异常，请重试')
       multiStorageSync.value = result.data.multi_storage_sync
+      defaultUserQuota.value = Number(result.data.default_user_quota) || 0
+      canManageQuota.value = result.data.can_manage_quota === true
       users.value = result.data.list.slice(0, PAGE_LIMIT)
       total.value = result.data.total || 0
       totalPages.value = Math.ceil(total.value / PAGE_LIMIT) || 1
@@ -270,7 +276,12 @@ watch([page, debouncedSearch, roleFilter], () => {
   fetchUsers()
 })
 
-const { disposeDialogs, openCreateModal, openDeleteModal, openRoleModal, handleResetPassword } = createUserManagementActions({ closeDropdown, fetchUsers });
+const { disposeDialogs, openCreateModal, openDeleteModal, openRoleModal, openQuotaDialog: openQuotaDialogBase, handleResetPassword } = createUserManagementActions({ closeDropdown, fetchUsers });
+
+// 把「当前系统默认配额」注入弹窗：弹窗需要它来展示「跟随默认 xxx」。
+function openQuotaDialog(user) {
+  openQuotaDialogBase(user, { defaultQuota: defaultUserQuota.value, fetchUsers })
+}
 
 function openStorageDialog(user) { closeDropdown(); accessDialog.value = { user, mode: 'storage' }; }
 function openPermissionsDialog(user) { closeDropdown(); accessDialog.value = { user, mode: 'permissions' }; }

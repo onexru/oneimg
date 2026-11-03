@@ -104,6 +104,37 @@ func AdminOnlyMiddleware() gin.HandlerFunc {
  return func(c *gin.Context) { if c.GetString("auth_method")=="api_token" || c.GetInt("user_role")!=models.RoleAdmin { rejectAuth(c,403,"无权访问"); return }; c.Next() }
 }
 
+// RequireSettingPermission 要求超管，或持有任一 setting:* 权限码。
+//
+// 用于「系统级策略」类操作（如账号默认/单个配额）：这些操作不属于用户管理
+// 的权限码体系，而是与设置项同源。若直接挂 RequirePermission("setting:list")
+// 会过窄（只持 setting:upload 的人改不了上传配额，而那正是他的本职），
+// 若挂 AdminOnly 又会让委派者完全无法操作。
+func RequireSettingPermission() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		u, ok := GetCurrentUser(c)
+		if !ok {
+			rejectAuth(c, 401, "用户信息获取失败")
+			return
+		}
+		if c.GetString("auth_method") == "api_token" {
+			rejectAuth(c, 403, "API 凭据无此操作权限")
+			return
+		}
+		if u.ID == models.SuperAdminID || u.Permission.HasPermission("*") {
+			c.Next()
+			return
+		}
+		for _, code := range u.Permission.Codes {
+			if strings.HasPrefix(code, "setting:") {
+				c.Next()
+				return
+			}
+		}
+		rejectAuth(c, 403, "无操作权限，需要任一系统设置权限")
+	}
+}
+
 // RequireAnyPermission 要求持有任一给定权限码（OR 语义）。用于同一端点
 // 服务多个管理流程的场景（如存储连接测试同时服务创建与编辑表单）。
 // API token 凭据一律拒绝：token scope 白名单不含管理端点。

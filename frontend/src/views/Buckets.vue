@@ -1,10 +1,7 @@
 <template>
   <div class="page-shell">
-    <section class="page-header border-b border-slate-200/70 pb-6 dark:border-white/10">
-      <div>
-        <h1 class="page-title">存储管理</h1>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
+    <section class="page-header">
+      <div class="page-actions">
         <button id="role-storage-config" type="button" class="soft-button" @click="roleStorageOpen = true">角色存储配置</button>
         <button @click="AddBucketModal" class="primary-button"><i class="ri-add-line" aria-hidden="true"></i>添加存储</button>
       </div>
@@ -12,33 +9,21 @@
 
     <StorageAssignmentsPanel v-if="roleStorageOpen" @close="closeRoleStorage" />
 
-    <!-- 顶部标题 + 添加存储按钮 -->
-    <div class="hidden items-center justify-between mb-6">
-      <h2 class="section-title text-xl font-semibold flex items-center gap-2">
-        <i class="ri-database-2-line text-primary"></i>
-        存储管理
-      </h2>
-      <button
-        @click="AddBucketModal"
-        class="px-4 py-2 bg-primary text-white rounded-lg flex items-center gap-1 hover:bg-primary/80 transition-colors"
-      >
-        <i class="ri-add-line"></i>
-        添加存储
-      </button>
-    </div>
-
     <!-- 多存储卡片列表 -->
-    <div id="storage-sources" class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-6">
+    <!-- auto-fill 而非 auto-fit：auto-fit 会把空轨道折叠掉，只剩一个存储时
+         该卡片被拉伸成整行宽（1156px）；auto-fill 保留空轨道，单卡片维持一列宽。 -->
+    <div id="storage-sources" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,480px),1fr))] gap-4">
       <div
         v-for="storage in buckets"
         :key="storage.key"
-        class="section-card storage-card relative min-w-0"
+        class="surface storage-card relative min-w-0"
         :class="{ 'opacity-75': storage.disabled }"
       >
-        <h3 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
-          {{ storage.name }}
-          <span class="text-xs bg-gray-100 dark:bg-dark-300 text-gray-500 dark:text-gray-300 px-2 py-0.5 rounded-full">
-            {{ storage.type === 'default' ? '默认存储' : storage.type === 'r2' ? 'Cloudflare R2' : storage.type.toUpperCase() }}
+        <h3 class="surface-title mb-3">
+          <i class="ri-hard-drive-2-line text-primary"></i>
+          <span class="min-w-0 truncate">{{ storage.name }}</span>
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            {{ storage.type === 'default' ? '默认存储' : storage.type === 'r2' ? 'Cloudflare R2' : (storage.type || '未知').toUpperCase() }}
           </span>
           <span
             class="rounded-full px-2 py-0.5 text-xs"
@@ -69,7 +54,6 @@
           </div>
         </div>
 
-        <p v-if="storage.type === 'default'" class="mb-3 text-xs text-gray-500 dark:text-gray-400">图床已登记：{{ storage.accounted_usage_readable || '--' }}；磁盘占用包含其它文件。</p>
         <div class="mb-5">
           <div class="flex items-center justify-between mb-2">
             <p class="text-sm text-gray-600 dark:text-gray-300">使用率：{{ clampUsage(storage.usage_percent).toFixed(1) }}%</p>

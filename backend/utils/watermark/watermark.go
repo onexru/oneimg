@@ -2,7 +2,9 @@ package watermark
 
 import (
 	"bytes"
+	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,12 +20,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	_ "golang.org/x/image/webp"
 	"github.com/golang/freetype"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/math/fixed"
+	_ "golang.org/x/image/webp"
 )
 
 var frontendFS fs.FS
@@ -111,7 +115,10 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 
 		if minSizeStr := c.Query("wm_min_size"); minSizeStr != "" {
 			if minSize, err := strconv.Atoi(minSizeStr); err == nil && minSize > 0 && minSize <= 100 {
-				if minSize > 100 { minSize = 100 }; cfg.MinFontSize = minSize
+				if minSize > 100 {
+					minSize = 100
+				}
+				cfg.MinFontSize = minSize
 			}
 		}
 
@@ -138,7 +145,6 @@ func ParseWatermarkParams(c *gin.Context) WatermarkConfig {
 				cfg.Opacity = opacity
 			}
 		}
-
 
 	}
 
@@ -399,23 +405,76 @@ func clamp(value, min, max int) int {
 	return value
 }
 
-// ProcessImageWithWatermark 处理图片流并添加水印
+// ErrProcessingBusy 表示转码槽位已满或排队超时。
+// 调用方应把它转成 503/429 之类的「稍后重试」，而不是继续排队。
+var ErrProcessingBusy = errors.New("水印转码繁忙，请稍后重试")
+
+// processingSlotWait 允许在槽位外等待的时长上限。
+// 超过就直接拒绝 —— 排队比拒绝更糟：排队的请求既占着回源连接，
+// 又在客户端断开后仍会被执行完，正是放大 DoS 的燃料。
+const processingSlotWait = 2 * time.Second
+
+// acquireProcessingSlot 可取消地占一个转码槽。
+//
+// 原实现是无条件 `processingSlots <- struct{}{}`：
+//   - 不检查 ctx：客户端 fire-and-forget 断开后，任务照样排队、照样跑完；
+//   - 没有超时：第 3 个请求起就无限排队，攻击者只需持续发射就能把队列堆到几分钟；
+//   - 没有身份维度：任何人都能占满这 2 个全局槽，让**全站**图片加载不出来。
+//
+// 现在：最多等 processingSlotWait，超时即 ErrProcessingBusy；ctx 取消立刻放弃。
+func acquireProcessingSlot(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// ctx 已取消时直接返回，不必等 timeout
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	timer := time.NewTimer(processingSlotWait)
+	defer timer.Stop()
+	select {
+	case processingSlots <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-processingSlots }) }, nil
+	case <-timer.C:
+		return nil, ErrProcessingBusy
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ProcessImageWithWatermark 处理图片流并添加水印（无 ctx 版本，保持向后兼容）。
+// 内部走 context.Background()，即「不可取消但仍有排队超时」。
 func ProcessImageWithWatermark(reader io.Reader, mimeType string, cfg WatermarkConfig) (io.Reader, error) {
+	return ProcessImageWithWatermarkContext(context.Background(), reader, mimeType, cfg)
+}
+
+// ProcessImageWithWatermarkContext 处理图片流并添加水印。
+// ctx 用于在客户端断开/超时时放弃排队与后续解码。
+func ProcessImageWithWatermarkContext(ctx context.Context, reader io.Reader, mimeType string, cfg WatermarkConfig) (io.Reader, error) {
 	if !cfg.Enable {
 		return reader, nil
 	}
 
-	processingSlots <- struct{}{}
-	defer func(){ <-processingSlots }()
+	release, err := acquireProcessingSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	buf, err := io.ReadAll(io.LimitReader(reader, (32<<20)+1))
 	if err != nil {
 		log.Printf("读取图片数据失败: %v", err)
 		return nil, fmt.Errorf("读取图片数据失败: %v", err)
 	}
 
-	if len(buf) > 32<<20 { return nil, fmt.Errorf("图片超过水印处理限制") }
+	if len(buf) > 32<<20 {
+		return nil, fmt.Errorf("图片超过水印处理限制")
+	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(buf))
-	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 8192 || config.Height > 8192 || int64(config.Width)*int64(config.Height) > 16_000_000 { return nil, fmt.Errorf("图片尺寸超过水印处理限制") }
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 8192 || config.Height > 8192 || int64(config.Width)*int64(config.Height) > 16_000_000 {
+		return nil, fmt.Errorf("图片尺寸超过水印处理限制")
+	}
 	img, format, err := image.Decode(bytes.NewReader(buf))
 	if err != nil {
 		log.Printf("解码图片失败: %v", err)

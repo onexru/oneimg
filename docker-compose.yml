@@ -75,8 +75,17 @@ services:
       - CONFIG_SECRET=${CONFIG_SECRET:-}
 
       # ── 反向代理 ─────────────────────────────────────────────
-      # 逗号分隔 IP/CIDR。仅这些来源的 X-Forwarded-For 会被采信为客户端 IP；
-      # 留空表示不信任任何代理（直连部署保持留空）。
+      # 逗号分隔 IP/CIDR，写反代的**出口地址**。仅这些来源的 X-Forwarded-For
+      # 才会被采信为客户端 IP；留空表示不信任任何代理。
+      #
+      # ⚠ 用反代部署（Nginx/Caddy/Traefik/Cloudflare 等）时必须配置，否则
+      #   所有访客都被识别成反代自己那一个 IP：登录限流是「每 IP 30 次/分钟」，
+      #   变成全站共享，一个访客刷满就所有人都登不进来。
+      #   典型值：Docker 内同网络的反代 172.16.0.0/12；本机反代 127.0.0.1；
+      #   前面还有 Cloudflare 时再补上 https://www.cloudflare.com/ips/ 的段。
+      #
+      # 格式写错会**拒绝启动**并打印具体条目（不会静默忽略 —— 静默忽略会让
+      # 应用看起来正常，实则所有访客共用一个 IP 预算，很难排查）。
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
     volumes:
       - ./data:/app/data

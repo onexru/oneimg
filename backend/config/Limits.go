@@ -8,7 +8,4 @@ const (
 	HardTagMaxLength               = 50
 	DefaultRandomImageLimit        = 20
 	HardRandomImageLimit           = 100
-	DefaultPowVerifyTimeoutSeconds = 5
-	HardPowVerifyTimeoutSeconds    = 15
-	LegacyPowVerifyURL             = "https://cha.eta.im/api/validate"
 )

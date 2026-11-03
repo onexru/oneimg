@@ -67,6 +67,47 @@
               <button type="button" class="soft-button px-2 text-xs" @click.stop="openPermissionsDialog(user)">用户权限</button>
             </div>
 
+            <!-- 上传配额：所有角色统一显示，布局完全一致。
+                 管理员用「不限」表达豁免，而不是隐藏整块 —— 否则超管卡片
+                 会比普通用户矮一截，网格里错位很难看。 -->
+            <div v-if="quotaInfo" class="rounded-xl border border-slate-200/80 dark:border-white/10 bg-slate-50/60 dark:bg-slate-800/30 px-3 py-2.5" data-user-quota>
+              <div class="flex items-center justify-between gap-2">
+                <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <i class="ri-hard-drive-2-line text-xs" aria-hidden="true"></i>
+                  上传配额
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span
+                    v-if="quotaInfo.quota_custom"
+                    class="text-[10px] px-1.5 h-4 leading-4 rounded-full bg-primary/10 text-primary-dark dark:bg-primary/20 dark:text-blue-300 border border-primary/20"
+                    title="管理员为该账号单独设置了配额"
+                  >自定义</span>
+                  <span
+                    v-else-if="quotaInfo.admin_exempt"
+                    class="text-[10px] px-1.5 h-4 leading-4 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                    title="管理员不受上传配额限制"
+                  >豁免</span>
+                  <span class="text-[11px] tabular-nums text-slate-600 dark:text-slate-300">
+                    {{ quotaInfo.unlimited ? '不限' : formatBytes(quotaInfo.quota_bytes) }}
+                  </span>
+                </span>
+              </div>
+              <!-- 三行结构固定：进度条（不限时为等高的灰条占位）+ 用量说明，
+                   保证「不限」与「限额」两种卡片的这一块高度相同。 -->
+              <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div
+                  v-if="!quotaInfo.unlimited"
+                  class="h-full rounded-full transition-[width] duration-300"
+                  :class="quotaBarClass"
+                  :style="{ width: quotaInfo.percent + '%' }"
+                ></div>
+                <div v-else class="h-full w-full rounded-full bg-slate-300/70 dark:bg-slate-600/60"></div>
+              </div>
+              <p class="mt-1.5 text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+                已用 {{ formatBytes(quotaInfo.used_bytes) }}<template v-if="!quotaInfo.unlimited"> · {{ quotaInfo.percent.toFixed(1) }}%</template>
+              </p>
+            </div>
+
             <!-- 创建时间 -->
             <div class="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-auto pt-1">
               <i class="ri-calendar-line text-xs"></i>
@@ -87,6 +128,14 @@
             <i class="ri-key-2-line text-base"></i>
             重置密码
           </button>
+          <button
+            v-if="canManageQuota && user.id !== SuperAdminID"
+            class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left"
+            @click="openQuotaDialog(user)"
+          >
+            <i class="ri-hard-drive-2-line text-base"></i>
+            上传配额
+          </button>
           <div class="my-1.5 border-t border-slate-100 dark:border-white/5"></div>
           <button
             class="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm transition text-left"
@@ -101,6 +150,21 @@
       </div>
 </template>
 <script setup>
+import { computed } from 'vue';
 import { userStorageSummary, userPermissionSummary } from '@/utils/userAccessSummary.js';
-defineProps(["user", "SuperAdminID", "activeDropdown", "getAvatarColor", "getInitials", "formatDate", "closeDropdown", "setDropdownRef", "toggleDropdown", "openRoleModal", "openStorageDialog", "openPermissionsDialog", "handleResetPassword", "openDeleteModal"])
+import { formatBytes } from '@/utils/byteSize.js';
+
+const props = defineProps(["user", "SuperAdminID", "activeDropdown", "getAvatarColor", "getInitials", "formatDate", "closeDropdown", "setDropdownRef", "toggleDropdown", "openRoleModal", "openStorageDialog", "openPermissionsDialog", "openQuotaDialog", "handleResetPassword", "openDeleteModal", "canManageQuota"])
+
+// 后端对管理员不下发 quota（他们不受配额约束），因此这里只需判空。
+const quotaInfo = computed(() => props.user.quota || null)
+
+// 进度条配色分三档：<70 正常、70-90 提醒、>=90 告警。
+// 单色进度条无法传达「快满了」，而配额的意义恰恰在于提前预警。
+const quotaBarClass = computed(() => {
+  const p = props.user.quota?.percent ?? 0
+  if (p >= 90) return 'bg-red-500'
+  if (p >= 70) return 'bg-amber-500'
+  return 'bg-primary'
+})
 </script>

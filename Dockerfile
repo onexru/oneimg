@@ -18,7 +18,10 @@ COPY backend/ ./backend/
 COPY main.go ./
 COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 COPY --from=frontend-builder /src/frontend/src/assets/fonts ./frontend/src/assets/fonts
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -p 1 -trimpath -ldflags="-s -w" -o /out/oneimg ./main.go
+# 版本号在构建时注入，避免为了改版本去动源码。
+# 构建时可用 --build-arg VERSION=v3.5.8 覆盖；不传则为 dev。
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -p 1 -trimpath -ldflags="-s -w -X oneimg/backend/config.Version=${VERSION}" -o /out/oneimg ./main.go
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata libwebp

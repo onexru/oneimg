@@ -1,303 +1,350 @@
 <template>
-    <div class="page-shell">
-        <section class="page-header">
-            <div>
-                <h1 class="page-title">标签管理</h1>
-            </div>
-            <div class="stat-tile min-w-[170px] p-4">
-                <p class="text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">标签总数</p>
-                <p class="mt-2 text-base font-semibold text-slate-900 dark:text-white">{{ tagList.length + 1 }}</p>
-            </div>
-        </section>
+  <div class="page-shell">
+    <!-- 全站规范：页面标题清零，page-header 只放右侧统计/动作 -->
+    <section class="page-header">
+      <div class="page-actions">
+        <span class="stat-inline">标签总数 <strong>{{ totalTagCount }}</strong></span>
+      </div>
+    </section>
 
-        <div class="section-card">
-            <h2 class="section-title text-lg font-semibold mb-4 flex items-center gap-2">
-                <i class="ri-bookmark-line text-primary"></i>
-                标签管理
-            </h2>
-            
-            <!-- 标签添加区域 -->
-            <div class="flex justify-between items-center mb-6">
-                <input type="text" 
-                    v-model="tagInput"
-                    @keyup.enter="handleAddTag"
-                    class="input-modern min-w-[100px] flex-1 px-6 py-4"
-                    placeholder="请输入标签(最多10个字符)..." 
-                    maxlength="10"/>
-                <button class="primary-button ml-3 px-6 py-4" 
-                        @click="handleAddTag"
-                        :disabled="isAdding">
-                    <span v-if="!isAdding" class="truncate text-overflow">添加</span>
-                    <span v-else class="flex items-center gap-1">
-                        <i class="ri-loader-2-line animate-spin"></i>
-                        提交中
-                    </span>
-                </button>
-            </div>
-            
-            <!-- 错误提示 -->
-            <div v-if="errorMsg" class="mb-4 px-4 py-2 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                {{ errorMsg }}
-            </div>
-            
-            <!-- 标签列表区域 -->
-            <div class="tag-list-container">
-                <h3 class="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">已创建标签</h3>
-                
-                <!-- 标签列表 -->
-                <div class="flex flex-wrap gap-3">
-                    <!-- 默认标签 -->
-                    <div class="flex items-center px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm">
-                        <span>默认</span>
-                        <button class="ml-2 text-primary/70 hover:text-red-500 transition-colors" 
-                                @click="handleDeleteTag(0, 0)"
-                                :disabled="isDeleting">
-                            <i class="ri-close-line"></i>
-                        </button>
-                    </div>
-
-                    <!-- 标签项 -->
-                    <div v-for="(tag, index) in tagList"
-                    :key="index"
-                    @click="handleUpdateTag(tag)"
-                    class="flex items-center px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-lg text-sm cursor-pointer hover:bg-primary/20">
-                        <span>{{ tag?.name || '未知'}}</span>
-                        <button class="ml-2 text-primary/70 hover:text-red-500 transition-colors" 
-                                @click.stop="handleDeleteTag(tag.id, index)"
-                                :disabled="isDeleting">
-                            <i class="ri-close-line"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <!-- 新建标签：输入框 + 按钮同一行，窄屏自动堆叠 -->
+    <div class="surface flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div class="relative min-w-0 flex-1">
+        <i class="ri-price-tag-3-line pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400"></i>
+        <input
+          id="tag-name-input"
+          v-model="tagInput"
+          type="text"
+          :maxlength="TAG_MAX_LENGTH"
+          class="input-modern pl-9"
+          placeholder="输入标签名称，回车即可添加"
+          @keyup.enter="handleAddTag"
+        />
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <!-- 字数提示：接近上限时才变色，平时保持安静 -->
+        <span
+          class="text-xs tabular-nums"
+          :class="tagInput.length >= TAG_MAX_LENGTH ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'"
+        >{{ tagInput.length }}/{{ TAG_MAX_LENGTH }}</span>
+        <button
+          id="tag-add-button"
+          type="button"
+          class="primary-button shrink-0"
+          :disabled="isAdding || !tagInput.trim()"
+          @click="handleAddTag"
+        >
+          <i :class="isAdding ? 'ri-loader-4-line animate-spin' : 'ri-add-line'" aria-hidden="true"></i>
+          <span>{{ isAdding ? '提交中' : '添加' }}</span>
+        </button>
+      </div>
     </div>
+
+    <!-- 校验错误提示：与网络错误分开，本地校验不弹 Toast（太吵） -->
+    <p
+      v-if="errorMsg"
+      class="flex items-start gap-2 rounded-[var(--radius-sm)] border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300"
+      role="alert"
+    >
+      <i class="ri-error-warning-line mt-0.5 shrink-0" aria-hidden="true"></i>
+      <span>{{ errorMsg }}</span>
+    </p>
+
+    <!-- 标签列表 -->
+    <div class="surface">
+      <div class="mb-4 flex items-center justify-between gap-2">
+        <h2 class="surface-title">
+          <i class="ri-bookmark-3-line text-primary" aria-hidden="true"></i>
+          已创建标签
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400">{{ totalTagCount }}</span>
+        </h2>
+        <p v-if="tagList.length" class="hidden text-xs text-slate-400 dark:text-slate-500 sm:block">点击标签可重命名</p>
+      </div>
+
+      <!-- 「默认」标签是系统内置的，任何情况下都存在：
+           它不依赖 tagList，所以不能和自定义标签一起被空态分支挡掉。 -->
+      <div class="flex flex-wrap gap-2">
+        <span
+          class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-3 text-sm text-slate-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-400"
+          title="默认标签不可修改或删除"
+        >
+          <i class="ri-lock-line text-xs" aria-hidden="true"></i>
+          默认
+        </span>
+
+        <button
+          v-for="tag in tagList"
+          :key="tag.id"
+          type="button"
+          class="tag-chip"
+          :title="`点击重命名「${tag.name}」`"
+          @click="handleUpdateTag(tag)"
+        >
+          <span class="min-w-0 truncate">{{ tag.name }}</span>
+          <span
+            role="button"
+            tabindex="0"
+            class="tag-chip-remove"
+            :aria-label="`删除标签 ${tag.name}`"
+            @click.stop="handleDeleteTag(tag)"
+            @keydown.enter.stop.prevent="handleDeleteTag(tag)"
+            @keydown.space.stop.prevent="handleDeleteTag(tag)"
+          >
+            <i class="ri-close-line" aria-hidden="true"></i>
+          </span>
+        </button>
+      </div>
+
+      <!-- 空态：没有自定义标签时给出引导，而不是留一片空白 -->
+      <p v-if="!tagList.length" class="mt-3 rounded-[var(--radius-sm)] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+        还没有自定义标签，在上方输入名称即可创建。
+      </p>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-// 响应式数据
-const tagInput = ref('');          // 标签输入框
-const tagList = ref([]);           // 标签列表
-const errorMsg = ref('');          // 错误提示
-const isAdding = ref(false);       // 添加标签加载状态
-const isDeleting = ref(false);     // 删除标签加载状态
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import Message from '@/utils/message.js';
+import { createDialogScope } from '@/utils/dialogScope.js';
 
-// 初始化：加载已有标签
-onMounted(() => {
-    fetchTagList();
-});
+const { Dialog: PopupModal, dispose: disposeDialogs } = createDialogScope();
+const showFormModal = options => new PopupModal({ type: 'form', ...options });
 
-// 获取标签列表
+// 标签长度上限与后端 setting 的 tag_max_length 默认值一致
+const TAG_MAX_LENGTH = 10;
+// 「默认」是模板里硬编码的虚拟标签，不在 tagList 里，
+// 所以总数要单独加上它，避免列表里看得见、数字里数不到。
+const VIRTUAL_TAG_COUNT = 1;
+
+const tagInput = ref('');
+const tagList = ref([]);
+const totalTagCount = computed(() => tagList.value.length + VIRTUAL_TAG_COUNT);
+const errorMsg = ref('');
+const isAdding = ref(false);
+const isDeleting = ref(false);
+
+const readApiResponse = async (response, fallback) => {
+  try {
+    return await response.json();
+  } catch {
+    return { code: response.status, message: fallback };
+  }
+};
+
 const fetchTagList = async () => {
-    try {
-        // 替换为你的实际接口地址
-        const response = await fetch('/api/tags', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-        
-        const result = await response.json();
-        if (response.ok && result.code === 200) {
-            tagList.value = result.data?.list || [];
-        } else {
-            throw new Error(result.message || '获取标签列表失败');
-        }
-    } catch (error) {
-        console.error('获取标签失败:', error);
-        Message.error(error.message || '获取标签列表失败');
-    }
-};
-
-// 处理添加标签
-const handleAddTag = async () => {
-    // 清空之前的错误提示
-    errorMsg.value = '';
-    
-    // 1. 输入校验
-    const tagName = tagInput.value.trim();
-    if (!tagName) {
-        errorMsg.value = '标签名称不能为空';
-        return;
-    }
-    
-    if (tagName.length > 10) {
-        errorMsg.value = '标签名称不能超过10个字符';
-        return;
-    }
-    
-    // 2. 重复校验
-    const isDuplicate = tagList.value.some(tag => tag.name === tagName);
-    if (isDuplicate) {
-        errorMsg.value = '该标签已存在，请勿重复添加';
-        return;
-    }
-    
-    // 3. 提交添加
-    try {
-        isAdding.value = true;
-        
-        // 替换为你的实际接口地址
-        const response = await fetch('/api/tags', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({ name: tagName })
-        });
-        
-        const result = await response.json();
-        if (response.ok && result.code === 200) {
-            // 添加成功，更新列表
-            tagList.value.push(result.data);
-            tagInput.value = ''; // 清空输入框
-            Message.success('标签添加成功');
-        } else {
-            throw new Error(result.message || '添加标签失败');
-        }
-    } catch (error) {
-        console.error('添加标签失败:', error);
-        errorMsg.value = error.message || '添加标签失败';
-        Message.error(error.message || '添加标签失败');
-    } finally {
-        isAdding.value = false;
-    }
-};
-
-// 处理删除标签
-const handleDeleteTag = async (tagId, index) => {
-    if (tagId === 0) {
-        Message.error('默认标签不能删除');
-        return;
-    }
-    // 确认删除
-    const modal = new PopupModal({
-        title: '确认删除',
-        content: `
-        <div class="flex gap-3">
-            <i class="fa fa-exclamation-triangle text-warning text-xl mt-1"></i>
-            <div>
-            <p>确定要删除这个标签吗？</p>
-            <p class="mt-1 text-secondary text-sm">删除后无法恢复，请谨慎操作</p>
-            </div>
-        </div>
-        `,
-        buttons: [
-        {
-            text: '取消',
-            type: 'default',
-            callback: (modal) => modal.close()
-        },
-        {
-            text: '确认删除',
-            type: 'danger',
-            callback: async (modal) => {
-            modal.close()
-            await deleteAsync(tagId, index)
-            }
-        }
-        ],
-        maskClose: true
-    })
-    modal.open()
-};
-
-// 编辑标签
-const handleUpdateTag = (tag) => {
-    // 确认修改
-    const modal = new PopupModal({
-        title: '修改标签',
-        type: 'form',
-        formFields: [
-            {
-                label: '标签名称',
-                type: 'text',
-                name: 'name',
-                defaultValue: tag.name,
-                required: true
-            }
-        ],
-        formSubmit: async (modal, formData) => {
-            const tagName = formData.name;
-            await updateTag(tag, tagName)
-            modal.close()
-        },
-        buttons: [
-            {
-                text: '取消',
-                type: 'default',
-                callback: (modal) => modal.close()
-            },
-            {
-                text: '确认修改',
-                type: 'primary',
-                callback: (modal) => {
-                    modal.content.querySelector('form').dispatchEvent(
-                        new Event('submit', { bubbles: true })
-                    );
-                }
-            }
-        ],
+  try {
+    const response = await fetch('/api/tags', {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
-    modal.open();
-}
+    const result = await readApiResponse(response, '获取标签列表失败');
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '获取标签列表失败');
+    }
+    tagList.value = result.data?.list || [];
+  } catch (error) {
+    console.error('获取标签失败:', error);
+    Message.error(error.message || '获取标签列表失败');
+  }
+};
+
+const handleAddTag = async () => {
+  errorMsg.value = '';
+  const tagName = tagInput.value.trim();
+
+  if (!tagName) {
+    errorMsg.value = '标签名称不能为空';
+    return;
+  }
+  if (tagName.length > TAG_MAX_LENGTH) {
+    errorMsg.value = `标签名称不能超过 ${TAG_MAX_LENGTH} 个字符`;
+    return;
+  }
+  // 本地查重只为提前反馈；后端仍有唯一约束做最终兜底
+  if (tagList.value.some(tag => tag.name === tagName)) {
+    errorMsg.value = '该标签已存在，请勿重复添加';
+    return;
+  }
+
+  isAdding.value = true;
+  try {
+    const response = await fetch('/api/tags', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({ name: tagName }),
+    });
+    const result = await readApiResponse(response, '添加标签失败');
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '添加标签失败');
+    }
+    // 后端返回的才是权威记录（含真实 id），不能自己拼一个对象塞进列表
+    if (result.data?.id != null) tagList.value.push(result.data);
+    else await fetchTagList();
+    tagInput.value = '';
+    Message.success('标签添加成功');
+  } catch (error) {
+    console.error('添加标签失败:', error);
+    errorMsg.value = error.message || '添加标签失败';
+  } finally {
+    isAdding.value = false;
+  }
+};
+
+const handleDeleteTag = (tag) => {
+  // 删除确认没有表单字段，必须用普通模态：PopupModal 在 type==='form' 时
+  // 会走 renderFormContent() 并忽略 content，写了也渲染不出来。
+  const modal = new PopupModal({
+    title: '删除标签',
+    content: `
+      <div class="flex gap-3">
+          <i class="fa fa-exclamation-triangle text-warning text-xl mt-1"></i>
+          <div>
+          <p>确定要删除这个标签吗？</p>
+          <p class="mt-1 text-secondary text-sm">删除后无法恢复，请谨慎操作</p>
+          </div>
+      </div>
+      `,
+    buttons: [
+      { text: '取消', type: 'default', callback: instance => instance.close() },
+      {
+        text: '删除',
+        type: 'danger',
+        callback: async instance => {
+          const ok = await deleteTag(tag);
+          // 失败时保留弹窗，让用户能直接重试
+          if (ok) instance.close();
+        },
+      },
+    ],
+  });
+  modal.open();
+};
+
+const deleteTag = async (tag) => {
+  if (isDeleting.value) return false;
+  isDeleting.value = true;
+  try {
+    const response = await fetch(`/api/tags/${tag.id}`, {
+      method: 'DELETE',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const result = await readApiResponse(response, '删除标签失败');
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '删除标签失败');
+    }
+    // 按 id 过滤而不是按位置：列表在请求期间可能已经变了
+    tagList.value = tagList.value.filter(item => item.id !== tag.id);
+    Message.success('标签删除成功');
+    return true;
+  } catch (error) {
+    console.error('删除标签失败:', error);
+    Message.error(error.message || '删除标签失败');
+    return false;
+  } finally {
+    isDeleting.value = false;
+  }
+};
+
+const handleUpdateTag = (tag) => {
+  const modal = showFormModal({
+    title: '重命名标签',
+    subtitle: `修改「${tag.name}」的名称。`,
+    formFields: [{
+      name: 'name',
+      label: '标签名称',
+      type: 'text',
+      required: true,
+      maxlength: TAG_MAX_LENGTH,
+      defaultValue: tag.name,
+    }],
+    buttons: [
+      { text: '取消', type: 'default', callback: instance => instance.close() },
+      {
+        text: '保存',
+        type: 'primary',
+        callback: instance => {
+          instance.content.querySelector('form')?.requestSubmit();
+        },
+      },
+    ],
+    formSubmit: async (instance, formData) => {
+      const name = String(formData.name ?? '').trim();
+      if (!name) {
+        Message.warning('标签名称不能为空');
+        return;
+      }
+      if (name.length > TAG_MAX_LENGTH) {
+        Message.warning(`标签名称不能超过 ${TAG_MAX_LENGTH} 个字符`);
+        return;
+      }
+      if (name === tag.name) {
+        instance.close();
+        return;
+      }
+      if (tagList.value.some(item => item.id !== tag.id && item.name === name)) {
+        Message.warning('该标签已存在');
+        return;
+      }
+      const ok = await updateTag(tag, name);
+      if (ok) instance.close();
+    },
+  });
+  modal.open();
+};
 
 const updateTag = async (tag, name) => {
-    try {
-        isAdding.value = true;
-        
-        const response = await fetch(`/api/tags/${tag.id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: name })
-        });
-        const result = await response.json();
-        if (response.ok && result.code === 200) {
-            tag.name = name;
-            Message.success('标签修改成功');
-        } else {
-            throw new Error(result.message || '修改标签失败');
-        }
-    } catch (error) {
-        console.error('修改标签失败:', error);
-        Message.error(error.message || '修改标签失败');
-    } finally {
-        isAdding.value = false;
+  try {
+    const response = await fetch(`/api/tags/${tag.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({ name }),
+    });
+    const result = await readApiResponse(response, '修改标签失败');
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.message || '修改标签失败');
     }
+    tag.name = name;
+    Message.success('标签修改成功');
+    return true;
+  } catch (error) {
+    console.error('修改标签失败:', error);
+    Message.error(error.message || '修改标签失败');
+    return false;
+  }
+};
+
+onMounted(() => { fetchTagList(); });
+// 弹窗由本页创建，离开时必须销毁，否则会残留遮罩与滚动锁
+onBeforeUnmount(() => { disposeDialogs(); });
+</script>
+
+<style scoped>
+/* 标签胶囊：可点重命名，右侧内嵌删除按钮。
+   删除按钮用 span[role=button] 而不是嵌套 <button>——HTML 不允许 button 套 button，
+   浏览器会把结构拆坏，导致点击区域错乱。 */
+.tag-chip {
+  @apply inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 py-1.5 pl-3 pr-1.5 text-sm font-medium text-primary transition-colors;
 }
 
-const deleteAsync = async (tagId, index) => {
-    try {
-        isDeleting.value = true;
-        
-        // 替换为你的实际接口地址
-        const response = await fetch(`/api/tags/${tagId}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-        
-        const result = await response.json();
-        if (response.ok && result.code === 200) {
-            // 删除成功，更新列表
-            tagList.value.splice(index, 1);
-            Message.success('标签删除成功');
-        } else {
-            throw new Error(result.message || '删除标签失败');
-        }
-    } catch (error) {
-        console.error('删除标签失败:', error);
-        Message.error(error.message || '删除标签失败');
-    } finally {
-        isDeleting.value = false;
-    }
+.tag-chip:hover {
+  @apply border-primary/40 bg-primary/15;
 }
-</script>
+
+.tag-chip-remove {
+  @apply inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-[13px] text-primary/60 transition-colors;
+}
+
+.tag-chip-remove:hover {
+  @apply bg-red-500/10 text-red-600;
+}
+
+.dark .tag-chip-remove:hover {
+  @apply text-red-400;
+}
+</style>

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -68,6 +69,51 @@ func assertPublicHost(host string) error {
 		if isBlockedIP(ip) {
 			return ErrBlockedHost
 		}
+	}
+	return nil
+}
+
+// AssertPublicHost 校验主机名（域名或 IP 字面量）解析后不落在内网/保留地址。
+//
+// 供「不经过 HTTP 客户端」的出站连接复用（S3/FTP/WebDAV 等存储驱动：
+// 它们自己 dial TCP，套不上 safefetch 的 Transport）。
+// 只做解析期校验；连接期仍需二次校验以防 DNS rebinding —— 见 DialControl。
+func AssertPublicHost(host string) error {
+	return assertPublicHost(host)
+}
+
+// AssertPublicEndpoint 校验 host[:port] 形式的端点。
+// 端口本身不做限制（存储服务常跑在非标端口），只校验主机部分。
+func AssertPublicEndpoint(hostport string) error {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		// 没有端口时 SplitHostPort 会报错，此时整体就是主机名
+		host = hostport
+	}
+	host = strings.Trim(host, "[]")
+	return assertPublicHost(host)
+}
+
+// DialControl 是给 net.Dialer.Control 用的连接期校验。
+//
+// 只在解析期校验一次是不够的：攻击者可以让域名第一次解析到公网、
+// 第二次解析到 127.0.0.1（DNS rebinding）。Control 在真正建立连接前
+// 拿到的是**即将拨号的 IP**，此处再校验一次即可封死这条路径。
+//
+// 用法：
+//
+//	d := &net.Dialer{Control: safefetch.DialControl}
+func DialControl(network, address string, conn syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return ErrBlockedHost
+	}
+	if isBlockedIP(ip) {
+		return ErrBlockedHost
 	}
 	return nil
 }

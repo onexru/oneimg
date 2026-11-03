@@ -1,5 +1,5 @@
 <template>
-  <DialogShell :title="title" :subtitle="subtitle" :icon="dialogIcon" presentation="folder" :initial-focus="initialFocus" close-label="关闭文件夹弹窗" @close="close">
+  <DialogShell ref="shellRef" :title="title" :subtitle="subtitle" :icon="dialogIcon" presentation="folder" :initial-focus="initialFocus" close-label="关闭文件夹弹窗" @close="onShellClosed">
     <form id="folder-action-form" class="folder-dialog-body space-y-4 p-4" @submit.prevent="submit">
       <template v-if="mode === 'create' || mode === 'rename'">
         <div>
@@ -82,7 +82,11 @@ onMounted(() => { window.addEventListener('storage', checkAccount); window.addEv
 onBeforeUnmount(() => { disposed = true; controller?.abort(); window.removeEventListener('storage', checkAccount); window.removeEventListener('focus', checkAccount); });
 const title = computed(() => ({ create: '新建文件夹', rename: '重命名文件夹', delete: cascadeLocked.value ? '继续删除文件夹' : '删除文件夹', move: '移动图片' })[props.mode]);
 const submitLabel = computed(() => ({ create: '创建', rename: '保存名称', delete: cascadeLocked.value ? '重试删除文件夹及图片' : deleteImages.value ? '删除文件夹及图片' : '删除文件夹', move: '确认移动' })[props.mode]);
-function close() { if (!busy.value) emit('close'); }
+const shellRef = ref(null);
+// 内部请求关闭：先播完动画，动画结束才由 onShellClosed 通知父组件销毁
+function close() { if (!busy.value) shellRef.value?.requestClose(); }
+// 动画已播完，这时父组件再 v-if=false 才是安全的
+function onShellClosed() { emit('close'); }
 async function submit() {
   if (busy.value || actionBlocked.value || !confirmationReady.value) return;
   error.value = '';

@@ -5,6 +5,9 @@ export const SETTINGS_TABS = Object.freeze([
   { key: 'notifications', label: '通知', icon: 'ri-notification-3-line', perm: 'setting:notification' },
   { key: 'api', label: 'API', icon: 'ri-code-s-slash-line', perm: 'setting:api' },
   { key: 'seo', label: '站点SEO', icon: 'ri-seo-line', perm: 'setting:seo' },
+  // 系统信息只读、不涉及任何 setting:* 写权限，因此用 setting:list（查看设置）作为门槛，
+  // 单独放到最后一项。
+  { key: 'system', label: '系统', icon: 'ri-information-line', perm: 'setting:list' },
 ]);
 export const settingsContext = Symbol('settings');
 export const visibleSettingsTabs = permissions => SETTINGS_TABS.filter(tab =>

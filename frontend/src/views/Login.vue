@@ -1,8 +1,11 @@
 <template>
-    <div class="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
+    <!-- 撑满 main 的剩余高度，而不是用 100vh 去减一串估算值。
+         顶栏、页脚、main 的内边距都会随断点变化，任何一处估错就会凭空多出滚动条；
+         main 本身是 flex 容器，这里只要 flex-1 就能拿到准确的可视高度。 -->
+    <div class="flex min-h-0 flex-1 items-center justify-center p-4">
         <!-- 全局加载遮罩 -->
         <div v-if="isLoading" class="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full m-[15px] lg:ml-[255px]">
+            <div class="loading-card bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-[450px] w-full m-[15px]">
                 <!-- 加载动画 -->
                 <div class="loading-spinner w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-primary dark:border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
                 <h3 class="loading-title text-lg font-bold text-center text-gray-800 dark:text-white mb-2">{{ loadingTitle }}</h3>
@@ -15,7 +18,7 @@
         </div>
 
         <!-- 登录卡片 -->
-        <div class="card glass-panel w-full max-w-md overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
+        <div class="card glass-panel w-full max-w-[450px] overflow-hidden transition-all duration-300" :class="{ 'opacity-50 pointer-events-none': isLoading }">
             <div class="card-body p-6">
                 <div class="mb-8 text-center">
                     <div v-if="loginConfig.start_register" class="flex justify-end">
@@ -135,7 +138,7 @@ import { ref, onMounted, onUnmounted, watch, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import message from '@/utils/message.js';
 import DialogShell from '@/components/DialogShell.vue';
-import { loadVerificationScript, mountLegacyPowWidget, effectiveVerificationMethod } from '@/utils/verification.js';
+import { loadVerificationScript, effectiveVerificationMethod } from '@/utils/verification.js';
 import { authErrorMessage } from '@/utils/authFeedback.js';
 
 const route = useRoute();
@@ -163,14 +166,9 @@ const loadingTitle = ref('');
 const loadingText = ref('');
 const loadingProgress = ref(0);
 const isPowReady = ref(false);
-let powCheckInterval = null; // 轮询检测定时器
 
 // 登录配置
 const loginConfig = reactive({
-    pow_verify: false,
-    pow_local_fallback: false,
-    pow_script_url: '',
-    pow_widget_url: '',
     verify_method: 'none',
     turnstile_site_key: '',
     tourist: false,
@@ -181,7 +179,7 @@ const loginConfig = reactive({
     start_register: false
 })
 
-// 当前验证方式（兼容旧版 pow_verify；forcedVerifyMethod 用于 Turnstile 不可用时的本地回退）
+// 当前验证方式（forcedVerifyMethod 用于 Turnstile 不可用时的本地回退）
 const forcedVerifyMethod = ref('');
 const verifyMethod = () => forcedVerifyMethod.value || effectiveVerificationMethod(loginConfig);
 const needsVerification = () => verifyMethod() !== 'none';
@@ -317,21 +315,9 @@ const createVerificationWidget = () => {
         createTurnstileWidget(container);
     } else if (method === 'cappow') {
         createCappowWidget(container);
-    } else {
-        createOnlinePowWidget(container, run);
     }
 };
 
-// 在线 POW：公开配置指定脚本与 challenge 地址，服务端 verifier 地址仍独立。
-const createOnlinePowWidget = (container, run) => {
-    const isCurrent = () => showModal.value && run === verificationRun && verifyMethod() === 'pow' && !verificationError.value;
-    mountLegacyPowWidget(container, loginConfig, {
-        isCurrent,
-        onReady: handlePowLoaded,
-        onSolve: handlePowSuccess,
-        onError: verificationFailed,
-    }).catch(error => { if (isCurrent()) verificationFailed(error); });
-};
 // Cloudflare Turnstile
 const createTurnstileWidget = (container) => {
     window.__turnstileLoginCallback = (token) => {
@@ -355,7 +341,6 @@ const createTurnstileWidget = (container) => {
             verificationFailed(new Error('验证组件未就绪，请重新加载'));
             return;
         }
-        clearInterval(powCheckInterval);
         window.turnstile.render(container, {
             sitekey,
             callback: window.__turnstileLoginCallback,
@@ -397,7 +382,6 @@ const createCappowWidget = (container) => {
     });
 
     loadCapWidgetScript(() => {
-        clearInterval(powCheckInterval);
         clearTimeout(verificationTimer);
         isPowReady.value = true;
         clearLoadingState();
@@ -409,28 +393,6 @@ const loadCapWidgetScript = cb => {
     loadVerificationScript('cap-widget-script', '/cap/cap.min.js', () => !!customElements.get('cap-widget'))
         .then(() => { if (showModal.value) cb(); }).catch(verificationFailed);
 };
-// POW组件加载就绪处理
-const handlePowLoaded = () => {
-    clearInterval(powCheckInterval); // 清除轮询
-    clearTimeout(verificationTimer);
-    isPowReady.value = true; // 标记组件就绪
-    loadingProgress.value = 80; // 进度条更新为80%（等待用户验证）
-    clearLoadingState(); // 清除全局加载状态，允许用户操作
-    // DialogShell remains visible while loading or retrying.
-};
-
-// 检查验证token
-const handlePowSuccess = async (e) => {
-    closeModal();
-    const token = e.detail.token;
-    setLoadingState('验证通过', '正在提交登录请求...', 90);
-
-
-    setTimeout(() => {
-        putLogin({ powToken: token });
-    }, 500);
-};
-
 // cap-pow 验证成功
 const handleCapSolve = async (e) => {
     closeModal();
@@ -456,7 +418,6 @@ const closeModal = () => {
 
 // 清理验证组件和事件
 const cleanupVerificationEvent = () => {
-    clearInterval(powCheckInterval); // 清除轮询
     const container = document.getElementById('verify-container');
     if (container) {
         container.innerHTML = '';
@@ -585,7 +546,7 @@ const getLoginSettings = async () => {
         const result = await response.json();
         if (response.ok && result.code === 200) {
             Object.assign(loginConfig, result.data);
-            loginConfig.verify_method = result.data.verify_method || (result.data.pow_verify ? 'pow' : 'none');
+            loginConfig.verify_method = effectiveVerificationMethod(result.data);
         } else {
             message.error('获取登录配置失败');
         }
