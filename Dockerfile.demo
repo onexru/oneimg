@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1
+# 演示版镜像：在正式镜像之上注入演示环境预设。
+#
+# 与 Dockerfile 的差异：
+#   1. VERSION 后缀 -demo，系统设置里能看到「v4.0.0-demo」
+#   2. 内置演示环境变量默认值（可用 -e 覆盖）：
+#      - DEMO_MODE=1            应用侧演示标识（日志头展示）
+#      - DEFAULT_USER=demo      预建演示账号 demo / demo123456
+#      - DEFAULT_PASS=demo123456
+#      - VERITY_METHOD=none     关闭人机验证，降低演示门槛
+#      - START_REGISTER=1       允许注册（演示完整流程）
+#
+# 演示数据（示例图片）请用挂载卷注入：
+#   docker run -v ./demo-uploads:/app/uploads onexru/oneimg-oneimg:demo
+
+FROM node:22-alpine3.23 AS frontend-builder
+ENV NODE_OPTIONS=--max-old-space-size=768
+WORKDIR /src/frontend
+RUN npm install --global pnpm@10.17.1
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+COPY frontend/ ./
+RUN pnpm run build
+
+FROM golang:1.26-alpine3.23 AS backend-builder
+ENV GOMAXPROCS=2 GOMEMLIMIT=768MiB GOGC=50 CGO_ENABLED=1
+RUN apk add --no-cache gcc g++ musl-dev libwebp-dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY backend/ ./backend/
+COPY main.go ./
+COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /src/frontend/src/assets/fonts ./frontend/src/assets/fonts
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -p 1 -trimpath -ldflags="-s -w -X oneimg/backend/config.Version=${VERSION}" -o /out/oneimg ./main.go
+
+FROM alpine:3.23
+RUN apk add --no-cache ca-certificates tzdata libwebp
+WORKDIR /app
+COPY --from=backend-builder /out/oneimg /app/oneimg
+COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
+COPY ca/ ./ca/
+RUN mkdir -p /app/data /app/uploads
+
+# ===== 演示环境预设 =====
+# DEFAULT_USER / DEFAULT_PASS 由应用启动逻辑读取并预建演示账号；
+# verify_method / start_register / tourist 是数据库设置项，ENV 无法直接生效。
+# 容器入口脚本在首次启动时用一次性 SQL 打开「允许注册 / 游客上传」，并
+# 把验证方式设为 none（幂等：仅在 settings 行为空默认时执行，不覆盖管理员的改动）。
+ENV DEMO_MODE=1 \
+    DEFAULT_USER=demo \
+    DEFAULT_PASS=demo123456
+
+COPY entrypoint-demo.sh /entrypoint-demo.sh
+RUN chmod +x /entrypoint-demo.sh
+
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint-demo.sh"]
+CMD ["/app/oneimg"]
