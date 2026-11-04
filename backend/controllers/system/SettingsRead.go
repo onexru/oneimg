@@ -2,6 +2,7 @@ package system
 
 import (
 	"net/http"
+	"oneimg/backend/config"
 	"oneimg/backend/database"
 	"oneimg/backend/middlewares"
 	"oneimg/backend/models"
@@ -105,6 +106,15 @@ func GetLoginSettings(c *gin.Context) {
 		return
 	}
 
+	// 演示模式：登录页自动填入演示账号。凭据本来就是公开的（演示镜像的
+	// 用途就是让访客直接体验），但只在 DEMO_MODE=1 时下发，
+	// 普通部署该字段为空、前端不渲染任何演示提示。
+	var demoUser, demoPass string
+	if config.App != nil && config.App.DemoMode {
+		demoUser = config.App.DefaultUser
+		demoPass = config.App.DefaultPass
+	}
+
 	c.JSON(200, result.Success("ok",
 		map[string]any{
 			"verify_method":      verifypolicy.EffectiveMethod(settingModel),
@@ -118,6 +128,8 @@ func GetLoginSettings(c *gin.Context) {
 			"oidc_display_name":  extauthconfig.ExternalLoginDisplayName(settingModel.OIDCDisplayName, "OIDC 登录"),
 			"cas_enabled":        extauthconfig.CASSettingsReady(settingModel),
 			"cas_display_name":   extauthconfig.ExternalLoginDisplayName(settingModel.CASDisplayName, "CAS 登录"),
+			"demo_user":          demoUser,
+			"demo_pass":          demoPass,
 		},
 	))
 }

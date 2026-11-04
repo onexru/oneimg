@@ -61,14 +61,18 @@
                 </div>
                 <!-- 登录按钮 -->
                 <div class="form-group">
-                    <button 
-                        @click="handleLogin" 
+                    <button
+                        @click="handleLogin"
                         class="login-btn primary-button w-full py-3 text-base"
                         :class="{ 'opacity-70 cursor-not-allowed': isLoading }"
                         :disabled="isLoading"
                     >
                         登录
                     </button>
+                </div>
+                <!-- 演示模式提示：账号已自动填入，直接点登录即可 -->
+                <div v-if="isDemoMode()" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    <i class="ri-information-line mr-1"></i>演示模式：已自动填入演示账号，点击登录即可体验
                 </div>
                 <!-- 单点登录 -->
                 <div v-if="loginConfig.oidc_enabled || loginConfig.cas_enabled" class="mt-5">
@@ -176,8 +180,14 @@ const loginConfig = reactive({
     oidc_display_name: '',
     cas_enabled: false,
     cas_display_name: '',
-    start_register: false
+    start_register: false,
+    // 演示模式专用：登录页自动填入的演示账号（仅 DEMO_MODE=1 时服务端下发）
+    demo_user: '',
+    demo_pass: ''
 })
+
+// 演示模式标识：服务端下发了演示凭据即为演示站
+const isDemoMode = () => Boolean(loginConfig.demo_user && loginConfig.demo_pass);
 
 // 当前验证方式（forcedVerifyMethod 用于 Turnstile 不可用时的本地回退）
 const forcedVerifyMethod = ref('');
@@ -569,7 +579,11 @@ onMounted(async () => {
     // 获取登录配置
     await getLoginSettings();
 
-
+    // 演示模式：自动填入演示账号，访客点「登录」即可进入
+    if (isDemoMode()) {
+        username.value = loginConfig.demo_user;
+        password.value = loginConfig.demo_pass;
+    }
 });
 
 // 清理资源
