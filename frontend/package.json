@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "onexru",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
