@@ -1,9 +1,13 @@
 #!/bin/sh
 # 演示版容器入口
 #
-# 演示预设（verify_method=none / start_register=1 / tourist=1）在应用首启
-# 创建数据库【之后】写入 —— 用后台守护进程轮询 data.db 的 settings 行，
+# 演示模式（DEMO_MODE=1）在应用侧启用全站只读闸门：禁止上传与一切写操作。
+# 这里只负责把「游客可浏览（tourist=1）」与「免人机验证（verify_method=none）」
+# 写入空白数据库 —— 用后台守护进程轮询 data.db 的 settings 行，
 # 仅当 verify_method 仍为空（管理员从未配置过）时注入，幂等且不覆盖人工改动。
+#
+# 注意：不再开启 start_register —— 注册是写操作，演示模式下会被闸门 403 拦截，
+# 开了反而让登录页出现无法完成操作的「注册」入口。
 
 set -e
 
@@ -25,9 +29,9 @@ try:
     if row is None:
         sys.exit(0)
     if row[0] == "":
-        conn.execute("UPDATE settings SET verify_method = 'none', start_register = 1, tourist = 1 WHERE id = 1")
+        conn.execute("UPDATE settings SET verify_method = 'none', tourist = 1 WHERE id = 1")
         conn.commit()
-        print("[demo] 已写入演示预设：verify_method=none, start_register=1, tourist=1", flush=True)
+        print("[demo] 已写入演示预设：verify_method=none, tourist=1（注册保持关闭：演示模式禁止写操作）", flush=True)
 finally:
     conn.close()
 PYEOF

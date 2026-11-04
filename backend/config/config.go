@@ -66,6 +66,11 @@ type Config struct {
 	// 30 次/分钟的全站预算被共享 —— 一个访客刷满，全站都登不进来。
 	// 详见 routes.trustedProxies。
 	TrustedProxies []string
+
+	// 演示模式（DEMO_MODE=1 时启用）：全站只读——
+	// 禁止上传图片 / 禁止一切写操作（增删改），仅保留登录、浏览与查询。
+	// 由演示版镜像的 entrypoint / Dockerfile.demo 注入，普通部署不受影响。
+	DemoMode bool
 }
 
 // 全局配置实例
@@ -336,8 +341,12 @@ func NewConfig() {
 		DbConnMaxIdleTime: positiveEnvDuration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
 		UploadRoot:        getEnv("UPLOAD_ROOT", "./uploads"),
 		TrustedProxies:    parseTrustedProxies(getEnv("TRUSTED_PROXIES", "")),
+		DemoMode:          getEnv("DEMO_MODE", "") == "1" || strings.EqualFold(getEnv("DEMO_MODE", ""), "true"),
 	}
 
+	if App.DemoMode {
+		log.Println("🖥️ 演示模式已启用：全站只读，禁止上传与一切修改操作")
+	}
 	log.Println("✅ 配置初始化完成")
 }
 

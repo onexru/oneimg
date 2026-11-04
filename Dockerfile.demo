@@ -3,12 +3,11 @@
 #
 # 与 Dockerfile 的差异：
 #   1. VERSION 后缀 -demo，系统设置里能看到「v4.0.0-demo」
-#   2. 内置演示环境变量默认值（可用 -e 覆盖）：
-#      - DEMO_MODE=1            应用侧演示标识（日志头展示）
+#   2. DEMO_MODE=1：全站只读——禁止上传图片与一切写操作（增删改），
+#      仅保留登录/登出/SSO/验证；浏览、查询、下载不受影响
+#   3. 内置演示环境变量默认值（可用 -e 覆盖）：
 #      - DEFAULT_USER=demo      预建演示账号 demo / demo123456
 #      - DEFAULT_PASS=demo123456
-#      - VERITY_METHOD=none     关闭人机验证，降低演示门槛
-#      - START_REGISTER=1       允许注册（演示完整流程）
 #
 # 演示数据（示例图片）请用挂载卷注入：
 #   docker run -v ./demo-uploads:/app/uploads onexru/oneimg-oneimg:demo
@@ -45,9 +44,13 @@ RUN mkdir -p /app/data /app/uploads
 
 # ===== 演示环境预设 =====
 # DEFAULT_USER / DEFAULT_PASS 由应用启动逻辑读取并预建演示账号；
+# DEMO_MODE=1 开启全站只读闸门（禁止上传与一切写操作）。
 # verify_method / start_register / tourist 是数据库设置项，ENV 无法直接生效。
-# 容器入口脚本在首次启动时用一次性 SQL 打开「允许注册 / 游客上传」，并
+# 容器入口脚本在应用首启建库后写入「允许注册 / 游客上传」，并
 # 把验证方式设为 none（幂等：仅在 settings 行为空默认时执行，不覆盖管理员的改动）。
+# 注意：允许注册是给访客体验「注册流程」用的；注册请求本身会被
+# DEMO_MODE 闸门放行吗？——不会：注册属于写操作，被 403 拦截。
+# 因此 entrypoint 不再开 start_register，仅保留游客可浏览。
 ENV DEMO_MODE=1 \
     DEFAULT_USER=demo \
     DEFAULT_PASS=demo123456

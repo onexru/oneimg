@@ -83,6 +83,9 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 	}
 	// 用共享实例：控制器在登录成功/失败时需要回写同一个限流器的账号预算。
 	r.Use(middlewares.DefaultAuthLimiter().Middleware(), middlewares.AuthBodyLimitMiddleware(64<<10), middlewares.SameOriginWrites(config.App))
+	// 演示模式闸门：DEMO_MODE=1 时全站只读（禁止上传与一切写操作），
+	// 必须挂在所有业务路由之前——普通部署（DEMO_MODE 空）零影响。
+	r.Use(middlewares.DemoModeMiddleware())
 
 	r.Use(gin.Recovery())
 	r.Use(middlewares.ConfigMiddleware(cfg))
