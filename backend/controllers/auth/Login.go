@@ -20,9 +20,13 @@ import (
 )
 
 // LoginRequest 登录请求体。
+// Username/Password 不再用 binding:"required"：游客登录只带 action=guest，
+// 结构体校验会先于业务逻辑把这种请求拒成 400。必填性在 loginDB 里手动校验，
+// 账号登录缺用户名或密码同样返回 400，行为与之前一致。
 type LoginRequest struct {
-	Username           string         `json:"username" binding:"required,max=64"`
-	Password           string         `json:"password" binding:"required,max=72"`
+	Action             string         `json:"action"`
+	Username           string         `json:"username" binding:"max=64"`
+	Password           string         `json:"password" binding:"max=72"`
 	TurnstileToken     string         `json:"turnstileToken"`
 	CapToken           string         `json:"capToken"`
 	TouristFingerprint string         `json:"touristFingerprint"`
@@ -47,6 +51,12 @@ func Login(c *gin.Context) {
 func loginDB(c *gin.Context, db *gorm.DB) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, result.Error(400, "请求参数错误"))
+		return
+	}
+	// 游客登录（action=guest）不带账号密码；账号登录两者必填。
+	// required 校验无法区分这两种形态，所以在绑定后手动分流。
+	if req.Action != "guest" && (req.Username == "" || req.Password == "") {
 		c.JSON(http.StatusBadRequest, result.Error(400, "请求参数错误"))
 		return
 	}
@@ -77,7 +87,8 @@ func loginDB(c *gin.Context, db *gorm.DB) {
 
 	// A guest request may retain the old frontend's marker fields, but none of
 	// those fields are accepted as proof of identity or as an ownership key.
-	isGuestRequest := req.Username == "guest" || strings.HasPrefix(req.Username, "guest_") || req.TouristFingerprint != ""
+	// 显式 action=guest 是新前端的游客登录形态（只带这一个字段）。
+	isGuestRequest := req.Action == "guest" || req.Username == "guest" || strings.HasPrefix(req.Username, "guest_") || req.TouristFingerprint != ""
 	if isGuestRequest {
 		if !settings.Tourist {
 			c.JSON(403, result.Error(403, "游客模式未开启"))
