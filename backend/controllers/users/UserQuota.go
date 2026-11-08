@@ -127,8 +127,14 @@ func EnforceQuotaInTx(tx *gorm.DB, userID int, incomingBytes int64) error {
 	if userID <= 0 {
 		return nil
 	}
-	setting, err := settings.GetSettings()
-	if err != nil {
+	// 必须走事务自己的连接读 settings，不能调 settings.GetSettings()：
+	// SQLite 的连接池被硬编码为 1 条（见 backend/database/pool.go），此刻这条
+	// 连接已被本事务占用，再从池里申请连接会永久自锁（database/sql 在
+	// context.Background() 下等连接没有超时）；而 settings.GetSettings() 会
+	// 全程持有 settingsCache.mu，使 SecurityHeaders.buildCSP 把每一个请求
+	// （包括静态资源）都一起堵死，整站表现为 Cloudflare 524。
+	var setting models.Settings
+	if err := tx.Where("id = ?", 1).First(&setting).Error; err != nil {
 		return err
 	}
 	var user models.User
