@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"oneimg/backend/app"
+	"oneimg/backend/middlewares"
 	"oneimg/backend/routes"
 	"oneimg/backend/utils/watermark"
 )
@@ -25,6 +26,9 @@ func main() {
 	system := app.Init()
 	r := routes.SetupRoutes(fs)
 	watermark.Init(fontFs)
+	// 预热每响应必经的 CSP：不让首批请求落到「读不到设置」的兜底分支，
+	// 也不让第一个请求承担一次数据库往返。有界等待，数据库慢也不拖住启动。
+	middlewares.WarmCSP()
 
 	port := system.Config.Port
 	log.Printf("应用初始化完成，监听 :%s", port)
