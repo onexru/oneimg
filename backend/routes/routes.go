@@ -200,6 +200,9 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 			direct.POST("/:id/retry", storagectrl.RetryDirectUpload)
 			direct.DELETE("/:id", storagectrl.CancelDirectUpload)
 			auth.DELETE("/images/:id", imagesctrl.DeleteImage)
+			// 批量删除：一次请求带全部 ID，服务端顺序删完再返回逐张结果。
+			// 用 POST 而非带 body 的 DELETE：部分反代/CDN 会把 DELETE 的请求体丢掉。
+			auth.POST("/images/batch-delete", imagesctrl.BatchDeleteImages)
 			auth.GET("/images", imagesctrl.GetImageList)
 			auth.GET("/admin/images", middlewares.AdminOnlyMiddleware(), imagesctrl.GetManagedImageList)
 			auth.GET("/images/:id", imagesctrl.GetImageDetail)

@@ -124,7 +124,6 @@ import { galleryFolderFromQuery, galleryQuery, galleryImageParams, galleryViewPr
 import { createGalleryAccessActions } from '@/utils/galleryAccessActions.js';
 const showFormModal = function(options) { return new PopupModal({ type: 'form', ...options }); };
 
-import { settleDeletions } from '@/utils/batchResults.js';
 import { createGalleryBatchActions } from '@/utils/galleryBatchActions.js';
 import { createGalleryPreviewActions } from '@/utils/galleryPreviewActions.js';
 import { getSelectedAccessBucketId, getAccessSourceOptions as accessSourceOptions, getAccessSourceOptionLabel } from '@/utils/imageAccessSources.js';
@@ -572,16 +571,78 @@ const scheduleSyncRefresh = () => {
   }, 2500);
 };
 
-const batchDeleteImages = async (deleteIds) => {
-  const { succeeded, failed } = await settleDeletions(deleteIds, id => deleteAsync(id, { batch: true }));
-  selectedImages.value = [...new Set([...selectedImages.value.filter(id => !succeeded.includes(id)), ...failed])];
-  if (failed.length) { deletionFilter.value = 'deleting'; currentPage.value = 1; }
-  await Promise.all([loadImages(), reloadFolders()]);
-  if (failed.length) Message.warning(`成功删除 ${succeeded.length} 张，失败 ${failed.length} 张。失败项已保留选中；部分存储源可能已删除，请重试删除。`, { duration: 7000, showClose: true });
-  else Message.success(`成功删除 ${succeeded.length} 张图片`);
+// 批量删除一次只发一条请求，请求体里带全部图片 ID。
+//
+// 之前是每张图一个 DELETE，30 张就是 30 个并发请求；而服务端删副本要拿同一把全局
+// 锁（services.storageReplicaOperationMu），实际仍串行执行。请求越多，排在队尾的
+// 那些只在反代里空等到读超时（Nginx 60s / Cloudflare 100s）被掐断，表现成「每次
+// 只删掉一部分，再点一次又删掉一部分」。合成一条请求后：请求数恒定、服务端逐张
+// 返回结果，失败项精确到 ID。
+//
+// 这里的上限与后端 maxBatchDeleteCount 一致，正常一页 30 张永远只有一片。
+const BATCH_DELETE_LIMIT = 200;
+
+const postBatchDelete = async (ids) => {
+  const response = await fetch(`${API_BASE_URL}/api/images/batch-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ ids })
+  });
+  const result = await readApiResponse(response, '批量删除失败');
+  const data = result.data || {};
+  return { deleted: data.deleted || [], failed: data.failed || [] };
 };
 
-const deleteAsync = async (id, { batch = false } = {}) => {
+const batchDeleteImages = async (deleteIds) => {
+  const ids = [...new Set(deleteIds)];
+  const total = ids.length;
+  const succeeded = new Set();
+  const failed = new Set();
+  let requestError = null;
+
+  const progress = Loading.show({ text: `正在删除 0/${total}`, color: '#ff4d4f', mask: true });
+  try {
+    for (let i = 0; i < ids.length; i += BATCH_DELETE_LIMIT) {
+      const chunk = ids.slice(i, i + BATCH_DELETE_LIMIT);
+      progress.updateText(`正在删除 ${Math.min(i + chunk.length, total)}/${total}…`);
+      try {
+        const outcome = await postBatchDelete(chunk);
+        outcome.deleted.forEach(id => succeeded.add(id));
+        outcome.failed.forEach(item => failed.add(item.id));
+        // 服务端没给回执的 ID（理论上不会出现）按未完成处理，不能当成功。
+        chunk.forEach(id => { if (!succeeded.has(id) && !failed.has(id)) failed.add(id); });
+      } catch (error) {
+        // 整个请求失败（网络中断、反代 502/504）：这一片都算「未确认」。
+        // 服务端可能已经删掉一部分，所以刷新列表后再由用户决定是否重试；
+        // 重试时后端把「已不存在」当成功，因此重复点删除不会报错。
+        console.error('批量删除请求失败:', error);
+        requestError = error;
+        chunk.forEach(id => failed.add(id));
+      }
+    }
+  } finally {
+    await progress.hide();
+  }
+
+  // 未完成的保持选中，方便直接再点一次删除；已删掉的从选中里摘除。
+  selectedImages.value = selectedImages.value.filter(id => failed.has(id));
+  // 不把视图切到「删除未完成」并跳回第 1 页：那会让失败但图片还在的记录从当前页
+  // 消失，计数变成「共 0 张」，看着像全删掉了，用户反而不知道怎么重试。
+  await Promise.all([loadImages(), reloadFolders()]);
+
+  if (!failed.size) {
+    Message.success(`成功删除 ${succeeded.size} 张图片`);
+  } else if (requestError) {
+    Message.error(`批量删除请求失败：${requestError.message}。未确认的 ${failed.size} 张仍保持选中，请刷新后重试。`, { duration: 9000, showClose: true });
+  } else if (!succeeded.size) {
+    Message.error(`${failed.size} 张图片均未删除，失败项已保持选中。`, { duration: 9000, showClose: true });
+  } else {
+    Message.warning(`已删除 ${succeeded.size} 张，${failed.size} 张未完成。未完成项仍保持选中，可再次点击删除继续。`, { duration: 9000, showClose: true });
+  }
+};
+
+// 单张删除：只给预览面板等单图场景用，批量删除走 batchDeleteImages 那条接口。
+const deleteAsync = async (id) => {
   const loadingInstance = Loading.show({
     text: '删除中...',
     color: '#ff4d4f',
@@ -594,21 +655,15 @@ const deleteAsync = async (id, { batch = false } = {}) => {
         'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    const result = await readApiResponse(response, '请求失败');
-    if (response.ok && result.code === 200) {
-      if (!batch) Message.success('图片删除成功');
-      selectedImages.value = selectedImages.value.filter(imageId => imageId !== id);
-      if (!batch) await Promise.all([loadImages(), reloadFolders()]);
-      return true;
-    } else {
-      throw new Error(result.message || '删除失败');
-    }
+    await readApiResponse(response, '请求失败');
+    Message.success('图片删除成功');
+    selectedImages.value = selectedImages.value.filter(imageId => imageId !== id);
+    await Promise.all([loadImages(), reloadFolders()]);
+    return true;
   } catch (error) {
     console.error('删除图片错误:', error);
-    if (!batch) {
-      Message.error(`删除图片失败: ${error.message}；可从“删除未完成”继续删除`, { duration: 6000, showClose: true });
-      if ([500,502].includes(error.status)) { deletionFilter.value = 'deleting'; currentPage.value = 1; await loadImages(); }
-    }
+    Message.error(`删除图片失败: ${error.message}；可从“删除未完成”继续删除`, { duration: 6000, showClose: true });
+    if ([500,502].includes(error.status)) { deletionFilter.value = 'deleting'; currentPage.value = 1; await loadImages(); }
     return false;
   } finally {
     await loadingInstance.hide();
