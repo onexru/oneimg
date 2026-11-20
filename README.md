@@ -334,6 +334,62 @@ curl -X POST "$HOST/api/upload/images" \
 最多 5 秒，仍未拿到才返回 429。脚本化批量上传请按 `Retry-After` 退避重试（例如 2 秒后
 重试 1~3 次），不要立即重发；确实需要更高并发再调 `UPLOAD_SLOTS`。
 
+#### URL 远程上传（`POST /api/images/url`）
+
+```bash
+curl -X POST "$HOST/api/images/url" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/a.jpg","tag_id":0,"folder_id":0}'
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `url` | 是 | 远端图片地址，仅 `http/https`；目标解析到内网/回环/链路本地/云 metadata 会被拒绝 |
+| `tag_id` | 否 | 已存在的标签 ID，`0` 或不传表示不加标签 |
+| `folder_id` | 否 | 目标文件夹，缺省 `0`（根目录） |
+
+**成功响应带 `data`，不是 `null`** —— `data.file.url` 就是新图片地址（单存储模式）：
+
+```json
+{
+  "code": 200,
+  "message": "URL 图片上传成功",
+  "data": {
+    "file": {
+      "success": true,
+      "id": 131,
+      "folder_id": 0,
+      "url": "/uploads/2026/11/a.webp",
+      "thumbnail_url": "/uploads/2026/11/thumbnails/a.webp",
+      "storage": "default",
+      "filename": "a.webp",
+      "file_size": 51200,
+      "thumbnail_size": 8192,
+      "mime_type": "image/webp",
+      "width": 1200,
+      "height": 800,
+      "created_at": "2026-11-20 17:52:15"
+    }
+  }
+}
+```
+
+开启「多存储同步」时 `message` 变为「URL 图片已保存到本机，正在后台同步」，并多一个
+`data.sync_targets`（后台同步的存储源数量，`> 0` 表示远端副本仍在同步，进度见图片详情）。
+
+- `file.url` 是相对路径，按 `APP_URL` 拼成绝对地址再对外使用。
+- 失败时（`url` 非法、下载失败、格式不允许、超限、配额不足）`data` 为 `null`，`message` 说明原因。
+- 下载失败的错误会列出**每个**尝试过的地址及原因，不再是只留最后一个：
+
+```json
+{"code":400,"message":"图片下载失败：连接 pic1.zhimg.com 失败，尝试 2 个地址均失败：[240e:c3:2800:6:800:0:d00:10]:443: connect: network is unreachable；156.59.198.226:443: connect: connection refused","data":null}
+```
+
+> 拨号顺序为 **IPv4 优先**。纯 IPv6 出网与双栈环境都不受影响；只有 IPv4 出网时不会先撞
+> 一通 `ENETUNREACH`。若 DNS 只返回了 AAAA（A 查询失败或被按线路过滤），会显式补查一次
+> A 记录再试 —— 不会因为「解析结果里没有 IPv4」就直接失败。
+
 #### SVG 为什么是「下载」而不是直接显示
 
 SVG 可以内嵌 `<script>`。为避免恶意 SVG 在同源下执行，`/uploads/*.svg` 一律：
