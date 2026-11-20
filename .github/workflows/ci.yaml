@@ -1,0 +1,50 @@
+name: CI
+
+# 构建镜像的 workflow 只在打 tag 时跑（见 build.yaml），所以在此之前
+# 没有任何东西拦住「能编译但跑不通」的改动。这里补上 vet / build / test，
+# 并对 PR 生效。
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # CGO 依赖：sqlite（mattn/go-sqlite3）与 webp（chai2010/webp）
+      - name: 安装 CGO 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc libwebp-dev
+
+      # main.go 用 //go:embed 嵌入了前端构建产物，而 frontend/dist 不进仓库。
+      # 没有占位文件时 go build/vet/test 会在编译 main 包时直接失败。
+      - name: 生成 embed 占位文件
+        run: |
+          mkdir -p frontend/dist
+          test -f frontend/dist/index.html || \
+            printf '%s\n' '<!doctype html><meta charset="utf-8"><title>oneimg ci</title>' > frontend/dist/index.html
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test ./... -count=1

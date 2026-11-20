@@ -264,6 +264,94 @@ v4.0.0 修复了 [#45](https://github.com/onexru/oneimg/issues/45) 反馈的问�
 - 重名自动编号：`风景.webp`、`风景-2.webp`、`风景-3.webp`……探测占用失败时回退随机命名，绝不覆盖已有图片；
 - 关闭开关时保持原有「模板 + 随机串」命名逻辑不变。
 
+### 上传接口（API）
+
+`POST /api/upload`（单张）与 `POST /api/upload/images`（批量）走**同一套**解析逻辑，
+参数与返回完全一致，请求必须是 `multipart/form-data`（鉴权需在后台「启用 API」，
+并携带 `Authorization: Bearer <token>`）。
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `images[]` | 是 | 文件字段。**规范字段名就是 `images[]`，单张上传也用它**；同时兼容 `file` / `file[]` / `images` |
+| `folder_id` | 否 | 目标文件夹 ID，缺省 `0`（根目录） |
+| `tags` | 否 | JSON 数组字符串，如 `["风景","壁纸"]`，只会关联**已存在**的标签 |
+| `bucket_id` | 否 | 仅单存储模式有效，指定目标存储源 |
+
+```bash
+curl -X POST "$HOST/api/upload/images" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "images[]=@a.png" \
+  -F "images[]=@b.png" \
+  -F 'tags=["测试"]'
+```
+
+成功响应（`failed_count` 为失败张数，`sync_targets` 为后台同步目标数）：
+
+```json
+{
+  "code": 200,
+  "message": "文件已保存到本机，正在后台同步",
+  "data": {
+    "count": 2,
+    "failed_count": 0,
+    "sync_targets": 1,
+    "files": [
+      {
+        "success": true,
+        "id": 128,
+        "folder_id": 0,
+        "url": "https://img.example.com/uploads/2026/11/xxx.webp",
+        "thumbnail_url": "https://img.example.com/uploads/2026/11/xxx_thumb.webp",
+        "storage": "default",
+        "filename": "xxx.webp",
+        "file_size": 51200,
+        "mime_type": "image/webp",
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  }
+}
+```
+
+> 开启「多存储同步」时 `message` 为「文件已保存到本机，正在后台同步」：
+> 返回成功**只代表本机副本已就绪**，远端副本由后台任务继续上传，进度见图片详情。
+
+失败响应体固定为 `{"code": <状态码>, "message": "...", "data": null}`：
+
+| code | 场景 | message 示例 |
+|---|---|---|
+| 400 | Content-Type 不是 multipart | `请求 Content-Type 必须是 multipart/form-data，文件字段名使用 images[]` |
+| 400 | 文件字段名不对 | `未找到上传文件：multipart 字段名应为 images[]（兼容 file / file[]）` |
+| 400 | 超过数量上限 | `最多只能上传10个文件` |
+| 401 | token 缺失/过期，或后台未启用 API | `用户未登录或会话已过期` / `API 凭据无效` |
+| 403 | token 缺少上传 scope，或游客身份无效 | `API 凭据无此操作权限` |
+| 413 | 请求体超过上限 | `上传内容超过请求体上限：请减少文件数量或缩小单张图片` |
+| 429 | 全局上传槽被占满 | `服务器正在处理其他上传（并发上限 2），请稍后重试`，带 `Retry-After: 2` |
+| 503 | 水印转码繁忙 | `图片处理繁忙，请稍后重试`，带 `Retry-After: 2` |
+
+**并发与退避**：服务端同时只处理 `UPLOAD_SLOTS`（默认 2）个上传请求；槽位占满时会先排队
+最多 5 秒，仍未拿到才返回 429。脚本化批量上传请按 `Retry-After` 退避重试（例如 2 秒后
+重试 1~3 次），不要立即重发；确实需要更高并发再调 `UPLOAD_SLOTS`。
+
+#### SVG 为什么是「下载」而不是直接显示
+
+SVG 可以内嵌 `<script>`。为避免恶意 SVG 在同源下执行，`/uploads/*.svg` 一律：
+
+- `Content-Disposition: attachment`（浏览器下载而不是渲染）；
+- `Content-Security-Policy: sandbox; default-src 'none'; ...`；
+- `Cache-Control: private, no-store`。
+
+这是**刻意的防 XSS 设计，不是缺陷**。所以不要把上传后的 SVG 直接 `<img>` 内嵌到页面当普通
+图片用；需要矢量图展示时，请自行转成 PNG/WebP 再上传。
+
+#### 为什么单文件有 32MiB 硬上限
+
+`MAX_FILE_SIZE` 只能往下调，不能突破 32MiB：上传是少数会把整张图读进内存再解码的接口，
+若把上界完全交给配置（允许填 0 或 500MB），一个请求就能把进程打爆；而 `/uploads` 的转码
+路径还会在未鉴权时触发解码。真正限制「1MB 的 PNG 解出 1.6GB 位图」的是解码前后的
+16MP / 8192px 上限与全局处理槽，32MiB 只是外层闸门。
+
 ### 数据库 TLS 模式
 
 MySQL / PostgreSQL 的 TLS 由 `DB_TLS_MODE` 控制：
@@ -329,6 +417,7 @@ docker run -d --name oneimg -p 8080:8080 \
 | `CONFIG_SECRET` | 空（自动持久化） | 配置与图片加密密钥，留空时生成到 `data/.config_secret`；显式设置必须 ≥32 字符且不可更换 |
 | `MAX_FILE_SIZE` | `10485760` | 单文件上限（字节），另有 32MB 硬上限 |
 | `ALLOWED_TYPES` | jpeg/png/gif/webp | 允许的 MIME，逗号分隔 |
+| `UPLOAD_SLOTS` | `2` | 同时处理的上传请求数，上限 16。每个槽位峰值内存约 100~200MB，调大前按机器内存核算；占满时返回 `429` + `Retry-After: 2` |
 | `TRUSTED_PROXIES` | 空 | 反代信任的 IP/CIDR，逗号分隔；留空不信任任何代理，非法条目拒绝启动（见上文「反向代理与限流」） |
 
 > 用户默认配额 `default_user_quota`（默认 10 GiB）不是环境变量，在「系统设置 → 上传」中配置；个体配额优先于该值。

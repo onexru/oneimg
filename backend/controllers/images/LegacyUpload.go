@@ -30,7 +30,9 @@ import (
 
 // uploadImagesLegacy keeps the original request-time, single-bucket upload
 // path used when multi-storage synchronization is disabled.
-func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []models.Tags, folderID int) {
+//
+// files 由调用方解析后传入：同一请求只需要解析一次 multipart。
+func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []models.Tags, folderID int, files []*multipart.FileHeader) {
 	uc := uploads.NewUploadContext(c)
 	db := database.GetDB()
 
@@ -57,12 +59,6 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 			return
 		}
 		uc.Fail(http.StatusInternalServerError, "存储配置查询失败：%v", err)
-		return
-	}
-
-	files, err := parseConfiguredUploadFiles(c, setting)
-	if err != nil {
-		uc.Fail(uploadParseErrorStatus(err), "文件解析失败：%v", err)
 		return
 	}
 
