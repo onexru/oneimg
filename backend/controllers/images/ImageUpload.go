@@ -51,8 +51,11 @@ func UploadImages(c *gin.Context) {
 	}
 	db := database.GetDB()
 
-	if _, err := parseConfiguredUploadFiles(c, setting); err != nil {
-		uc.Fail(uploadParseErrorStatus(err), "文件解析失败：%v", err)
+	// 只解析一次：后面的两条分支（本机同步 / 单存储）都复用这份 files。
+	// 以前这里先解析一次（结果丢弃）再在分支里解析一次，纯属重复开销。
+	files, err := parseConfiguredUploadFiles(c, setting)
+	if err != nil {
+		failUploadParse(uc, err)
 		return
 	}
 	folderID, validFolder := multipartUploadFolder(c)
@@ -81,20 +84,13 @@ func UploadImages(c *gin.Context) {
 	}
 
 	if !setting.MultiStorageSync {
-		uploadImagesLegacy(c, setting, existingTags, folderID)
+		uploadImagesLegacy(c, setting, existingTags, folderID, files)
 		return
 	}
 
 	localBucket, syncBuckets, err := storagectrl.ResolveUploadBuckets(c, setting)
 	if err != nil {
 		uc.Fail(500, "获取用户同步存储源失败：%v", err)
-		return
-	}
-
-	// 解析并校验上传文件
-	files, err := parseConfiguredUploadFiles(c, setting)
-	if err != nil {
-		uc.Fail(uploadParseErrorStatus(err), "文件解析失败：%v", err)
 		return
 	}
 

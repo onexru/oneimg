@@ -65,10 +65,10 @@ func (uc *UploadContext) ParseAndValidateFilesWithSettings(policy models.Setting
 		return nil, fmt.Errorf("解析表单失败：%v", err)
 	}
 
-	// 获取文件列表
-	files := form.File["images[]"]
+	// 获取文件列表（规范字段 images[]，兼容 file / file[]）
+	files := PickUploadFiles(form)
 	if len(files) == 0 {
-		return nil, errors.New("请选择要上传的图片")
+		return nil, errors.New("请选择要上传的图片（multipart 字段名应为 images[]）")
 	}
 
 	// 校验文件数量

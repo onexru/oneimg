@@ -151,6 +151,53 @@ func GetNoRedirect(ctx context.Context, rawURL string, timeout time.Duration) (*
 	return get(ctx, rawURL, timeout, false)
 }
 
+// newTransport 构造「取远端图片」专用的 Transport。
+//
+// Proxy 固定为 nil，刻意**不**读取 HTTP_PROXY / HTTPS_PROXY：
+// 走代理时 Transport 拨号的目标是代理服务器，而不是用户提交的 URL，于是
+// DialContext 校验的是代理地址（通常公网，必然通过），真正的目标由代理去
+// 解析 —— 相当于把 DNS 解析与 IP 校验整段让给了外部进程，DNS rebinding
+// 防护也随之失效。容器化部署为出网配 HTTP_PROXY 相当常见，属于
+// 「配置一并打开就静默失效」的形态，因此这里选择 fail-closed：
+// 宁可取不到，也不让 SSRF 校验被绕过。
+//
+// 抽成独立函数是为了让回归测试能直接断言 Proxy 为 nil，而不必真实出网。
+func newTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if err := assertPublicHost(host); err != nil {
+				return nil, err
+			}
+			ips, err := net.LookupIP(host)
+			if err != nil {
+				return nil, err
+			}
+			var lastErr error
+			d := net.Dialer{Timeout: 10 * time.Second, Control: DialControl}
+			for _, ip := range ips {
+				if isBlockedIP(ip) {
+					lastErr = ErrBlockedHost
+					continue
+				}
+				conn, dialErr := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if dialErr == nil {
+					return conn, nil
+				}
+				lastErr = dialErr
+			}
+			if lastErr == nil {
+				lastErr = ErrBlockedHost
+			}
+			return nil, lastErr
+		},
+	}
+}
+
 func get(ctx context.Context, rawURL string, timeout time.Duration, follow bool) (*http.Response, error) {
 	if err := ValidatePublicHTTPURL(rawURL); err != nil {
 		return nil, err
@@ -176,40 +223,7 @@ func get(ctx context.Context, rawURL string, timeout time.Duration, follow bool)
 			}
 			return nil
 		},
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				host, port, err := net.SplitHostPort(addr)
-				if err != nil {
-					return nil, err
-				}
-				if err := assertPublicHost(host); err != nil {
-					return nil, err
-				}
-				ips, err := net.LookupIP(host)
-				if err != nil {
-					return nil, err
-				}
-				var lastErr error
-				d := net.Dialer{Timeout: 10 * time.Second}
-				for _, ip := range ips {
-					if isBlockedIP(ip) {
-						lastErr = ErrBlockedHost
-						continue
-					}
-					conn, dialErr := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-					if dialErr == nil {
-						return conn, nil
-					}
-					lastErr = dialErr
-				}
-				if lastErr == nil {
-					lastErr = ErrBlockedHost
-				}
-				return nil, lastErr
-			},
-			// 禁用 HTTP/2 与 keep-alive 不是必须，保持默认即可
-		},
+		Transport: newTransport(),
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)

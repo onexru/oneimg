@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,19 +39,13 @@ var fetchUploadURL = safefetch.Get
 // 容量比上传槽宽一些（下载常比写盘慢，太紧会让正常批量 URL 上传排队）。
 var urlFetchSlots = make(chan struct{}, 6)
 
-// acquireURLFetchSlot 非阻塞地占一个下载槽；满了就返回 429，
+// acquireURLFetchSlot 非阻塞地占一个下载槽；满了就 429（带 Retry-After），
 // 不排队 —— 排队会让请求一直挂着，反而更容易被用来堆积连接。
+//
+// 与上传槽共用 uploads.AcquireSlot，避免两处限流实现各自漂移
+// （历史上这里缺 Retry-After、也漏了停掉兜底定时器）。
 func acquireURLFetchSlot(c *gin.Context) (func(), bool) {
-	select {
-	case urlFetchSlots <- struct{}{}:
-		var once sync.Once
-		release := func() { once.Do(func() { <-urlFetchSlots }) }
-		time.AfterFunc(urlFetchSlotHoldLimit, release)
-		return release, true
-	default:
-		c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": "URL 下载任务较多，请稍后重试"})
-		return nil, false
-	}
+	return uploads.AcquireSlot(c, urlFetchSlots, urlFetchSlotHoldLimit, 0, "URL 下载任务较多，请稍后重试")
 }
 
 // urlFetchSlotHoldLimit 兜底释放：正常路径靠 defer，这里防止某条路径忘记释放。
