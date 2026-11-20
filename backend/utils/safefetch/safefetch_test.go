@@ -139,3 +139,178 @@ func mustParseIP(t *testing.T, raw string) net.IP {
 	}
 	return parsed
 }
+
+// stubLookup 替换包级 DNS 查询，返回按 network（"ip"/"ip4"）区分的固定结果。
+func stubLookup(t *testing.T, byNetwork map[string][]net.IP) *[]string {
+	t.Helper()
+	var queried []string
+	original := lookupIPFunc
+	lookupIPFunc = func(ctx context.Context, network, host string) ([]net.IP, error) {
+		queried = append(queried, network)
+		if ips, ok := byNetwork[network]; ok {
+			return ips, nil
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { lookupIPFunc = original })
+	return &queried
+}
+
+// stubDial 替换实际拨号：failing 里的地址返回 error（模拟 ENETUNREACH），
+// 其余地址返回一条 net.Pipe 连接。返回被尝试过的地址列表。
+func stubDial(t *testing.T, failing map[string]error) *[]string {
+	t.Helper()
+	var tried []string
+	original := dialFunc
+	dialFunc = func(ctx context.Context, dialer *net.Dialer, network, addr string) (net.Conn, error) {
+		tried = append(tried, addr)
+		if err, ok := failing[addr]; ok {
+			return nil, err
+		}
+		conn, peer := net.Pipe()
+		t.Cleanup(func() { _ = peer.Close() })
+		return conn, nil
+	}
+	t.Cleanup(func() { dialFunc = original })
+	return &tried
+}
+
+// TestOrderIPv4First 覆盖排序：IPv4 必须排在 IPv6 之前。
+func TestOrderIPv4First(t *testing.T) {
+	ordered := orderIPv4First([]net.IP{
+		mustParseIP(t, "2606:4700::1"),
+		mustParseIP(t, "1.1.1.1"),
+		mustParseIP(t, "2001:db8::1"),
+		mustParseIP(t, "8.8.8.8"),
+	})
+	want := []string{"1.1.1.1", "8.8.8.8", "2606:4700::1", "2001:db8::1"}
+	if len(ordered) != len(want) {
+		t.Fatalf("排序后长度应为 %d，实际 %d", len(want), len(ordered))
+	}
+	for i := range want {
+		if ordered[i].String() != want[i] {
+			t.Fatalf("第 %d 位应为 %s，实际 %s", i, want[i], ordered[i])
+		}
+	}
+}
+
+// TestDialPublicStartsWithIPv4 是 issue #55 的核心回归：
+// DNS 把 AAAA 排在前面时，拨号也必须先试 IPv4，而不是先撞 IPv6 的 ENETUNREACH。
+func TestDialPublicStartsWithIPv4(t *testing.T) {
+	stubLookup(t, map[string][]net.IP{
+		"ip": {mustParseIP(t, "2606:4700::1"), mustParseIP(t, "1.1.1.1")},
+	})
+	tried := stubDial(t, map[string]error{})
+
+	conn, err := dialPublic(context.Background(), "tcp", "example.com", "443")
+	if err != nil {
+		t.Fatalf("应先连上 IPv4，实际报错：%v", err)
+	}
+	conn.Close()
+	if len(*tried) == 0 || (*tried)[0] != "1.1.1.1:443" {
+		t.Fatalf("首个拨号目标应为 1.1.1.1:443，实际 %v", *tried)
+	}
+}
+
+// TestDialPublicFallsBackToARecord 覆盖「只解析到 AAAA」的场景：
+// 必须补查一次 A 记录，让纯 IPv4 出网的机器仍能取到图。
+func TestDialPublicFallsBackToARecord(t *testing.T) {
+	queried := stubLookup(t, map[string][]net.IP{
+		"ip":  {mustParseIP(t, "2606:4700::1")},
+		"ip4": {mustParseIP(t, "93.184.216.34")},
+	})
+	tried := stubDial(t, map[string]error{
+		"[2606:4700::1]:443": errors.New("connect: network is unreachable"),
+	})
+
+	conn, err := dialPublic(context.Background(), "tcp", "example.com", "443")
+	if err != nil {
+		t.Fatalf("补查 A 记录后应连上，实际报错：%v", err)
+	}
+	conn.Close()
+
+	sawIPv4Lookup := false
+	for _, network := range *queried {
+		if network == "ip4" {
+			sawIPv4Lookup = true
+		}
+	}
+	if !sawIPv4Lookup {
+		t.Fatalf("只解析到 AAAA 时必须补查 A 记录，实际查询序列 %v", *queried)
+	}
+	if last := (*tried)[len(*tried)-1]; last != "93.184.216.34:443" {
+		t.Fatalf("最后一次拨号应为补查到的 IPv4，实际 %v", *tried)
+	}
+}
+
+// TestDialPublicAggregatesAllErrors 覆盖错误可读性：
+// 每个地址的失败原因都要出现在错误里，而不是只剩最后一个。
+func TestDialPublicAggregatesAllErrors(t *testing.T) {
+	stubLookup(t, map[string][]net.IP{
+		"ip": {mustParseIP(t, "1.1.1.1"), mustParseIP(t, "2606:4700::1")},
+	})
+	v6Err := errors.New("connect: network is unreachable")
+	v4Err := errors.New("connect: connection refused")
+	stubDial(t, map[string]error{
+		"1.1.1.1:443":        v4Err,
+		"[2606:4700::1]:443": v6Err,
+	})
+
+	_, err := dialPublic(context.Background(), "tcp", "example.com", "443")
+	if err == nil {
+		t.Fatal("全部地址失败时必须返回错误")
+	}
+	var dialErr *DialError
+	if !errors.As(err, &dialErr) {
+		t.Fatalf("应返回 *DialError，实际 %T：%v", err, err)
+	}
+	if len(dialErr.Attempts) != 2 {
+		t.Fatalf("应记录 2 次尝试，实际 %d", len(dialErr.Attempts))
+	}
+	for _, want := range []string{"1.1.1.1:443", "connection refused", "2606:4700::1", "network is unreachable"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误信息应包含 %q，实际：%v", want, err)
+		}
+	}
+	if !errors.Is(err, v4Err) {
+		t.Fatalf("Unwrap 应指回首个尝试的错误，实际：%v", err)
+	}
+}
+
+// TestDialPublicSkipsBlockedAddress 确认内网地址不会被拨号，即使 DNS 返回了它。
+func TestDialPublicSkipsBlockedAddress(t *testing.T) {
+	stubLookup(t, map[string][]net.IP{
+		"ip": {mustParseIP(t, "127.0.0.1")},
+	})
+	tried := stubDial(t, map[string]error{})
+
+	_, err := dialPublic(context.Background(), "tcp", "evil.example", "80")
+	if err == nil {
+		t.Fatal("内网地址必须失败")
+	}
+	if !strings.Contains(err.Error(), ErrBlockedHost.Error()) {
+		t.Fatalf("错误应说明命中了禁止地址，实际：%v", err)
+	}
+	if len(*tried) != 0 {
+		t.Fatalf("内网地址不应被拨号，实际尝试 %v", *tried)
+	}
+}
+
+// TestDialPublicLiteralIPv4SkipsDNS 确认字面量 IP 不查 DNS。
+func TestDialPublicLiteralIPv4SkipsDNS(t *testing.T) {
+	queried := stubLookup(t, map[string][]net.IP{})
+	tried := stubDial(t, map[string]error{})
+
+	conn, err := dialPublic(context.Background(), "tcp", "1.1.1.1", "443")
+	if err != nil {
+		t.Fatalf("字面量 IP 应可直接拨号：%v", err)
+	}
+	conn.Close()
+	if len(*queried) != 0 {
+		t.Fatalf("字面量 IP 不应触发 DNS 查询，实际 %v", *queried)
+	}
+	if (*tried)[0] != "1.1.1.1:443" {
+		t.Fatalf("拨号目标应为 1.1.1.1:443，实际 %v", *tried)
+	}
+}
+
