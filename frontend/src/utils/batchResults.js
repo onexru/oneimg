@@ -10,12 +10,6 @@ export function uploadOutcome(result, expected = 1) {
   return { images: successful, errors, failed: Math.max(errors.length, Number(data?.failed_count) || 0, expected - successful.length, 0) };
 }
 
-export async function settleDeletions(ids, remove) {
-  const outcomes = await Promise.allSettled(ids.map(id => remove(id)));
-  return { succeeded: ids.filter((_, i) => outcomes[i].status === 'fulfilled' && outcomes[i].value === true),
-    failed: ids.filter((_, i) => outcomes[i].status !== 'fulfilled' || outcomes[i].value !== true) };
-}
-
 export function clampUsage(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;

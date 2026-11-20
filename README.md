@@ -390,6 +390,46 @@ curl -X POST "$HOST/api/images/url" \
 > 一通 `ENETUNREACH`。若 DNS 只返回了 AAAA（A 查询失败或被按线路过滤），会显式补查一次
 > A 记录再试 —— 不会因为「解析结果里没有 IPv4」就直接失败。
 
+#### 删除接口（单张 / 批量）
+
+| 接口 | 说明 |
+|---|---|
+| `DELETE /api/images/:id` | 删除单张。成功返回 200；不存在 404、越权 403、副本删失败 502 |
+| `POST /api/images/batch-delete` | 批量删除，**一次请求带全部 ID** |
+
+```bash
+curl -X POST "$HOST/api/images/batch-delete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[128,129,130]}'
+```
+
+```json
+{
+  "code": 200,
+  "message": "已删除 2 张，1 张未完成",
+  "data": {
+    "requested": 3,
+    "deleted": [128, 129],
+    "failed": [{ "id": 130, "message": "部分存储源删除失败，文件记录已保留，可稍后重试" }],
+    "deleted_count": 2,
+    "failed_count": 1
+  }
+}
+```
+
+约定：
+
+- `ids` 单次最多 **200** 个（图库一页 30 张，正常一次选中就是一页）；会自动去重、丢弃非法 ID。
+- 服务端**顺序**删完再返回，逐张给结果：一张失败不影响其它张，`failed[]` 里的 `message` 可直接展示。
+- 删除「已不存在」的 ID 记为**成功**，所以重试是幂等的 —— 反代超时后整批重发不会误报失败。
+- 批量删除用 `POST` 而不是带请求体的 `DELETE`：部分反代 / CDN 会丢弃 `DELETE` 的 body。
+
+> 为什么不做成「一个 ID 一条 `DELETE`」：删除副本要拿同一把全局存储锁，服务端本来就是串行
+> 执行的。请求拆得越多，排在队尾的越容易在反代里空等到读超时（Nginx 默认 60s、Cloudflare
+> 100s）被掐断，表现出来就是「每次只删掉一部分，再点一次又删掉一部分」。一条请求反而更快、
+> 结果也更准确。
+
 #### SVG 为什么是「下载」而不是直接显示
 
 SVG 可以内嵌 `<script>`。为避免恶意 SVG 在同源下执行，`/uploads/*.svg` 一律：
