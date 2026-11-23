@@ -42,6 +42,31 @@ func ValidateAPICredential(db *gorm.DB, setting models.Settings, raw string) (mo
 func HasScope(token models.APICredential, scope string) bool {
  for _,s:=range strings.Split(token.Scopes,",") { if s==scope { return true } }; return false
 }
+
+// TokenScopes 是 API Token 支持的 scope 全集，命名与用户权限码一致。
+// 只有列在这里的值会被当成有效权限：即使数据库里出现脏字符串（例如 "*"），
+// 也不会进入控制器的权限判断，避免 token 意外拿到超管级的 "*" 判定。
+var TokenScopes = []string{"image:read", "upload:write", "image:delete"}
+
+// PermissionCodes 把 token 的 scopes 还原成权限码列表。
+//
+// 中间件按 scope 判断路由是否可达，控制器按权限码判权（图片删除就是
+// image:delete）。两者必须同源，否则会出现「路由放行了、控制器却仍 403」
+// 或者反过来「控制器允许、路由先拦住」的两头不一致。
+func PermissionCodes(scopes string) []string {
+ allowed := make(map[string]struct{}, len(TokenScopes))
+ for _, scope := range TokenScopes { allowed[scope] = struct{}{} }
+ codes := make([]string, 0, len(TokenScopes))
+ seen := make(map[string]struct{}, len(TokenScopes))
+ for _, raw := range strings.Split(scopes, ",") {
+  scope := strings.TrimSpace(raw)
+  if _, ok := allowed[scope]; !ok { continue }
+  if _, dup := seen[scope]; dup { continue }
+  seen[scope] = struct{}{}
+  codes = append(codes, scope)
+ }
+ return codes
+}
 func NewAPICredential(db *gorm.DB,owner int) (string,models.APICredential,error) {
  raw,err:=RandomSecret(32); if err!=nil { return "",models.APICredential{},err }; raw="oi_"+raw
  row:=models.APICredential{ID:Digest(raw),OwnerID:owner,Scopes:DefaultTokenScopes,ExpiresAt:time.Now().Add(TokenLifetime)}

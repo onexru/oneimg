@@ -348,6 +348,26 @@ v4.0.0 修复了 [#45](https://github.com/onexru/oneimg/issues/45) 反馈的问�
 这三个数值也能从 `GET /api/uploadConfig` 读到（`max_file_size` / `max_image_pixels` /
 `max_image_dimension`），客户端可以提前拦掉，不必等传完才被拒。
 
+### API Token 的权限范围（scopes）
+
+API Token（`Authorization: Bearer oi_...`）只能访问下表中的接口，其余路由一律 403
+「API 凭据无此操作权限」——包括设置、用户、存储、标签增删与存储源切换。浏览器会话不受此限制。
+
+| scope | 覆盖的接口 |
+|---|---|
+| `image:read` | 图片列表与详情、`/api/user/status`、`/api/uploadConfig`、`/api/buckets/list`、`/api/tags` |
+| `upload:write` | `POST /api/upload`、`/api/upload/images`、`/api/images/upload`、`/api/images/url` |
+| `image:delete` | `DELETE /api/images/:id`、`POST /api/images/batch-delete` |
+
+两点需要注意：
+
+- **v4.0.2 及更早签发的 token 不含 `image:delete`**（当时默认值是 `image:read,upload:write`），
+  拿它调删除接口会返回 403。到后台重新生成一次 token 即可（同一时间只保留一个有效 token，
+  重新生成会吊销旧的）。
+- token 的权限码由 scopes 推导，**不随账号角色提升**；图片归属由控制器逐张校验，普通账号
+  的 token 只能删自己上传的图。（超管本人签发的 token 等价于他本人的浏览器会话，可管理全部
+  图片——这一点与删除按钮在后台的行为一致。）
+
 ### 上传接口（API）
 
 `POST /api/upload`（单张）与 `POST /api/upload/images`（批量）走**同一套**解析逻辑，
@@ -522,6 +542,7 @@ curl -X POST "$HOST/api/images/batch-delete" \
 
 约定：
 
+- 两个接口都需要 token 具备 `image:delete`（见上一节）；v4.0.2 及更早签发的 token 需要重新生成。
 - `ids` 单次最多 **200** 个（图库一页 30 张，正常一次选中就是一页）；会自动去重、丢弃非法 ID。
 - 服务端**顺序**删完再返回，逐张给结果：一张失败不影响其它张，`failed[]` 里的 `message` 可直接展示。
 - 删除「已不存在」的 ID 记为**成功**，所以重试是幂等的 —— 反代超时后整批重发不会误报失败。

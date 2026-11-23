@@ -15,7 +15,7 @@ import (
 const GuestCookie = "oneimg-guest"
 const GuestLifetime = 365 * 24 * time.Hour
 const TokenLifetime = 30 * 24 * time.Hour
-const DefaultTokenScopes = "image:read,upload:write"
+const DefaultTokenScopes = "image:read,upload:write,image:delete"
 
 // DummyBcryptHash 是一个与真实用户哈希同 cost（10）的 bcrypt 哈希，
 // 供"用户不存在"分支执行等价比较，抹平登录响应时间差，防御用户名
