@@ -1,32 +1,267 @@
-name: 自动构建
+name: 发布
+
+# 打 v* 标签即触发：编译多平台二进制 + 建 GitHub Release + 推多架构镜像。
+# 手动触发（workflow_dispatch）时请填入版本号，例如 v4.0.2。
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（例如 v4.0.2）"
+        required: true
+        type: string
 
+permissions:
+  contents: write
+
+# 同一个版本不并发跑两遍，避免重复建 Release / 重复推同名镜像。
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # Docker Hub 仓库名。镜像地址为 <DOCKERHUB_USERNAME>/<IMAGE_NAME>。
+  IMAGE_NAME: oneimg-oneimg
 
 jobs:
-  build:
+  # 前端只构建一次，产物喂给后面四个编译任务，省掉四份 node_modules。
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: 解析版本号
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          V="${INPUT_VERSION:-}"
+          if [ -z "$V" ]; then V="${GITHUB_REF_NAME}"; fi
+          case "$V" in
+            v*) ;;
+            *) V="v$V" ;;
+          esac
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "发布版本：$V"
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 构建前端
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
+          if-no-files-found: error
+
+  # CGO 依赖（libwebp 源码 + go-sqlite3 内置的 SQLite amalgamation）必须真编译，
+  # 所以四个目标全用 zig cc 交叉编译，不需要额外的 runner 或系统库。
+  binaries:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            zigtarget: x86_64-linux-musl
+            ext: ""
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            zigtarget: aarch64-linux-musl
+            ext: ""
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            zigtarget: x86_64-windows-gnu
+            ext: ".exe"
+            archive: zip
+          - goos: windows
+            goarch: arm64
+            zigtarget: aarch64-windows-gnu
+            ext: ".exe"
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: 取回前端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: 编译 ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: zig cc -target ${{ matrix.zigtarget }}
+          EXT: ${{ matrix.ext }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -eu
+          go build -trimpath -buildvcs=false \
+            -ldflags="-s -w -X oneimg/backend/config.Version=${VERSION}" \
+            -o "oneimg${EXT}" ./main.go
+          ls -l "oneimg${EXT}"
+
+      # 镜像由原始二进制组装，单独留一份产物给 docker 任务用。
+      - name: 上传原始二进制
+        if: matrix.goos == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-linux-${{ matrix.goarch }}
+          path: oneimg
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: 打包
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXT: ${{ matrix.ext }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -eu
+          NAME="oneimg-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p "pkg/${NAME}"
+          mv "oneimg${EXT}" "pkg/${NAME}/"
+          cp -r ca "pkg/${NAME}/" 2>/dev/null || true
+          cp .env.example "pkg/${NAME}/" 2>/dev/null || true
+          cp README.md "pkg/${NAME}/" 2>/dev/null || true
+          cd pkg
+          if [ "$ARCHIVE" = "zip" ]; then
+            zip -qr "../${NAME}.zip" "${NAME}"
+          else
+            tar -czf "../${NAME}.tar.gz" "${NAME}"
+          fi
+          cd ..
+          ls -l "${NAME}."*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            oneimg-*.tar.gz
+            oneimg-*.zip
+          retention-days: 3
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, binaries]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
-      - name: DockerBuildx
-        uses: docker/setup-buildx-action@v3
+      - name: 生成校验和
+        run: |
+          set -eu
+          cd artifacts
+          sha256sum ./*.tar.gz ./*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-      - name: 登录dockerhub
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/oneimg-*.tar.gz
+            artifacts/oneimg-*.zip
+            artifacts/SHA256SUMS.txt
+
+  docker:
+    needs: [prepare, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 组装构建上下文
+        run: |
+          set -eu
+          mkdir -p build-context/linux-amd64 build-context/linux-arm64
+          cp Dockerfile.release build-context/Dockerfile
+          cp -r ca build-context/ca
+
+      - name: 取回 linux/amd64 二进制
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-linux-amd64
+          path: build-context/linux-amd64
+
+      - name: 取回 linux/arm64 二进制
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-linux-arm64
+          path: build-context/linux-arm64
+
+      - name: 登录 Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: 编译推送
-        uses: docker/build-push-action@v5
+
+      - name: 计算镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          context: .
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.version }}
+
+      - name: 编译推送（linux/amd64 + linux/arm64）
+        uses: docker/build-push-action@v6
+        with:
+          context: build-context
+          file: build-context/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/oneimg:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/oneimg:${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 关掉 provenance 附带层，避免仓库里出现 unknown/unknown 平台条目。
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

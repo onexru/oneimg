@@ -174,6 +174,29 @@ docker run -d \
 docker exec oneimg cat /app/data/.initial_admin_password
 ```
 
+### 二进制包（Linux / Windows）
+
+不想用容器时，直接下载对应平台的压缩包即可，前端已通过 `go:embed` 打进可执行文件，解压就能跑。
+
+| 平台 | 文件名 |
+|---|---|
+| Linux x86_64 | `oneimg-vX.Y.Z-linux-amd64.tar.gz` |
+| Linux arm64 | `oneimg-vX.Y.Z-linux-arm64.tar.gz` |
+| Windows x64 | `oneimg-vX.Y.Z-windows-amd64.zip` |
+| Windows arm64 | `oneimg-vX.Y.Z-windows-arm64.zip` |
+
+到 [Releases](https://github.com/onexru/oneimg/releases) 下载，同一次发布里附带的 `SHA256SUMS.txt` 可用于校验完整性。
+
+```bash
+tar -xzf oneimg-v4.0.2-linux-amd64.tar.gz
+cd oneimg-v4.0.2-linux-amd64
+APP_URL=https://img.example.com ./oneimg
+```
+
+- 工作目录下会自动创建 `data/`（数据库、初始密码）和 `uploads/`（本地存储），升级时保留这两个目录。
+- `APP_URL` 建议显式指定，否则返回的图片链接会以 `http://localhost:8080` 为前缀。
+- Linux 版基于 musl 静态链接，不依赖发行版 glibc 版本；Windows 版是单文件 exe，无需额外运行库。
+
 ### 初始账号与密码
 
 > **版本差异**：`v3.5.5` 及更早版本，初始管理员密码固定为 `123456`；从 `v3.5.6` 起改为首次启动随机生成。
@@ -205,8 +228,9 @@ docker exec oneimg cat /app/data/.initial_admin_password
 
 ### 环境要求
 
-- Docker 20.10.0+
-- Docker Compose v2.0.0+
+- Docker 20.10.0+（用容器部署时）
+- Docker Compose v2.0.0+（用 Compose 编排时）
+- 用二进制包部署时无额外依赖，见上一节
 
 ### 数据持久化
 

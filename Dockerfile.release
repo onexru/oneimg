@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+#
+# 发布专用：用工作流产出的 linux 二进制组装镜像，不做二次编译。
+#   - 镜像里的可执行文件与 GitHub Release 附件完全一致
+#   - arm64 不必在 QEMU 下重跑一遍 CGO 编译，构建时间从十几分钟降到几十秒
+#   - 前端已通过 go:embed 打进二进制，镜像内不再重复放一份 frontend/dist
+#
+# 需要从源码构建镜像时，用仓库根目录的 Dockerfile：
+#   docker build -t oneimg .
+#
+# 构建上下文需要包含：
+#   linux-amd64/oneimg、linux-arm64/oneimg、ca/
+FROM alpine:3.23
+ARG TARGETARCH
+RUN apk add --no-cache ca-certificates tzdata libwebp
+WORKDIR /app
+COPY linux-${TARGETARCH}/oneimg /app/oneimg
+COPY ca/ ./ca/
+RUN chmod 0755 /app/oneimg && mkdir -p /app/data /app/uploads
+EXPOSE 8080
+CMD ["/app/oneimg"]
