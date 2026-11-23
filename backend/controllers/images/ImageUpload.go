@@ -115,7 +115,8 @@ func UploadImages(c *gin.Context) {
 	for _, file := range files {
 		fileResult, err := uploader.Upload(c, &setting, &localBucket, file)
 		if err != nil {
-			uploadResults = append(uploadResults, failedUploadResult(file, "文件保存失败"))
+			code, message := describeUploadFailure(err, &setting)
+			uploadResults = append(uploadResults, failedUploadResult(file, message, code))
 			continue
 		}
 
@@ -201,10 +202,10 @@ func UploadImages(c *gin.Context) {
 			// 配额超限要给出可操作的原因，不能混在「保存失败」里 ——
 			// 用户看到笼统的失败只会反复重试，而实际需要的是删图或申请更多额度。
 			if errors.Is(err, usersctrl.ErrQuotaExceeded) {
-				uploadResults = append(uploadResults, failedUploadResult(file, usersctrl.QuotaExceededShortMessage(c, db.DB)))
+				uploadResults = append(uploadResults, failedUploadResult(file, usersctrl.QuotaExceededShortMessage(c, db.DB), failureQuota))
 				continue
 			}
-			uploadResults = append(uploadResults, failedUploadResult(file, "保存文件记录失败"))
+			uploadResults = append(uploadResults, failedUploadResult(file, "保存文件记录失败，请重试", failureRecord))
 			continue
 		}
 
@@ -267,6 +268,10 @@ func GetUploadConfig(c *gin.Context) {
 		"multi_storage_sync": setting.MultiStorageSync,
 		"max_upload_files":   uploadpolicy.MaxFiles(setting),
 		"max_file_size":      images.UploadByteLimit(int64(setting.MaxFileSize)),
+		// 像素与边长是硬编码上限，客户端提前校验比上传完被拒体验好得多，
+		// 所以一并下发；接入方也不必再去源码里翻常量（issue #58）。
+		"max_image_pixels":    images.DirectMaxPixels,
+		"max_image_dimension": images.DirectMaxDimension,
 		"allowed_types":      effectiveUploadMIMEs(setting),
 		"tag_max_length":     uploadpolicy.TagLength(setting),
 		"random_image_limit": uploadpolicy.RandomLimit(setting),

@@ -42,6 +42,10 @@ var (
 	ErrFileTooLarge       = errors.New("file size exceeds limit")
 	ErrMissingContentType = errors.New("missing content type")
 	ErrSVGThumbnail       = errors.New("svg thumbnail generation not supported")
+	// ErrDecodeFailed 单独成一类：字节可能过了尺寸与格式校验，但解码阶段仍
+	// 会失败（文件截断、CRC 错误）。要和「格式不支持」「像素超限」区分开，
+	// 用户才知道该换图还是该缩小。
+	ErrDecodeFailed = errors.New("image decode failed")
 )
 
 type ImageService struct{}
@@ -82,7 +86,14 @@ func (s *ImageService) ProcessImage(
 	fileBytes, err := ReadDirectLimited(file, UploadByteLimit(int64(setting.MaxFileSize)))
 	if err != nil { return nil, err }
 	img, format, err := decodeDirectImage(fileBytes, declaredImageMIME(header.Header.Get("Content-Type")))
-	if err != nil { return nil, fmt.Errorf("decode image failed: %w", err) }
+	if err != nil {
+		// 尺寸与格式的 sentinel 要原样上抛（调用方据此给出不同文案）；
+		// 剩下的才算「解码不出来」，归到 ErrDecodeFailed。
+		if errors.Is(err, ErrImageDimensions) || errors.Is(err, ErrUnsupportedFormat) || errors.Is(err, ErrFileTooLarge) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
+	}
 	if _, actual, err := ValidateDirectImage(fileBytes, ""); err != nil { return nil, err
 	} else if !AllowedMIME(actual, strings.Split(setting.AllowedTypes, ",")) { return nil, ErrUnsupportedFormat }
 	width, height := img.Bounds().Dx(), img.Bounds().Dy()

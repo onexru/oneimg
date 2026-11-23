@@ -11,6 +11,7 @@ import (
 type ImageUploadResult struct {
 	Success       bool   `json:"success"`
 	Message       string `json:"message,omitempty"`
+	ErrorCode     string `json:"error_code,omitempty"`
 	ID            int    `json:"id,omitempty"`
 	FolderID      int    `json:"folder_id"`
 	URL           string `json:"url,omitempty"`

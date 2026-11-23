@@ -77,7 +77,7 @@ func (u *driverUploader) Upload(c *gin.Context, setting *models.Settings, bucket
 		if cleanupErr := compensateUpload(driver, storage.ArtifactRef(key, metadata, false)); cleanupErr != nil {
 			retainCleanupManifest(c, bucket, mainURL, "", processed, metadata)
 		}
-		return nil, fmt.Errorf("上传主图失败: %w", err)
+		return nil, fmt.Errorf("上传主图失败：%v（%w）", err, ErrStorageWrite)
 	}
 	if len(thumb) > 0 {
 		info, thumbErr := driver.Upload(ctx, storage.Ref{Key: thumbKey}, bytes.NewReader(thumb), storage.UploadOptions{Size: int64(len(thumb)), ContentType: storageContentType(http.DetectContentType(processed.ThumbnailBytes), setting.EncryptedStorage), FileName: "thumbnail_" + name, Private: setting.EncryptedStorage})
