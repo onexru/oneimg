@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"oneimg/backend/models"
 	"oneimg/backend/utils/images"
@@ -130,7 +131,8 @@ func directRunSafe(fn func() error) (err error) {
 
 func directImageError(err error) error {
 	if errors.Is(err, images.ErrImageDimensions) {
-		return directError(422, "image_dimensions", "图片尺寸过大（最多 1600 万像素、单边 8192；动图最多 200 帧和 6400 万帧像素）", false)
+		// 上限文案取自 images 包，和普通上传走同一份，改常量时不会漏。
+		return directError(422, "image_dimensions", fmt.Sprintf("图片尺寸过大（%s；动图最多 200 帧、6400 万帧像素）", images.DimensionLimitText()), false)
 	}
 	if errors.Is(err, images.ErrUnsupportedFormat) {
 		return directError(415, "invalid_image", "实际文件格式不受支持或与声明不一致", false)

@@ -89,7 +89,8 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 	for _, file := range files {
 		fileResult, uploadErr := uploader.Upload(c, &setting, &bucket, file)
 		if uploadErr != nil {
-			results = append(results, failedUploadResult(file, "文件上传失败"))
+			code, message := describeUploadFailure(uploadErr, &setting)
+			results = append(results, failedUploadResult(file, message, code))
 			continue
 		}
 
@@ -151,10 +152,10 @@ func uploadImagesLegacy(c *gin.Context, setting models.Settings, existingTags []
 		}); err != nil {
 			cleanupUnpublishedUpload(c, imageModel, fileResult)
 			if errors.Is(err, usersctrl.ErrQuotaExceeded) {
-				results = append(results, failedUploadResult(file, usersctrl.QuotaExceededShortMessage(c, db.DB)))
+				results = append(results, failedUploadResult(file, usersctrl.QuotaExceededShortMessage(c, db.DB), failureQuota))
 				continue
 			}
-			results = append(results, failedUploadResult(file, "保存记录失败或容量不足"))
+			results = append(results, failedUploadResult(file, "保存记录失败或容量不足，请重试", failureRecord))
 			continue
 		}
 

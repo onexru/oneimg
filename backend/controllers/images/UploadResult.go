@@ -2,12 +2,14 @@ package images
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"oneimg/backend/database"
 	"oneimg/backend/interfaces"
 	"oneimg/backend/models"
 	"oneimg/backend/services"
+	"oneimg/backend/utils/images"
 	"oneimg/backend/utils/uploads"
 
 	"github.com/gin-gonic/gin"
@@ -15,9 +17,34 @@ import (
 	storagectrl "oneimg/backend/controllers/storage"
 )
 
-func failedUploadResult(file *multipart.FileHeader, message string) interfaces.ImageUploadResult {
-	return interfaces.ImageUploadResult{Success: false, FileName: file.Filename, Message: message}
+// 上传之后的数据库/容量问题，与图片本身无关，单独归类。
+const (
+	failureRecord = "record_failed"
+	failureQuota  = "quota_exceeded"
+)
+
+// failedUploadResult 组装逐项失败结果。code 是稳定分类，message 给人看。
+func failedUploadResult(file *multipart.FileHeader, message, code string) interfaces.ImageUploadResult {
+	return interfaces.ImageUploadResult{Success: false, FileName: file.Filename, Message: message, ErrorCode: code}
 }
+
+// describeUploadFailure 把上传链路上的错误翻成「能照着做」的文案。
+//
+// 以前这里一律写「文件上传失败 / 文件保存失败」，体积超限、像素超限、格式
+// 不支持、存储写入失败在响应里完全没有区别，接入方只能靠二分试尺寸反推
+// 限制值（issue #58）。分类与文案统一放在 images.DescribeFailure，存储侧
+// 的失败由这里的第二段补齐。
+func describeUploadFailure(err error, setting *models.Settings) (code, message string) {
+	code, message = images.DescribeFailure(err, images.UploadByteLimit(int64(setting.MaxFileSize)))
+	if code != "" {
+		return code, message
+	}
+	if errors.Is(err, uploads.ErrStorageWrite) {
+		return images.FailureStorage, "写入存储源失败，请稍后重试或更换存储源"
+	}
+	return images.FailureGeneric, "上传处理失败，请稍后重试"
+}
+
 func respondUploadBatch(uc *uploads.UploadContext, results []interfaces.ImageUploadResult, message string, targets int) {
 	count := 0
 	for _, r := range results {
