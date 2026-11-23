@@ -218,7 +218,8 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [prepare, binaries]
+    # 等镜像任务跑完，附件里要带 docker 导出包。
+    needs: [prepare, binaries, docker]
     runs-on: ubuntu-latest
     steps:
       # 需要完整标签，才能取到标签注解里手写的更新说明。
@@ -230,6 +231,13 @@ jobs:
         with:
           # 只取打包好的发布件，前端产物与镜像用的原始二进制不进 Release。
           pattern: bin-*
+          path: artifacts
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          # 镜像导出包，随 Release 一起提供离线安装方式。
+          pattern: docker-*
           path: artifacts
           merge-multiple: true
 
@@ -347,3 +355,34 @@ jobs:
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Docker Hub 在部分网络环境不可达，所以再把每个架构的镜像导出成附件放到 Release，
+      # 下载后 docker load 即可离线使用。
+      # 这里用 buildx 的 docker exporter 直出，而不是 docker pull + save：save 的产物
+      # 取决于镜像存储驱动（containerd 会把整个多架构索引一起打包成 OCI 布局），
+      # 同一段脚本在不同机器上会导出不同格式与体积，exporter 的产物则是稳定的 docker-archive。
+      - name: 导出镜像供 Release 下载
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -eu
+          TAG="${VERSION#v}"
+          mkdir -p dist
+          for ARCH in amd64 arm64; do
+            OUT="dist/oneimg-${VERSION}-docker-${ARCH}"
+            docker buildx build \
+              --platform "linux/${ARCH}" \
+              --tag "${IMAGE}:${TAG}" \
+              --output "type=docker,dest=${OUT}.tar" \
+              build-context
+            gzip -9 "${OUT}.tar"
+            ls -lh "${OUT}.tar.gz"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-archives
+          path: dist/*.tar.gz
+          retention-days: 3
+          if-no-files-found: error

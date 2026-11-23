@@ -174,6 +174,30 @@ docker run -d \
 docker exec oneimg cat /app/data/.initial_admin_password
 ```
 
+### 离线安装镜像（不需要访问 Docker Hub）
+
+部分网络环境拉不动 Docker Hub，所以每次发布也会把镜像按架构导出成压缩包，挂在 [Releases](https://github.com/onexru/oneimg/releases) 里：
+
+| 平台 | 文件名 |
+|---|---|
+| Linux x86_64 | `oneimg-vX.Y.Z-docker-amd64.tar.gz` |
+| Linux arm64 | `oneimg-vX.Y.Z-docker-arm64.tar.gz` |
+
+```bash
+docker load -i oneimg-v4.0.2-docker-amd64.tar.gz
+docker images onexru/oneimg-oneimg        # 加载后自带 4.0.2 标签
+
+docker run -d \
+  --name oneimg \
+  -p 8080:8080 \
+  -e APP_URL=https://img.example.com \
+  -v /data/oneimg:/app/data \
+  -v /data/oneimg-uploads:/app/uploads \
+  onexru/oneimg-oneimg:4.0.2
+```
+
+导出的是标准 docker-archive，加载后的镜像名与 tag 和从仓库拉取完全一致，需要改名时 `docker tag` 即可。这些包与 Docker Hub 上是同一次构建的产物，`SHA256SUMS.txt` 放在一起便于校验。
+
 ### 二进制包（Linux / Windows）
 
 不想用容器时，直接下载对应平台的压缩包即可，前端已通过 `go:embed` 打进可执行文件，解压就能跑。
