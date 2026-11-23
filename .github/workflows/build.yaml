@@ -12,6 +12,14 @@ on:
         description: "版本号（例如 v4.0.2）"
         required: true
         type: string
+      upx:
+        description: "是否用 UPX 压缩可执行文件（体积约 -70%，代价是内存与启动）"
+        required: false
+        type: choice
+        default: "false"
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: write
@@ -31,11 +39,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      # 是否 UPX 压缩。手动触发看输入，标签触发看仓库变量 UPX，都没设则为 false。
+      upx: ${{ steps.ver.outputs.upx }}
     steps:
       - name: 解析版本号
         id: ver
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_UPX: ${{ inputs.upx }}
+          VAR_UPX: ${{ vars.UPX }}
         run: |
           set -eu
           V="${INPUT_VERSION:-}"
@@ -46,6 +58,15 @@ jobs:
           esac
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "发布版本：$V"
+
+          # 标签触发时 inputs.upx 为空，回落到仓库变量；两者都为空即不压缩。
+          U="${INPUT_UPX:-${VAR_UPX:-false}}"
+          case "$U" in
+            true|True|TRUE|1|yes) U="true" ;;
+            *) U="false" ;;
+          esac
+          echo "upx=$U" >> "$GITHUB_OUTPUT"
+          echo "UPX 压缩：$U"
 
       - uses: actions/checkout@v4
 
@@ -136,8 +157,25 @@ jobs:
             -o "oneimg${EXT}" ./main.go
           ls -l "oneimg${EXT}"
 
-      # 镜像由原始二进制组装，单独留一份产物给 docker 任务用。
-      - name: 上传原始二进制
+      # 可选：UPX 压缩。实测体积降到约 28%，但运行时会把整个二进制解到匿名内存，
+      # 常驻内存从约 10 MiB 涨到约 56 MiB、启动多约 1 秒，Windows 还容易被杀软误报。
+      # 所以默认关闭，只有仓库变量 UPX=true 或手动触发勾选时才压。
+      # 放在「上传镜像用二进制」之前，保证镜像里的可执行文件与 Release 附件一致。
+      - name: UPX 压缩
+        if: needs.prepare.outputs.upx == 'true'
+        env:
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -eu
+          VER=5.3.0
+          curl -sSL --retry 3 -o upx.tar.xz \
+            "https://github.com/upx/upx/releases/download/v${VER}/upx-${VER}-amd64_linux.tar.xz"
+          tar -xJf upx.tar.xz
+          ./upx-${VER}-amd64_linux/upx --best --lzma -q "oneimg${EXT}"
+          ls -l "oneimg${EXT}"
+
+      # 镜像由同一份二进制组装（UPX 开启时同样是压缩后的），单独留一份产物给 docker 任务用。
+      - name: 上传镜像用二进制
         if: matrix.goos == 'linux'
         uses: actions/upload-artifact@v4
         with:
