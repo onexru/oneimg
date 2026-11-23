@@ -44,7 +44,9 @@ func authenticateDB(optional bool, getDB func() *gorm.DB, getSettings func()(mod
    if db.First(&user,token.OwnerID).Error!=nil { rejectAuth(c,401,"API 凭据所属用户不存在"); return }
    // Controllers still enforce image ownership/bucket permissions. Tokens never
    // gain the superadmin permission bypass or settings/user/storage endpoints.
-   user.Password=""; user.Role=models.RoleUser; user.Permission.Codes=[]string{"image:read","upload:write"}
+   // 权限码由 token 自己的 scopes 推导，不再写死：写死时无论 token 实际持有什么
+   // scope，控制器侧都只认 image:read / upload:write，删除等操作永远过不去。
+   user.Password=""; user.Role=models.RoleUser; user.Permission.Codes=authsecurity.PermissionCodes(token.Scopes)
    setCurrentUser(c,&user); c.Set("auth_method","api_token"); c.Set("api_credential",token)
    c.Next(); return
   }
@@ -82,12 +84,28 @@ func parseAPIToken(header string) (string,bool) {
  } else if strings.HasPrefix(header,"Bearer ") { raw=strings.TrimPrefix(header,"Bearer ") } else { return "",false }
  if raw=="" || len(raw)>256 || strings.ContainsAny(raw," ,\t\r\n") { return "",false }; return raw,true
 }
+// imageIDPath 判断 path 是否形如 /api/images/<数字>。
+// 不能只判前缀：/api/images/tag、/api/images/tags 是删标签的入口，
+// 归 image:tag:delete 管，用 image:delete 的 token 不该顺手把标签也删掉。
+func imageIDPath(path string) bool {
+ rest:=strings.TrimPrefix(path,"/api/images/")
+ if rest==path || rest=="" { return false }
+ for _,r:=range rest { if r<'0' || r>'9' { return false } }
+ return true
+}
 func tokenRouteScope(method,path string) string {
  if method==http.MethodGet {
   switch path { case "/api/user/status","/api/uploadConfig","/api/buckets/list","/api/tags","/api/images":return "image:read" }
   if strings.HasPrefix(path,"/api/images/") && !strings.Contains(strings.TrimPrefix(path,"/api/images/"),"/") { return "image:read" }
  }
- if method==http.MethodPost { switch path { case "/api/upload","/api/upload/images","/api/images/upload","/api/images/url":return "upload:write" } }
+ if method==http.MethodPost {
+  switch path {
+   case "/api/upload","/api/upload/images","/api/images/upload","/api/images/url":return "upload:write"
+   // 批量删除走 POST（反代会丢 DELETE 的 body），scope 与单张删除一致。
+   case "/api/images/batch-delete":return "image:delete"
+  }
+ }
+ if method==http.MethodDelete && imageIDPath(path) { return "image:delete" }
  return ""
 }
 func RequirePermission(required string) gin.HandlerFunc {
