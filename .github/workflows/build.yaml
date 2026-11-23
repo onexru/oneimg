@@ -76,6 +76,7 @@ jobs:
   # 所以四个目标全用 zig cc 交叉编译，不需要额外的 runner 或系统库。
   binaries:
     needs: prepare
+    name: 编译 ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -182,10 +183,36 @@ jobs:
     needs: [prepare, binaries]
     runs-on: ubuntu-latest
     steps:
+      # 需要完整标签，才能取到标签注解里手写的更新说明。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
+          # 只取打包好的发布件，前端产物与镜像用的原始二进制不进 Release。
+          pattern: bin-*
           path: artifacts
           merge-multiple: true
+
+      - name: 准备发布说明
+        id: notes
+        env:
+          TAG: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -eu
+          # 标签注解写在版本号下一行之后的正文，作为发布说明的正文来源；
+          # 注解为空时退回 GitHub 自动生成的改动列表。
+          git fetch --force --tags origin "+refs/tags/${TAG}:refs/tags/${TAG}" >/dev/null 2>&1 || true
+          BODY="$(git tag -l --format='%(contents:body)' "$TAG" || true)"
+          if [ -n "$(printf '%s' "$BODY" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$BODY" > release-notes.md
+            echo "from_tag=true" >> "$GITHUB_OUTPUT"
+            echo "使用标签注解作为发布说明（$(wc -l < release-notes.md) 行）"
+          else
+            echo "from_tag=false" >> "$GITHUB_OUTPUT"
+            echo "标签注解为空，改用自动生成的改动列表"
+          fi
 
       - name: 生成校验和
         run: |
@@ -194,7 +221,24 @@ jobs:
           sha256sum ./*.tar.gz ./*.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - uses: softprops/action-gh-release@v2
+      - name: 建 Release（标签注解）
+        if: steps.notes.outputs.from_tag == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/oneimg-*.tar.gz
+            artifacts/oneimg-*.zip
+            artifacts/SHA256SUMS.txt
+
+      - name: 建 Release（自动生成说明）
+        if: steps.notes.outputs.from_tag == 'false'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.version }}
