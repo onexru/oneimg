@@ -18,6 +18,17 @@ export function galleryQuery(query = {}, management = false) {
     tags: typeof query.tags === 'string' ? [...new Set(query.tags.split(',').filter(value => /^(0|[1-9]\d*)$/.test(value)).map(Number).filter(Number.isSafeInteger))] : [],
   };
 }
+// 图片放大预览用的是 spotlight 灯箱：打开时 pushState 两条历史，关闭时 history.go(-2)。
+// 这次回退会让 vue-router 把同一个地址重新 resolve 成新的 route 对象 —— query 内容没变、
+// 引用变了。所以判断「筛选有没有真的改」不能看引用，要看真正影响列表的内容签名。
+export function galleryFilterSignature(query = {}, { management = false, authenticated = true } = {}) {
+  const state = galleryQuery(query, management);
+  return JSON.stringify([
+    galleryFolderFromQuery(query, authenticated),
+    state.filename, state.sortBy, state.sortOrder,
+    state.role, state.bucket, state.deletion, state.tags,
+  ]);
+}
 export function galleryImageParams({ management = false, authenticated = false, folder = '0', page = 1, limit = 30, ...filters }) {
   const query = galleryQuery({ search: filters.filename, sort_by: filters.sortBy, sort_order: filters.sortOrder, role: filters.role, bucket: String(filters.bucket ?? ''), deletion: filters.deletion, tags: String(filters.tags ?? '') }, management);
   const params = new URLSearchParams({ scope: management ? 'all' : 'mine', page: String(page), limit: String(limit), sort_by: query.sortBy, sort_order: query.sortOrder, deletion: query.deletion });

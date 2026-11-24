@@ -120,7 +120,7 @@ import { createDialogScope } from '@/utils/dialogScope.js';
 const { Dialog: PopupModal, dispose: disposeViewDialogs } = createDialogScope();
 import GalleryImageCard from '@/components/gallery/GalleryImageCard.vue';
 import GalleryFolderItem from '@/components/gallery/GalleryFolderItem.vue';
-import { galleryFolderFromQuery, galleryQuery, galleryImageParams, galleryViewPreference, GALLERY_VIEW_MODES, createGalleryRequests, parseGalleryPage } from '@/utils/galleryBrowser.js';
+import { galleryFolderFromQuery, galleryQuery, galleryFilterSignature, galleryImageParams, galleryViewPreference, GALLERY_VIEW_MODES, createGalleryRequests, parseGalleryPage } from '@/utils/galleryBrowser.js';
 import { createGalleryAccessActions } from '@/utils/galleryAccessActions.js';
 const showFormModal = function(options) { return new PopupModal({ type: 'form', ...options }); };
 
@@ -396,8 +396,18 @@ function setViewMode(mode) {
   try { localStorage.setItem(`oneimg-gallery-view-${management ? 'all' : 'mine'}`, viewMode.value); } catch {}
 }
 async function refreshGallery() { await Promise.all([loadImages(), reloadFolders()]); }
-watch(() => route.query, () => {
-  clearTimeout(searchTimer); resetListing(); syncQueryState(pendingQuery || route.query);
+// 只在筛选内容真的变了时重载。关掉图片放大灯箱（spotlight）会 history.go(-2) 回退两条历史，
+// vue-router 随即把同一地址重新 resolve 成新的 route 对象：query 引用变了、内容没变。
+// 之前按引用监听，于是关灯箱就被当成筛选变化 —— 列表被重置重载，正打开的图片弹窗也被一起关掉。
+let lastFilterSignature = routeSignature(route.query);
+function routeSignature(query) {
+  return galleryFilterSignature(query, { management, authenticated: foldersAuthenticated.value });
+}
+watch(() => route.query, query => {
+  const signature = routeSignature(query);
+  if (signature === lastFilterSignature) return;
+  lastFilterSignature = signature;
+  clearTimeout(searchTimer); resetListing(); syncQueryState(pendingQuery || query);
   if (!pendingQuery) loadImages();
 });
 watch(folderAccountKey, () => {
