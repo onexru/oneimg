@@ -333,6 +333,19 @@
     @apply flex min-w-0 flex-col gap-2;
   }
 
+  /* 最近上传的骨架条：首屏加载时占位，尺寸贴近一张图片卡片，避免空态一闪 */
+  .recent-skeleton {
+    @apply w-full rounded-[var(--radius-sm)] border border-slate-200/60 dark:border-white/10;
+    height: 4.25rem;
+    background: linear-gradient(90deg, rgb(148 163 184 / .08) 25%, rgb(148 163 184 / .18) 37%, rgb(148 163 184 / .08) 63%);
+    background-size: 400% 100%;
+    animation: recent-skeleton-shift 1.4s ease-in-out infinite;
+  }
+  @keyframes recent-skeleton-shift {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+
   /* ===== 页脚 =====
      不用卡片：一条细线上方的横向信息带，两边分别是站名与备案号。
      与内容区共用边距和侧栏偏移，保证左边线对齐。

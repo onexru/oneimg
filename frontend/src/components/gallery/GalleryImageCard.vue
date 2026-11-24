@@ -7,7 +7,7 @@
       <button type="button" class="image-wrapper" :disabled="image.deleting" :aria-label="`预览图片 ${image.filename}`" @click="openPreview(image)">
         <span v-if="!image.deleting" class="loading absolute inset-0 flex items-center justify-center text-slate-400"><i class="ri-loader-4-line animate-spin" aria-hidden="true"></i></span>
         <i v-else class="ri-image-off-line text-slate-400" aria-hidden="true"></i>
-        <img v-if="!image.deleting" :src="image.thumbnail || image.url" :alt="image.filename" class="image-thumbnail h-full w-full object-cover opacity-0" loading="lazy" @load="handleImageLoad" @error="handleImageError" />
+        <img v-if="!image.deleting" :src="image.thumbnail || image.url" :alt="image.filename" class="image-thumbnail h-full w-full object-cover opacity-0" loading="lazy" decoding="async" @load="handleImageLoad" @error="handleImageError" />
       </button>
       <div class="image-info">
         <button type="button" class="image-filename" :title="image.filename" :disabled="image.deleting" @click="openPreview(image)">{{ image.filename }}</button>

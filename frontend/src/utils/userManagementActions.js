@@ -292,7 +292,7 @@ const resetPassword = async (user) => {
                   ${escapeHtml(newPassword)}
                 </code>
                 <button
-                  id="copy-pwd-btn"
+                  data-copy-pwd
                   class="soft-button min-h-0 py-2.5 px-3 shrink-0"
                   title="复制密码"
                 >
@@ -312,8 +312,10 @@ const resetPassword = async (user) => {
       })
       modal.open()
 
-      await nextTick()
-      const copyBtn = document.getElementById('copy-pwd-btn')
+      // content 在构造时就已经写进 modal.content，不需要等一次 tick。
+      // 原来这里 await nextTick()，但本文件从未导入它：ReferenceError 被下面的
+      // catch 吞成「nextTick is not defined」提示，复制按钮绑不上、列表也不刷新。
+      const copyBtn = modal.content.querySelector('[data-copy-pwd]')
       if (copyBtn) {
         copyBtn.addEventListener('click', async () => {
           try {

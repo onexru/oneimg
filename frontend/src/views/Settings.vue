@@ -240,6 +240,14 @@ const fetchSystemSettings = async () => {
     } finally { settingsRequestActive = false }
 }
 
+// 保存失败时把输入框退回「上一次确定存进服务端」的值。
+// 不回读整页设置：fetchSystemSettings 会把 settingsState 置为 loading，
+// 为了一个字段的失败把整页闪成骨架，反而更难受。
+const revertSetting = (key) => {
+    const original = initialSettings.value[key]
+    systemSettings.value[key] = original && typeof original === 'object' ? JSON.parse(JSON.stringify(original)) : original
+}
+
 const handleFieldBlur = async (key, value) => {
     if (JSON.stringify(value) === JSON.stringify(initialSettings.value[key])) {
         return
@@ -256,11 +264,15 @@ const handleFieldBlur = async (key, value) => {
             initialSettings.value[key] = value
             Message.success('保存成功')
         } else {
+            // 服务端拒绝：输入框退回已保存的值，别让人看着一个没生效的内容离开
+            revertSetting(key)
             Message.error(res.message || '保存失败')
-            fetchSystemSettings()
         }
     } catch (err) {
-        Message.error('保存失败')
+        // 网络异常同理：之前只在服务端报错时回读，断网时输入框留着新值，
+        // 用户以为存上了，下次打开又变回去 —— 典型的「假成功」。
+        revertSetting(key)
+        Message.error('保存失败，已恢复为上次保存的值')
     }
 }
 const handleSelectChange = (key, value) => {

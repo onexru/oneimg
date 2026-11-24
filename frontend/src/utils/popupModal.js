@@ -33,7 +33,7 @@ class PopupModal {
     };
 
     this.config = { ...this.defaults, ...options };
-    this.state = { isOpen: false, formData: {} };
+    this.state = { isOpen: false, formData: {}, busy: false, pending: null };
 
     if (this.config.type === 'form' && this.config.formFields.length) {
       this.config.formFields.forEach(field => {
@@ -261,11 +261,27 @@ class PopupModal {
       button.className = btnStyles[btn.type] || btnStyles.default;
       button.textContent = btn.text;
 
-      button.addEventListener('click', () => {
-        if (typeof btn.callback === 'function') {
-          btn.callback(this, this.state.formData);
-        } else {
-          this.close();
+      button.addEventListener('click', async () => {
+        // 连点防护：慢网络下「确认添加 / 重置密码」被点两下会发两次写请求，
+        // 结果是两个同名存储、或两个新密码（后弹的盖掉前一个，用户存的已失效）。
+        if (this.state.busy) return;
+        this.setBusy(true);
+        try {
+          if (typeof btn.callback !== 'function') {
+            this.close();
+            return;
+          }
+          await btn.callback(this, this.state.formData);
+          // 有的主按钮只是把提交转交给表单（dispatchEvent('submit')），真正的
+          // 请求在 handleFormSubmit 里。必须等它结束才解锁，否则按钮会在请求
+          // 发出前就恢复可点，连点防护就白做了。
+          if (this.state.pending) await this.state.pending;
+        } catch (error) {
+          // 回调里已经给过用户提示的居多；这里只兜住未处理的异常，别让它变成
+          // unhandled rejection 悄悄丢掉，同时保证按钮一定能恢复可点。
+          console.error('弹窗按钮回调失败:', error);
+        } finally {
+          this.setBusy(false);
         }
       });
 
@@ -273,12 +289,52 @@ class PopupModal {
     });
   }
 
-  handleFormSubmit() {
-    if (typeof this.config.formSubmit === 'function') {
-      this.config.formSubmit(this, this.state.formData);
+  /**
+   * 提交中状态：禁用底部全部按钮，主操作按钮换成「处理中…」。
+   * 只禁用当前这一轮，结束后恢复；按钮文案单独记录，避免恢复时写错。
+   */
+  setBusy(busy) {
+    if (!this.footer) return;
+    this.state.busy = busy;
+    const buttons = [...this.footer.querySelectorAll('button')];
+    for (const button of buttons) button.disabled = busy;
+    if (busy) {
+      const primary = buttons.find(button => /bg-primary|bg-danger/.test(button.className));
+      if (primary && !primary.dataset.busyLabel) {
+        primary.dataset.busyLabel = primary.textContent.trim();
+        primary.innerHTML = '<i class="ri-loader-4-line animate-spin mr-1" aria-hidden="true"></i>处理中…';
+      }
     } else {
-      this.close();
+      const marked = this.footer.querySelector('button[data-busy-label]');
+      if (marked) {
+        marked.textContent = marked.dataset.busyLabel;
+        delete marked.dataset.busyLabel;
+      }
     }
+  }
+
+  /**
+   * 表单提交入口。按钮点击（含 Enter 转成的点击）最终都会走到这里，
+   * 所以「正在提交」的去重放在这一层：同一轮重复触发直接复用同一个 Promise，
+   * 不会因为「按钮回调里再 dispatch submit」这种嵌套调用把自己锁死。
+   */
+  async handleFormSubmit() {
+    const submit = this.config.formSubmit;
+    if (typeof submit !== 'function') {
+      this.close();
+      return;
+    }
+    if (this.state.pending) return this.state.pending;
+    this.setBusy(true);
+    this.state.pending = (async () => {
+      try {
+        await submit(this, this.state.formData);
+      } finally {
+        this.state.pending = null;
+        this.setBusy(false);
+      }
+    })();
+    return this.state.pending;
   }
 
   open() {
@@ -311,6 +367,10 @@ class PopupModal {
     }, 10);
     
     this.state.isOpen = true;
+    // 复用同一个实例时（新增用户、批量删除这些弹窗都是复用的），把上一轮的
+    // 提交状态清干净：否则上次若在请求中途被关掉，这次一打开按钮就是禁用的。
+    this.state.pending = null;
+    this.setBusy(false);
     
     if (typeof this.config.onOpen === 'function') this.config.onOpen(this);
     this.deactivateDialog = activateDialog(this.modal, { labelId: this.titleEl.id, close: () => this.close() });

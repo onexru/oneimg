@@ -39,6 +39,7 @@
                 <div class="form-group mb-6">
                     <label for="username" class="form-label block text-gray-700 dark:text-gray-300 mb-2">用户名</label>
                     <input 
+                        id="username"
                         type="text" 
                         v-model="username" 
                         class="input-modern"
@@ -51,6 +52,7 @@
                 <div class="form-group mb-8">
                     <label for="password" class="form-label block text-gray-700 dark:text-gray-300 mb-2">密码</label>
                     <input 
+                        id="password"
                         type="password" 
                         v-model="password" 
                         class="input-modern"

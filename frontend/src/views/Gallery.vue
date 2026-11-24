@@ -43,25 +43,25 @@
       </div>
       <div v-if="activeFolder" class="pb-3 space-y-2"><p v-if="activeFolder.description" class="text-sm text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-words">{{ activeFolder.description }}</p><div class="flex flex-wrap gap-2"><button type="button" class="soft-button" :disabled="activeFolder.deleting" @click="openFolderDialog('rename')">编辑文件夹</button><button type="button" class="soft-button text-red-600 dark:text-red-400" @click="openFolderDialog('delete')">{{ activeFolder.deleting ? '重试删除文件夹' : '删除文件夹' }}</button></div><p v-if="activeFolder.deleting" role="status" class="text-sm text-amber-700 dark:text-amber-300">文件夹删除未完成，不能上传、重命名或移入/移出图片；可重新确认名称后继续删除。</p></div>
       <p v-if="foldersAuthenticated && foldersError" role="alert" class="pb-3 text-sm text-red-600">{{ foldersError }} <button type="button" class="underline" @click="reloadFolders">重试</button></p>
-      <div class="gallery-selection-bar"><label v-if="images.length > 0" for="selectAll" class="gallery-select-all"><input id="selectAll" ref="selectAllEl" v-model="selectAll" type="checkbox" class="app-checkbox" :disabled="loading" @change="handleSelectAll" /><span>全选本页</span></label><span v-if="totalImages !== null">共 {{ totalImages }} 张 · 本页 {{ images.length }} 张<span v-if="showFolderBrowser"> · {{ visibleFolders.length }} 个文件夹</span></span><span v-if="selectedImages.length">已选 {{ selectedImages.length }} 张</span></div>
+      <div class="gallery-selection-bar"><label v-if="images.length > 0" for="selectAll" class="gallery-select-all"><input id="selectAll" ref="selectAllEl" v-model="selectAll" type="checkbox" class="app-checkbox" :disabled="loading" @change="handleSelectAll" /><span>全选本页</span></label><span v-if="totalImages !== null">共 {{ totalImages }} 张 · 本页 {{ images.length }} 张<span v-if="showFolderBrowser"> · {{ visibleFolders.length }} 个文件夹</span></span><span v-if="selectedImages.length">已选 {{ selectedImages.length }} 张</span><span v-if="loading && hasLoadedImages" role="status" class="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400"><i class="ri-loader-4-line animate-spin" aria-hidden="true"></i>刷新中…</span></div>
       <div v-if="selectedImages.length > 0" class="batch-actions flex flex-wrap gap-2 pb-3"><button v-if="foldersAuthenticated" type="button" class="soft-button" :disabled="!canMoveSelection || !foldersLoaded || foldersLoading" @click="openFolderDialog('move')">移动图片 ({{ selectedImages.length }})</button><span v-if="foldersAuthenticated && !canMoveSelection" role="status" class="text-xs text-amber-700 dark:text-amber-300">只能移动本人且未在删除中的图片，请取消选择其他用户或删除中的项目。</span><button type="button" class="soft-button" @click="handleBatchCopy">批量复制</button><button type="button" class="soft-button" @click="handleBatchSetAccessSource">批量设置访问源</button><button type="button" class="soft-button" @click="handleBatchSetTag">批量设置Tag</button><button type="button" class="danger-button" @click="handleBatchDelete">删除 ({{ selectedImages.length }})</button></div>
       <div v-if="viewMode === 'list' && (visibleFolders.length || images.length)" class="gallery-list-heading" aria-hidden="true"><span>名称</span><span>大小 / 上传时间</span><span>操作</span></div>
       <div v-if="showFolderBrowser" class="gallery-folders" :class="viewMode === 'list' ? '' : 'gallery-grid-layout'"><GalleryFolderItem v-for="folder in visibleFolders" :key="folder.id" :folder="folder" :view-mode="viewMode === 'list' ? 'list' : 'grid'" @open="changeFolder(String($event))" @edit="openFolderDialog('rename', $event)" @delete="openFolderDialog('delete', $event)" /><p v-if="foldersLoading && !foldersLoaded" role="status" class="py-3 text-sm text-slate-500">正在加载文件夹…</p></div>
-      <div v-if="loading" class="loading-container flex items-center justify-center gap-2 py-12" role="status"><i class="ri-loader-4-line animate-spin" aria-hidden="true"></i>加载图片中…</div>
+      <div v-if="loading && !hasLoadedImages" class="loading-container flex items-center justify-center gap-2 py-12" role="status"><i class="ri-loader-4-line animate-spin" aria-hidden="true"></i>加载图片中…</div>
       <div v-else-if="loadError" role="alert" class="py-10 text-center"><p class="mb-3 text-red-600 dark:text-red-400">{{ loadError }}</p><button type="button" class="soft-button" @click="loadImages">重试加载图片</button></div>
       <template v-else-if="hasLoadedImages">
         <!-- 三种视图各自独立的容器：列表/网格共用 GalleryImageCard，瀑布流用独立的卡片 -->
         <template v-if="images.length">
-          <GalleryMasonry v-if="viewMode === 'masonry'" :items="visibleImages" :cols="[2, 3, 4, 5]">
+          <GalleryMasonry v-if="viewMode === 'masonry'" :items="visibleImages" :cols="[2, 3, 4, 5]" :class="refreshingClass">
             <template #default="{ item }">
               <GalleryMasonryCard v-bind="{ image: item, isImageSelected, handleImageSelection, openPreview, handleImageLoad, handleImageError, formatFileSize, openDetails: openImageDetails }" />
             </template>
           </GalleryMasonry>
-          <div v-else :class="viewMode === 'grid' ? 'images-grid gallery-grid-layout' : 'images-list'"><GalleryImageCard v-for="image in visibleImages" :key="image.id" v-bind="{ image, viewMode, management, isImageSelected, getRoleTagClass, handleImageSelection, openPreview, handleImageLoad, handleImageError, formatFileSize, formatDate, openDetails: openImageDetails }" /></div>
+          <div v-else :class="[viewMode === 'grid' ? 'images-grid gallery-grid-layout' : 'images-list', refreshingClass]"><GalleryImageCard v-for="image in visibleImages" :key="image.id" v-bind="{ image, viewMode, management, isImageSelected, getRoleTagClass, handleImageSelection, openPreview, handleImageLoad, handleImageError, formatFileSize, formatDate, openDetails: openImageDetails }" /></div>
         </template>
         <div v-else class="empty-state py-10 text-center"><i class="ri-image-line text-3xl text-slate-400" aria-hidden="true"></i><h2 class="mt-2 font-medium">{{ activeFilterCount || searchTerm ? '没有匹配的图片' : showFolderBrowser && visibleFolders.length ? '根目录暂无未分类图片' : '暂无图片' }}</h2><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ activeFilterCount || searchTerm ? '可以清除搜索与筛选，重新查看图片。' : management ? '全站暂未上传图片。' : '可以上传图片，或打开文件夹查看。' }}</p><button v-if="activeFilterCount || searchTerm" type="button" class="soft-button mt-3" @click="clearFilters">清除搜索与筛选</button><button v-else type="button" class="soft-button mt-3" @click="refreshGallery">重新加载</button></div>
         <div v-if="hasHiddenImages" ref="sentinel" class="flex justify-center mt-4"><button class="soft-button" type="button" @click="revealImages">显示本页更多图片</button></div>
-        <nav v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-4" aria-label="图片分页"><button type="button" class="soft-button" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">上一页</button><button v-for="page in visiblePages" :key="page" type="button" class="gallery-page-button" :aria-current="page === currentPage ? 'page' : undefined" @click="changePage(page)">{{ page }}</button><button type="button" class="soft-button" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">下一页</button></nav>
+        <nav v-if="totalPages > 1" class="pagination flex flex-wrap items-center justify-center gap-2 py-4" aria-label="图片分页"><button type="button" class="soft-button" :disabled="loading || currentPage <= 1" @click="changePage(currentPage - 1)">上一页</button><template v-for="(page, index) in visiblePages" :key="`${page}-${index}`"><span v-if="page === '...'" class="px-1 text-slate-400" aria-hidden="true">…</span><button v-else type="button" class="gallery-page-button" :disabled="loading" :aria-current="page === currentPage ? 'page' : undefined" @click="changePage(page)">{{ page }}</button></template><button type="button" class="soft-button" :disabled="loading || currentPage >= totalPages" @click="changePage(currentPage + 1)">下一页</button></nav>
       </template>
     </section>
     <FolderDialog v-if="folderDialog && foldersAuthenticated" :mode="folderDialog.mode" :folder="folderDialog.folder" :folders="folders" :image-ids="folderDialog.imageIds" :move-allowed="canMoveSelection" :initial-destination="selectedFolder || '0'" :account-key="folderAccountKey" @close="folderDialog = null" @saved="onFolderSaved" @partial-failure="refreshAfterFolderFailure" />
@@ -287,6 +287,9 @@ const syncSelectAllIndeterminate = () => {
 // immediate + 三个依赖：勾选单张、全选、翻页后都会重算
 watch([selectAll, () => selectedImages.value.length, () => images.value.length], syncSelectAllIndeterminate, { flush: 'post', immediate: true });
 const currentPreviewImage = ref(null);
+// 改筛选/搜索时不再清空整屏：旧结果留着并变淡，等新数据回来替换。
+// 只有首屏（还没有任何结果）才走骨架，避免连续调筛选时页面一直闪。
+const refreshingClass = computed(() => (loading.value && hasLoadedImages.value ? 'is-refreshing' : ''));
 const multiStorageSync = ref(false);
 const accessSourceUpdatingIds = ref([]);
 let syncPollTimer = null;
@@ -341,6 +344,18 @@ function resetListing() {
   detailImage.value = null;
   currentPreviewImage.value = null;
   cleanupPreview(); disposeAccessDialogs(); disposeBatchDialogs(); disposeViewDialogs();
+}
+// 改筛选/搜索：只重置页内状态，旧结果先留着（模板里变淡 + 禁点），
+// 等新数据回来再整体替换。整屏清空再加载的观感太像「页面抽搐」。
+function beginFilterChange() {
+  imageRequests.cancel();
+  if (syncPollTimer) clearTimeout(syncPollTimer);
+  syncPollTimer = null;
+  currentPage.value = 1;
+  selectedImages.value = []; selectAll.value = false;
+  detailImage.value = null; currentPreviewImage.value = null;
+  cleanupPreview(); disposeAccessDialogs(); disposeBatchDialogs(); disposeViewDialogs();
+  loading.value = true;
 }
 function navigateQuery(query) {
   const revision = ++queryRevision;
@@ -407,7 +422,7 @@ watch(() => route.query, query => {
   const signature = routeSignature(query);
   if (signature === lastFilterSignature) return;
   lastFilterSignature = signature;
-  clearTimeout(searchTimer); resetListing(); syncQueryState(pendingQuery || query);
+  clearTimeout(searchTimer); beginFilterChange(); syncQueryState(pendingQuery || query);
   if (!pendingQuery) loadImages();
 });
 watch(folderAccountKey, () => {
@@ -829,6 +844,9 @@ onUnmounted(() => {
 .gallery-folders.gallery-grid-layout { padding-bottom:.65rem; }
 .gallery-page-button { display:grid; place-items:center; width:2.25rem; height:2.25rem; border:1px solid rgb(148 163 184 / .25); border-radius:.4rem; font-size:.875rem; }
 .gallery-page-button[aria-current="page"] { color:white; background:#2563eb; border-color:#2563eb; }
+.gallery-page-button:disabled { opacity:.5; }
+/* 换筛选时的刷新态：旧结果留在原位变淡，避免整屏消失再出现的抽搐感 */
+.is-refreshing { opacity:.55; pointer-events:none; transition:opacity .15s ease-out; }
 button:focus-visible,a:focus-visible { outline:none; box-shadow:0 0 0 2px rgb(37 99 235 / .45); }
 :global(.dark) .gallery-view-toggle { border-color:rgb(255 255 255 / .1); }
 :global(.dark) .gallery-selection-bar,:global(.dark) .gallery-list-heading { color:#94a3b8; }

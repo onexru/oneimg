@@ -81,7 +81,8 @@ const openPreview = (image) => {
     type: 'default',
     buttons: [
       {
-        text: '确定',
+        // 这是个只读预览，没有任何「确认」语义；写「确定」会让人愣一下要确定什么。
+        text: '关闭',
         type: 'default',
         callback: (modal) => {
           modal.close();

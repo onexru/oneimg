@@ -132,12 +132,24 @@
                 @click="copyFormat = fmt.value"
               >{{ fmt.short }}</button>
             </div>
-            <span class="recent-count">{{ recentImages.length }} 张</span>
+            <span class="recent-count">{{ recentLoaded ? `${recentImages.length} 张` : '加载中…' }}</span>
           </div>
         </div>
 
-        <div v-if="recentImages.length > 0" class="home-result-list">
+        <!-- 首屏用骨架占位：recentImages 初值是空数组，直接判空会先闪一下「暂无上传的图片」 -->
+        <div v-if="!recentLoaded" class="home-result-list" role="status" aria-label="正在加载最近上传">
+          <div v-for="n in 3" :key="n" class="recent-skeleton" aria-hidden="true"></div>
+        </div>
+
+        <div v-else-if="recentImages.length > 0" class="home-result-list">
           <RecentImageCard v-for="image in recentImages" :key="image.id" v-bind="{ image, multiStorageSync, copyFormat, formatFileSize, getFullUrl, handleImageLoad, handleImageError, previewImage, downloadImage, deleteImage, directTaskForImage, retryDirectTask, cancelDirectTask, confirmDirectTask, reselectDirectFile, getStorageStatuses, getStorageStatusMeta, getStorageDisplayName, copyImageLink, getHtmlCode, getMarkdownCode }" />
+        </div>
+
+        <!-- 加载失败：给出原因和重试，不要落到「暂无上传的图片」那个空态上 -->
+        <div v-else-if="recentLoadError" class="flex min-h-[200px] flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-slate-200 py-8 text-center dark:border-white/10">
+          <i class="ri-error-warning-line text-3xl text-amber-500" aria-hidden="true"></i>
+          <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">{{ recentLoadError }}</p>
+          <button type="button" class="soft-button mt-3" @click="loadRecentImages">重试</button>
         </div>
 
         <!-- 无图片状态 -->
@@ -527,6 +539,12 @@ const uploadAccept = computed(() => allowedRasterTypes(uploadConfig.value).join(
 const uploadingCount = ref(0);
 const uploadProgress = ref(0);
 const recentImages = ref([]);
+// 首屏是否已经问过一次服务端：用来区分「真的没有图」和「还没加载完」。
+const recentLoaded = ref(false);
+const recentLoadError = ref('');
+// 最近上传会被 4 个地方触发（进页面、上传完成、删除后、多存储同步轮询每 2.5s），
+// 没有序号时后到的旧响应会把新列表盖回去（典型表现：删掉的图闪回来一张）。
+let recentRequestSeq = 0;
 const fileInput = ref(null);
 
 // Folder state belongs to this mounted account only; never persist upload destinations.
@@ -703,6 +721,7 @@ const getUploadConfig = async () => {
  * 加载最近上传的图片
  */
 const loadRecentImages = async () => {
+  const seq = ++recentRequestSeq;
   try {
     const response = await fetch(`${API_BASE_URL}/api/images?scope=mine&limit=12`, {
       headers: {
@@ -711,13 +730,18 @@ const loadRecentImages = async () => {
     });
     
     const result = await readApiResponse(response, '加载图片失败');
-    if (disposed) return;
+    if (disposed || seq !== recentRequestSeq) return;
     recentImages.value = boundedPage(mergeImages(Array.isArray(result.data?.images) ? result.data.images : [], usableTasks()), RECENT_IMAGE_LIMIT);
+    recentLoadError.value = '';
+    recentLoaded.value = true;
     scheduleSyncRefresh();
     if (foldersAuthenticated.value) reloadFolders();
   } catch (error) {
-    if (disposed) return;
+    if (disposed || seq !== recentRequestSeq) return;
     console.error('加载图片失败:', error);
+    // 失败也要落定，否则骨架屏会一直转；给出重试入口而不是假装「暂无图片」
+    recentLoadError.value = error.message || '加载失败';
+    recentLoaded.value = true;
     Message.error(`加载图片失败: ${error.message}`, {
       duration: 3000,
       position: 'top-right',

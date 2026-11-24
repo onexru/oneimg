@@ -193,6 +193,8 @@ const pageNumbers = computed(() => {
 function goToPage(p) {
   if (p >= 1 && p <= totalPages.value) {
     page.value = p
+    // 分页条在页面底部，不回顶的话第二页数据回来时视口还停在页脚那儿
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 }
 

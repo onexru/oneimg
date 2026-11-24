@@ -105,6 +105,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { readApiResponse } from '@/utils/apiFeedback.js';
+import PopupModal from '@/utils/popupModal.js';
 import { selectorPage } from '@/utils/renderBounds.js';
 
 const PAGE_SIZE = 10;
@@ -193,29 +194,53 @@ async function perform(action) {
 }
 
 const load = (resetPage = false) => perform(() => fetchRows(resetPage));
+// 统一的二次确认：原来「退出全部」用原生 window.confirm（样式脱节、移动端可能被拦成小条），
+// 而更轻的「退出其他会话」反而一点就走 —— 误点一下，手机和平板上的登录当场失效。
+function confirmAction({ title, content, confirmText, onConfirm }) {
+  const modal = new PopupModal({
+    title,
+    content: `<p class="text-sm leading-6 text-slate-600 dark:text-slate-300">${content}</p>`,
+    buttons: [
+      { text: '取消', type: 'default', callback: instance => instance.close() },
+      { text: confirmText, type: 'danger', callback: instance => { instance.close(); onConfirm(); } },
+    ],
+    maskClose: true,
+  });
+  modal.open();
+}
 const revoke = id => perform(async signal => {
   await readApiResponse(await fetch('/api/account/sessions/' + encodeURIComponent(id), {
     method: 'DELETE', credentials: 'same-origin', signal,
   }));
   if (!disposed) await fetchRows();
 });
-const revokeOthers = () => perform(async signal => {
-  await readApiResponse(await fetch('/api/account/sessions/revoke', {
-    method: 'POST', credentials: 'same-origin', signal,
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'others' }),
-  }));
-  if (!disposed) await fetchRows(true);
-});
-function revokeAll() {
-  if (busy.value || disposed || !window.confirm('确认退出本账户全部会话？当前浏览器也会退出。')) return;
-  return perform(async signal => {
+const revokeOthers = () => confirmAction({
+  title: '退出其他会话',
+  content: '其他设备上的登录会立即失效，需要重新登录；当前浏览器不受影响。',
+  confirmText: '退出其他会话',
+  onConfirm: () => perform(async signal => {
     await readApiResponse(await fetch('/api/account/sessions/revoke', {
       method: 'POST', credentials: 'same-origin', signal,
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'all' }),
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'others' }),
     }));
-    if (disposed) return;
-    localStorage.removeItem('userInfo');
-    location.assign('/login');
+    if (!disposed) await fetchRows(true);
+  }),
+});
+function revokeAll() {
+  if (busy.value || disposed) return;
+  confirmAction({
+    title: '退出全部会话',
+    content: '所有设备（包括当前浏览器）都会退出登录，需要重新输入密码才能继续使用。',
+    confirmText: '退出全部',
+    onConfirm: () => perform(async signal => {
+      await readApiResponse(await fetch('/api/account/sessions/revoke', {
+        method: 'POST', credentials: 'same-origin', signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'all' }),
+      }));
+      if (disposed) return;
+      localStorage.removeItem('userInfo');
+      location.assign('/login');
+    }),
   });
 }
 

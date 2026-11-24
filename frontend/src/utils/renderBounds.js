@@ -25,7 +25,18 @@ export function selectorPage(items, page = 1, size = PREVIEW_PAGE_SIZE) {
   return { items: list.slice((current - 1) * limit, current * limit), page: current, pages };
 }
 
+// 页码条：首尾 + 当前页左右各一页，中间断开的地方给省略号。
+// 只渲染 current±2 的话，几十页的图库永远跳不到最后一页，只能一页页点「下一页」。
 export function galleryPageNumbers(page, total) {
   const current = positiveLimit(page, 1); const last = positiveLimit(total, 1);
-  return Array.from({ length: Math.max(0, Math.min(last, current + 2) - Math.max(1, current - 2) + 1) }, (_, i) => Math.max(1, current - 2) + i);
+  if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1);
+  const wanted = [...new Set([1, current - 1, current, current + 1, last])]
+    .filter(value => value >= 1 && value <= last)
+    .sort((a, b) => a - b);
+  const out = [];
+  wanted.forEach((value, index) => {
+    if (index > 0 && value - wanted[index - 1] > 1) out.push('...');
+    out.push(value);
+  });
+  return out;
 }

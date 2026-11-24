@@ -52,6 +52,7 @@
              因为登录页本身就是入口，顶栏再放一个只是重复。 -->
         <div v-if="isLogin" ref="userMenuRef" class="relative">
           <button
+            ref="userMenuButtonRef"
             type="button"
             class="flex h-[38px] items-center gap-2 rounded-full border border-slate-200 py-0 pl-1 pr-2.5 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
             aria-haspopup="menu" :aria-expanded="userMenuOpen" @click="userMenuOpen = !userMenuOpen"
@@ -157,7 +158,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Message from '@/utils/message.js'
 import { lockScroll, unlockScroll } from '@/utils/overlay.js'
@@ -174,6 +175,7 @@ const isDark = ref(false)
 const sidebarOpen = ref(false)
 const userMenuOpen = ref(false)
 const userMenuRef = ref(null)
+const userMenuButtonRef = ref(null)
 const searchQuery = ref('')
 const userInfo = ref({})
 const navGroups = ref([])
@@ -364,8 +366,26 @@ const handleSeoUpdate = (data) => {
 
 const handleDocumentClick = (event) => {
   if (!userMenuOpen.value) return
-  if (userMenuRef.value && !userMenuRef.value.contains(event.target)) userMenuOpen.value = false
+  if (userMenuRef.value && !userMenuRef.value.contains(event.target)) closeUserMenu()
 }
+
+// 下拉菜单是气泡层，不归 DialogShell 的焦点陷阱管，得自己补两件事：
+// Esc 收起并把焦点还给触发按钮；打开后焦点进入第一项，Tab 才不会跳回页面别处。
+function closeUserMenu({ restoreFocus = false } = {}) {
+  if (!userMenuOpen.value) return
+  userMenuOpen.value = false
+  if (restoreFocus) userMenuButtonRef.value?.focus()
+}
+
+const handleDocumentKeydown = (event) => {
+  if (event.key === 'Escape') closeUserMenu({ restoreFocus: true })
+}
+
+watch(userMenuOpen, async (open) => {
+  if (!open) return
+  await nextTick()
+  userMenuRef.value?.querySelector('[role="menuitem"]')?.focus()
+})
 
 const handleResize = () => {
   if (window.innerWidth >= 1024) {
@@ -391,6 +411,7 @@ onMounted(() => {
   searchQuery.value = typeof route.query.search === 'string' ? route.query.search : ''
   window.addEventListener('resize', handleResize)
   document.addEventListener('click', handleDocumentClick)
+  document.addEventListener('keydown', handleDocumentKeydown)
 })
 
 onUnmounted(() => {
@@ -399,6 +420,7 @@ onUnmounted(() => {
   }
   window.removeEventListener('resize', handleResize)
   document.removeEventListener('click', handleDocumentClick)
+  document.removeEventListener('keydown', handleDocumentKeydown)
   unlockScroll(sidebarScrollLock)
   delete window.refreshNavItems
 })

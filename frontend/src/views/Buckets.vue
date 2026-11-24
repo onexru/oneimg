@@ -9,10 +9,27 @@
 
     <StorageAssignmentsPanel v-if="roleStorageOpen" @close="closeRoleStorage" />
 
+    <!-- 加载中先用卡片骨架占位：原来是直接渲染空数组，接口慢/失败时整页只剩顶部按钮 -->
+    <div v-if="bucketsLoading && !buckets.length" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,480px),1fr))] gap-4" role="status" aria-label="正在加载存储列表">
+      <div v-for="n in 2" :key="n" class="surface animate-pulse" style="min-height: 12rem" aria-hidden="true"></div>
+    </div>
+
+    <div v-else-if="bucketsError" class="surface p-8 text-center" role="alert">
+      <i class="ri-error-warning-line text-3xl text-amber-500" aria-hidden="true"></i>
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">{{ bucketsError }}</p>
+      <button type="button" class="soft-button mt-3" @click="GetBuckets">重试</button>
+    </div>
+
+    <div v-else-if="!buckets.length" class="surface p-8 text-center">
+      <i class="ri-hard-drive-2-line text-3xl text-slate-300 dark:text-slate-600" aria-hidden="true"></i>
+      <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">还没有配置存储源</p>
+      <button type="button" class="primary-button mt-3" @click="AddBucketModal">添加存储</button>
+    </div>
+
     <!-- 多存储卡片列表 -->
     <!-- auto-fill 而非 auto-fit：auto-fit 会把空轨道折叠掉，只剩一个存储时
          该卡片被拉伸成整行宽（1156px）；auto-fill 保留空轨道，单卡片维持一列宽。 -->
-    <div id="storage-sources" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,480px),1fr))] gap-4">
+    <div v-else id="storage-sources" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,480px),1fr))] gap-4">
       <div
         v-for="storage in buckets"
         :key="storage.key"
@@ -121,6 +138,10 @@ function closeRoleStorage() {
 }
 import message from '@/utils/message.js';
 const buckets = ref([]);
+// 三态：加载中给骨架、失败给原因和重试、真的没有才显示空态。
+// 之前只有一条空数组渲染，接口挂掉时页面就是一片空白，用户不知道要不要等。
+const bucketsLoading = ref(true);
+const bucketsError = ref('');
 const testingBucketId = ref(null);
 const testingDraft = ref(false);
 const togglingBucketId = ref(null);
@@ -460,6 +481,8 @@ const DeleteBucketModal = (id) => {
 
 // 获取存储列表
 const GetBuckets = async () => {
+  bucketsLoading.value = true;
+  bucketsError.value = '';
   try {
     const response = await fetch('/api/buckets', {
       method: 'GET',
@@ -472,11 +495,15 @@ const GetBuckets = async () => {
     if (response.ok && result.code === 200) {
       buckets.value = result.data;
     } else {
-      message.error(result.message || '获取存储列表失败');
+      bucketsError.value = result.message || '获取存储列表失败';
+      message.error(bucketsError.value);
     }
   } catch (error) {
     console.error('获取存储列表失败:', error);
+    bucketsError.value = '网络异常，没能加载存储列表';
     message.error('获取存储列表失败，请稍后重试');
+  } finally {
+    bucketsLoading.value = false;
   }
 };
 

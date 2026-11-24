@@ -46,7 +46,8 @@ const previewImage = (image, { title = '图片预览', showLink = false } = {}) 
     content: previewContent,
     type: 'default',
     buttons: [{
-      text: '确定',
+      // 只读预览，用「关闭」而不是「确定」：没有需要确认的动作
+      text: '关闭',
       type: 'default',
       callback: (modal) => modal.close()
     }],
