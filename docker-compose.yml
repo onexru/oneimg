@@ -23,6 +23,9 @@ services:
       # 站点对外访问地址。API 返回的图片 URL 固定取自该值，不再反射请求 Host，
       # 公网部署必须改成实际地址，如 https://img.example.com
       - APP_URL=${APP_URL:-http://localhost:8080}
+      # 多域名访问（可选）：逗号分隔，第一项作为对外主地址（覆盖 APP_URL），
+      # 全部项都会被同源校验与 CORS 放行。留空表示只信任 APP_URL。
+      - APP_URLS=${APP_URLS:-}
 
       # ── 数据库 ───────────────────────────────────────────────
       # sqlite | mysql | postgres

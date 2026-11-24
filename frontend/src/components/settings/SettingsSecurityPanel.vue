@@ -97,11 +97,11 @@
         class="input-modern min-h-[96px] leading-6"
         :class="{ 'cursor-not-allowed opacity-60': hasPublicImageDomain }"
         :disabled="hasPublicImageDomain"
-        placeholder="example.com, *.example.org"
+        placeholder="example.com, blog.example.org"
         rows="3"
         @blur="handleFieldBlur('referer_white_list', systemSettings.referer_white_list)"
       ></textarea>
-      <div class="field-hint">多个域名用英文逗号分隔。防盗链只限制浏览器来源，不是私有授权；需要私有访问请使用鉴权保护。</div>
+      <div class="field-hint">英文逗号分隔。按域名精确匹配，协议和端口不参与比较；<strong>子域名不自动包含</strong>，需要放行 <code>cdn.example.org</code> 就单独写一条（<code>*.example.org</code> 这类通配写法会被忽略）。带协议、端口或路径的写法也能识别，但只按主机名比较。本站配置的访问域名（<code>APP_URL</code> / <code>APP_URLS</code>）始终算自己，不用重复填。防盗链只限制浏览器来源，不是私有授权；需要私有访问请使用鉴权保护。</div>
       <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
         <input type="checkbox" v-model="systemSettings.referer_allow_empty" :disabled="hasPublicImageDomain" @change="handleSwitchChange('referer_allow_empty', systemSettings.referer_allow_empty)">
         允许无 Referer 直接访问

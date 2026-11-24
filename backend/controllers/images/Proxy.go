@@ -57,7 +57,7 @@ func ImageProxy(c *gin.Context) bool {
 		// 防盗链形同虚设；反之也可能把 403 缓存给合法访客。
 		c.Header("Vary", "Referer")
 		// 校验Referer白名单
-		if !checkRefererPolicy(c.Request.Referer(), setting.RefererWhiteList, GetSelfDomain(c), setting.RefererAllowEmpty) {
+		if !checkRefererPolicy(c.Request.Referer(), setting.RefererWhiteList, GetSelfDomains(c), setting.RefererAllowEmpty) {
 			c.JSON(http.StatusForbidden, result.Error(403, "来源非法"))
 			return true
 		}

@@ -219,6 +219,26 @@ APP_URL=https://img.example.com ./oneimg
 
 - 工作目录下会自动创建 `data/`（数据库、初始密码）和 `uploads/`（本地存储），升级时保留这两个目录。
 - `APP_URL` 建议显式指定，否则返回的图片链接会以 `http://localhost:8080` 为前缀。
+- 同一个实例要挂多个域名时（换域名后老域名还得能用、内网名、CDN 回源域名），额外配 `APP_URLS`：
+
+  ```bash
+  APP_URLS=https://img.example.com,https://old-img.example.com ./oneimg
+  ```
+
+  第一项是**主地址**，对外产物（图片链接、Cookie Secure、外部登录回调默认地址）只用它；列表全部项都会通过同源写请求校验与 CORS。只配 `APP_URL` 时行为不变，所以换域名期间建议两个都留着，等访问量迁完再删掉旧的。
+
+  可信来源就是这份列表本身，**没有额外兜底**：`APP_URLS` 之外的来源，写请求直接 403「请求来源无效」，跨域读请求也不会拿到 `Access-Control-Allow-Origin`。
+
+  匹配规则只有一条：**按域名精确比对，协议和端口都不参与**。所以 `http://img.example.com`、`https://img.example.com:8443` 都算同一个站（反向代理、端口映射、前端 dev server 换端口都不用改配置）；但**子域名不自动包含**，要放行 `cdn.img.example.com` 就把它单独写进列表，`*.example.com` 这类通配写法会被忽略。
+
+  `localhost`、`127.0.0.1`、`[::1]` 三种写法互相等价（本地后端跑 8080、前端跑 3000 都不会被挡）；但配置里是真实域名时，回环来源一个都不认。
+
+  ```bash
+  # 本地联调：换端口不用加配置，换域名才需要
+  APP_URL=http://localhost:3000 ./oneimg
+  ```
+
+  配错时不用猜：启动日志会打出本机部署的信任范围，被拒绝的来源也会在日志里留一行 `⚠️ 已拒绝跨来源请求：Origin=...`（同一来源只记一次）。
 - Linux 版基于 musl 静态链接，不依赖发行版 glibc 版本；Windows 版是单文件 exe，无需额外运行库。
 
 #### 关于 UPX 加壳（可选）
@@ -628,6 +648,7 @@ docker run -d --name oneimg -p 8080:8080 \
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `APP_URL` | `http://localhost:8080` | **公网必改**。API 返回的图片 URL 取自该值 |
+| `APP_URLS` | 空 | 多域名访问时填写，逗号分隔。**第一项作为主地址**（覆盖 `APP_URL`，决定图片链接/Cookie Secure/外部登录回调），全部项都会被同源校验与 CORS 放行。留空则只信任 `APP_URL`。判定按**域名精确匹配**：协议与端口不参与（`https://a.com` 与 `http://a.com:8443` 等价），子域名不自动包含（`cdn.a.com` 要单独列） |
 | `SERVER_PORT` | `8080` | 监听端口 |
 | `DB_TYPE` | `sqlite` | `sqlite` / `mysql` / `postgres` |
 | `DB_TLS_MODE` | `auto` | 数据库 TLS 模式，见上文「数据库」 |

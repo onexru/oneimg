@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"oneimg/backend/config"
 	"oneimg/backend/utils/authsecurity"
 	"strconv"
@@ -210,21 +209,14 @@ func SameOriginWrites(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		origin := c.GetHeader("Origin")
-		if origin != "" && !sameOrigin(origin, cfg.AppURL) {
-			rejectAuth(c, 403, "请求来源无效")
+		// 一个实例可以挂多个域名（APP_URLS），这里认整份可信来源列表。
+		// 报错文案带上「怎么修」：反代换域名/换端口后第一眼看到的就是这条 403，
+		// 只写「请求来源无效」会让人以为是反代坏了。
+		if origin != "" && !cfg.TrustsOrigin(origin) {
+			LogRejectedOrigin(origin)
+			rejectAuth(c, 403, "请求来源无效（如为本站新域名，请加入 APP_URLS）")
 			return
 		}
 		c.Next()
 	}
-}
-func sameOrigin(a, b string) bool {
-	x, err := url.Parse(a)
-	if err != nil {
-		return false
-	}
-	y, err := url.Parse(b)
-	if err != nil {
-		return false
-	}
-	return x.Scheme != "" && x.User == nil && x.RawQuery == "" && x.Fragment == "" && (x.Path == "" || x.Path == "/") && strings.EqualFold(x.Scheme, y.Scheme) && strings.EqualFold(x.Host, y.Host)
 }

@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -45,19 +44,6 @@ func (n noDirListingFS) Open(name string) (http.File, error) {
 	return f, nil
 }
 
-// isLocalhostURL 判断给定 URL 是否指向本机（localhost / 127.0.0.1 / ::1）。// 仅用于 CORS 本机源放行决策：服务本身部署在本机时才允许本机任意端口源。
-func isLocalhostURL(raw string) bool {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return false
-	}
-	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	return false
-}
-
 // SetupRoutes 注册中间件、API 与 SPA 回退路由。
 func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 	cfg := config.App
@@ -96,18 +82,21 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 			if strings.TrimSpace(origin) == "" {
 				return true
 			}
-			appURL := strings.TrimSpace(cfg.AppURL)
-			if appURL != "" && strings.EqualFold(origin, appURL) {
+			// 只认配置里的域名（APP_URL / APP_URLS）。
+			//
+			// 这里以前有一条「服务部署在本机时放行本机任意端口」的兜底：不管配的是
+			// 什么地址，localhost:任意端口 的页面都能带凭据读到 /api 的返回。
+			// 现在改成「域名在列表里才放行」——端口不参与比较，但域名必须对上。
+			//
+			// 于是：换端口 / 反代端口映射 / 前端 dev server 都不会被挡（这是放宽
+			// 端口的目的）；而列表之外的域名（含本机任意域名的第三方页面）一律
+			// 拿不到 Access-Control-Allow-Origin。
+			// 本机回环写法（localhost / 127.0.0.1 / [::1]）的等价由
+			// config.MatchAppOrigin 负责，不影响混用这三种写法。
+			if cfg.TrustsOrigin(origin) {
 				return true
 			}
-			// 仅当服务本身以 localhost 形态部署（本地开发/默认配置）时才放行
-			// 本机任意端口源；生产部署（APP_URL 为真实域名）不再接受
-			// localhost 源，防止受害者本机其他端口的恶意页面借
-			// SameSite=Lax 不区分端口的特性携带凭据读取已登录接口。
-			if isLocalhostURL(appURL) {
-				return strings.HasPrefix(origin, "http://localhost:") ||
-					strings.HasPrefix(origin, "http://127.0.0.1:")
-			}
+			middlewares.LogRejectedOrigin(origin)
 			return false
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

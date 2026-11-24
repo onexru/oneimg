@@ -16,8 +16,13 @@ import (
 
 type Config struct {
 	// 服务器配置
-	Port   string
+	Port string
+	// AppURL 是对外唯一地址：生成图片链接、Cookie Secure 判定、外部登录回调都基于它。
 	AppURL string
+	// AppURLs 是允许访问本实例的全部地址（含 AppURL）。同一个实例挂多个域名时
+	// （新老域名并存、内网名、CDN 回源域名），同源校验与 CORS 认这一整个列表，
+	// 而对外链接仍只产出 AppURL 一个，避免同一张图在不同域名下给出不同地址。
+	AppURLs []string
 
 	// Sqlite3数据库
 	SqlitePath string
@@ -108,6 +113,12 @@ func CreateDefaultEnv() {
 	envTemplate := `# 服务器配置
 SERVER_PORT=8080
 APP_URL=http://localhost:8080
+# 同一个实例需要多个访问域名时（新老域名并存、内网名、CDN 回源域名），
+# 在这里用逗号分隔列出。第一项作为对外主地址（图片链接、Cookie Secure、
+# 外部登录回调都基于它），其余项只用于放行同源写请求与 CORS。
+# 留空表示只信任 APP_URL。
+# APP_URLS=https://img.example.com,https://old-img.example.com
+APP_URLS=
 
 # 数据库配置
 DB_TYPE=sqlite
@@ -265,6 +276,13 @@ func NewConfig() {
 	allowedTypes := strings.Split(getEnv("ALLOWED_TYPES", "image/jpeg,image/png,image/gif,image/webp"), ",")
 	port := getEnv("SERVER_PORT", getEnv("PORT", "8080"))
 	appURL := getEnv("APP_URL", "http://localhost:"+port)
+	// APP_URLS 用于「一个实例多个域名」的场景（新老域名并存、内网名、CDN 回源）。
+	// 配了它就以**第一项作为主地址**，APP_URL 退居白名单末尾（仍按显式配置生效），
+	// 这样老部署只配 APP_URL 时行为完全不变。
+	appURLs := parseAppURLs(getEnv("APP_URLS", ""), appURL)
+	if len(appURLs) > 0 {
+		appURL = appURLs[0]
+	}
 
 	// Sqlite3配置
 	sqlitePath := getEnv("SQLITE_PATH", "./data/data.db")
@@ -317,6 +335,7 @@ func NewConfig() {
 	App = &Config{
 		Port:              port,
 		AppURL:            appURL,
+		AppURLs:           appURLs,
 		SqlitePath:        sqlitePath,
 		DbType:            dbType,
 		DbHost:            dbHost,
@@ -346,6 +365,16 @@ func NewConfig() {
 
 	if App.DemoMode {
 		log.Println("🖥️ 演示模式已启用：全站只读，禁止上传与一切修改操作")
+	}
+	if len(App.AppURLs) > 1 {
+		log.Printf("🌐 多域名已启用：对外主地址 %s；可信来源 %d 个（%s）",
+			App.AppURL, len(App.AppURLs), strings.Join(App.AppURLs, "、"))
+	}
+	// 本机部署把信任范围说清楚：只认配置里的域名，端口不参与比较，
+	// 所以前端换端口联调（vite 3000 → 后端 8080）不需要改配置；
+	// 换域名 / 加域名才要写进 APP_URLS。
+	if len(App.AppURLs) == 1 && isLoopbackOrigin(App.AppURLs[0]) {
+		log.Printf("🔧 本机部署：CORS 与写请求只信任域名 %s（localhost / 127.0.0.1 / [::1] 等价，端口不限）；换新域名请加进 APP_URLS", App.AppURLs[0])
 	}
 	log.Println("✅ 配置初始化完成")
 }

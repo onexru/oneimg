@@ -25,7 +25,9 @@ func DirectUploadGuard() gin.HandlerFunc {
 		}
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			origin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
-			if origin != "" && (config.App == nil || origin != strings.TrimRight(config.App.AppURL, "/")) {
+			// 与 SameOriginWrites 共用同一份可信来源（APP_URLS 支持多域名），
+			// 否则备用域名上传文件时会在这里被单独挡掉。
+			if origin != "" && (config.App == nil || !config.App.TrustsOrigin(origin)) {
 				directUploadHTTPError(c, http.StatusForbidden, "origin_rejected", "请求来源不允许", false)
 				return
 			}

@@ -71,9 +71,9 @@ func NormalizeConfiguredCallbackURL(raw, callbackPath string, reservedQueryKeys 
 	}
 	configuredURL, _ := url.Parse(normalized)
 	expectedURL, _ := url.Parse(expected)
-	if !strings.EqualFold(configuredURL.Scheme, expectedURL.Scheme) ||
-		!strings.EqualFold(configuredURL.Host, expectedURL.Host) || configuredURL.Path != expectedURL.Path {
-		return "", fmt.Errorf("回调 URL 必须与 APP_URL 同源且路径为 %s", expectedURL.Path)
+	// 同源判定认整份可信来源（APP_URLS 多域名），路径仍必须与标准回调一致。
+	if configuredURL.Path != expectedURL.Path || !isTrustedAppOrigin(configuredURL) {
+		return "", fmt.Errorf("回调 URL 必须与 APP_URL（或 APP_URLS 中的地址）同源且路径为 %s", expectedURL.Path)
 	}
 	query := configuredURL.Query()
 	for _, key := range reservedQueryKeys {
@@ -82,6 +82,14 @@ func NormalizeConfiguredCallbackURL(raw, callbackPath string, reservedQueryKeys 
 		}
 	}
 	return configuredURL.String(), nil
+}
+
+// isTrustedAppOrigin 判断回调地址是否落在本实例的可信来源内（APP_URL / APP_URLS）。
+func isTrustedAppOrigin(u *url.URL) bool {
+	if u == nil || u.Host == "" {
+		return false
+	}
+	return config.MatchAppOrigin(u.Scheme+"://"+u.Host, config.App.TrustedAppOrigins())
 }
 
 func NormalizeExternalURL(raw string, allowQuery bool) (string, *url.URL, error) {
