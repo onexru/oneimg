@@ -347,11 +347,11 @@ const QUALITY_PRESETS = [
 const STORAGE_KEY = 'upload-quality'
 
 // 记住上次选择，下次上传不用重新调。
-// 默认 85 而不是 90：实测 90 以上重编码后常比原图还大，会被保护逻辑退回原图，
-// 用户会觉得「调了没反应」。85 能稳定拿到 20% 左右的体积收益。
+// 默认原图（100）：压缩是可选优化，不该替用户先降一档画质 —— 传进图库的应当是
+// 用户自己那份文件。确实要小体积再点开设置选档，选过就会记住。
 const uploadQuality = ref((() => {
   const saved = Number(localStorage.getItem(STORAGE_KEY))
-  return Number.isFinite(saved) && saved >= 40 && saved <= QUALITY_MAX ? saved : 85
+  return Number.isFinite(saved) && saved >= 40 && saved <= QUALITY_MAX ? saved : QUALITY_MAX
 })())
 watch(uploadQuality, (value) => { try { localStorage.setItem(STORAGE_KEY, String(value)) } catch { /* 隐私模式下忽略 */ } })
 
