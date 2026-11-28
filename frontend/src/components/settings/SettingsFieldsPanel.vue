@@ -217,12 +217,51 @@
                                 <div class="field-hint">凭据仅在生成后显示一次，离开本页后无法读取。重新生成会立即撤销此前凭据。请求头：<code>Authorization: oneimg_token={API Token}</code>。</div>
                             </div>
 
+                            <!-- 有效期：与 Token 分开放，因为它是「配置」而不是「凭据」——
+                                 凭据本身只显示一次，有效期却要能反复调整并在刷新后回显。
+                                 已配置时多一个「应用」按钮：改有效期不必重新生成 Token，
+                                 否则所有已部署的客户端都得跟着换 key。 -->
+                            <div v-show="activeSettingsTab === 'api'" class="setting-group">
+                                <label class="field-label" for="api_token_expiry">API 凭据有效期</label>
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <select id="api_token_expiry" v-model="apiTokenExpiry" class="input-modern sm:max-w-[13rem]">
+                                        <option v-for="option in apiExpiryPresets" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                    </select>
+                                    <div v-if="apiTokenExpiry === 'custom'" class="flex items-center gap-2">
+                                        <input
+                                            v-model.number="apiTokenCustomAmount"
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            class="input-modern w-24"
+                                            aria-label="有效期数值"
+                                        />
+                                        <select v-model="apiTokenCustomUnit" class="input-modern w-24" aria-label="有效期单位">
+                                            <option value="d">天</option>
+                                            <option value="h">小时</option>
+                                            <option value="m">分钟</option>
+                                        </select>
+                                    </div>
+                                    <button
+                                        v-if="systemSettings.api_token_configured"
+                                        type="button"
+                                        class="soft-button shrink-0 max-sm:w-full"
+                                        :disabled="apiTokenExpirySaving"
+                                        @click="saveApiTokenExpiry"
+                                    >
+                                        <i :class="apiTokenExpirySaving ? 'ri-loader-4-line animate-spin' : 'ri-save-3-line'" aria-hidden="true"></i>
+                                        <span>{{ apiTokenExpirySaving ? '保存中…' : '应用到现有凭据' }}</span>
+                                    </button>
+                                </div>
+                                <div class="field-hint">{{ apiTokenExpiryHint }}</div>
+                            </div>
+
                             <!-- 凭据使用信息：放在 Token 下方作为附属，而不是插在字段中间把表单割断 -->
                             <div v-show="activeSettingsTab === 'api' && Array.isArray(systemSettings.api_credentials)" class="setting-group" aria-label="API 凭据使用信息">
                                 <p v-if="!systemSettings.api_credentials.length" class="field-hint !mt-0">暂无有效 API 凭据。</p>
                                 <div v-for="(credential, index) in systemSettings.api_credentials" :key="index" class="rounded-[var(--radius-sm)] border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-300">
                                     <p class="break-words">权限范围：{{ credential.scopes }}</p>
-                                    <p>到期时间：{{ new Date(credential.expires_at).toLocaleString() }}</p>
+                                    <p>到期时间：{{ credential.never_expires ? '永久有效' : new Date(credential.expires_at).toLocaleString() }}</p>
                                     <p>最近使用：{{ credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : '尚未使用' }}</p>
                                 </div>
                             </div>
@@ -247,7 +286,7 @@
 import { computed, inject } from 'vue';
 import { settingsContext } from '@/utils/settingsAccess.js';
 import { bytesToGb, gbToBytes } from '@/utils/byteSize.js';
-const { systemSettings, activeSettingsTab, activeSettingsTabLabel, presetBuckets, hasPublicImageDomain, publicImageDomainUnavailable, publicImageDomainInputDisabled, publicImageDomainHint, handleFieldBlur, handleSelectChange, generatedApiToken, tokenGenerating, tokenCopied, copyApiToken, generateApiToken, generateRandomGraph } = inject(settingsContext);
+const { systemSettings, activeSettingsTab, activeSettingsTabLabel, presetBuckets, hasPublicImageDomain, publicImageDomainUnavailable, publicImageDomainInputDisabled, publicImageDomainHint, handleFieldBlur, handleSelectChange, generatedApiToken, tokenGenerating, tokenCopied, copyApiToken, generateApiToken, generateRandomGraph, apiTokenExpiry, apiTokenCustomAmount, apiTokenCustomUnit, apiTokenExpirySaving, apiExpiryPresets, apiTokenExpiryHint, saveApiTokenExpiry } = inject(settingsContext);
 
 // 这些页签有本面板要渲染的表单字段
 const FORM_TABS = ['storage', 'image', 'notifications', 'api'];

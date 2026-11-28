@@ -388,6 +388,42 @@ API Token（`Authorization: Bearer oi_...`）只能访问下表中的接口，�
   的 token 只能删自己上传的图。（超管本人签发的 token 等价于他本人的浏览器会话，可管理全部
   图片——这一点与删除按钮在后台的行为一致。）
 
+### API Token 的有效期
+
+签发的 token 默认 **30 天**有效，过期后中间件直接拒绝，不区分接口。后台「API」页签可以
+在生成前选择有效期（7 / 30 / 90 / 365 天、永久有效、自定义时长），也可以对**已经存在的**
+token 单独调整有效期——凭据本身不变，已部署的客户端无需改动。
+
+配置以请求体 `{"expiry": "<表达式>"}` 提交给 `POST /api/settings/regenerate`（新建）或
+`POST /api/settings/api-credential/expiry`（更新）：
+
+| 表达式 | 含义 |
+|---|---|
+| 省略 / `""` | 默认 30 天（与旧版本行为一致） |
+| `7d` / `12h` / `90m` / `2w` | 指定时长，支持 `s` `m` `h` `d` `w` |
+| `2592000` | 纯数字按**秒** |
+| `permanent` / `never` / `forever` | 永久有效 |
+
+允许范围是 **5 分钟 ~ 3650 天**；超出范围返回 400。永久有效的凭据在库里以哨兵时间
+落库并加 `never_expires` 标记，历史数据和既有查询行为不受影响。
+
+```bash
+# 新建一张永久有效的 token
+curl -X POST "$HOST/api/settings/regenerate" \
+  -H "Content-Type: application/json" \
+  -b "$SESSION_COOKIE" \
+  -d '{"expiry":"permanent"}'
+
+# 把现有 token 改成 90 天（不更换 token）
+curl -X POST "$HOST/api/settings/api-credential/expiry" \
+  -H "Content-Type: application/json" \
+  -b "$SESSION_COOKIE" \
+  -d '{"expiry":"90d"}'
+```
+
+已经过期的 token 不允许再改有效期（返回 409），否则一次「改配置」就能让本该失效的
+凭据重新生效；请重新生成。有效期接口要求**浏览器会话**，不能用 API Token 调自己。
+
 ### 上传接口（API）
 
 `POST /api/upload`（单张）与 `POST /api/upload/images`（批量）走**同一套**解析逻辑，

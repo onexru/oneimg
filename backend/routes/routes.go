@@ -246,6 +246,8 @@ func SetupRoutes(frontendFS fs.FS) *gin.Engine {
 			auth.GET("/settings/get", middlewares.RequirePermission("setting:list"), systemctrl.GetSettings)
 			auth.POST("/settings/get", middlewares.RequirePermission("setting:list"), systemctrl.GetSettings)
 			auth.POST("/settings/regenerate", middlewares.RequirePermission("setting:api"), authctrl.RegenerateAPIToken)
+			// 只改有效期、不换凭据：让已部署的 Token 原地延长或转为永久。
+			auth.POST("/settings/api-credential/expiry", middlewares.RequirePermission("setting:api"), authctrl.UpdateAPITokenExpiry)
 			auth.POST("/settings/renew_session", authctrl.RenewSession)
 			auth.POST("/settings/update", systemctrl.UpdateSettings)
 			auth.GET("/settings/randomGraph", middlewares.RequirePermission("setting:api"), imagesctrl.GetRandomGraph)
