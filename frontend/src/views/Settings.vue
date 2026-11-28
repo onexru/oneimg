@@ -119,6 +119,87 @@ const tokenGenerating = ref(false)
 const tokenCopied = ref(false)
 let tokenCopiedTimer
 
+// ---- API 凭据有效期 ----
+// 选择值即后端可解析的有效期表达式（"7d" / "permanent" …），只有 custom
+// 才读下面两个输入框。默认 30 天与后端 TokenLifetime 保持一致，这样老用户
+// 打开页面看到的配置和实际到期的凭据是同一件事。
+const apiTokenExpiry = ref('30d')
+const apiTokenCustomAmount = ref(7)
+const apiTokenCustomUnit = ref('d')
+const apiTokenExpirySaving = ref(false)
+
+const apiExpiryPresets = [
+    { value: '7d', label: '7 天' },
+    { value: '30d', label: '30 天（默认）' },
+    { value: '90d', label: '90 天' },
+    { value: '365d', label: '365 天' },
+    { value: 'permanent', label: '永久有效' },
+    { value: 'custom', label: '自定义…' },
+]
+
+// 后端接受的下限是 5 分钟、上限 10 年（3650 天），这里同步夹住，
+// 让用户在点按钮之前就能看出越界，而不是等一次 400。
+const apiTokenExpirySpec = computed(() => {
+    if (apiTokenExpiry.value !== 'custom') return apiTokenExpiry.value
+    const unit = ['d', 'h', 'm'].includes(apiTokenCustomUnit.value) ? apiTokenCustomUnit.value : 'd'
+    const max = unit === 'd' ? 3650 : (unit === 'h' ? 87600 : 5256000)
+    const amount = Math.min(max, Math.max(1, Math.floor(Number(apiTokenCustomAmount.value) || 1)))
+    return `${amount}${unit}`
+})
+
+const apiTokenExpiryLabel = computed(() => {
+    const spec = apiTokenExpirySpec.value
+    if (spec === 'permanent') return '永久有效'
+    const matched = /^(\d+)([dhm])$/.exec(spec)
+    if (!matched) return spec
+    const unitLabel = { d: '天', h: '小时', m: '分钟' }[matched[2]]
+    return `${matched[1]} ${unitLabel}`
+})
+
+const apiTokenExpiryHint = computed(() => {
+    if (apiTokenExpirySpec.value === 'permanent') {
+        return '永久有效：凭据不会自动过期，泄露后需手动重新生成才能撤销，建议仅在受控环境使用。'
+    }
+    return `生成或应用后，凭据将在 ${apiTokenExpiryLabel.value} 后失效。修改现有凭据的有效期不会更换 Token 本身，已部署的客户端无需改动。`
+})
+
+// 把服务端返回的有效期配置还原成下拉框状态。优先用 expiry_spec（创建/更新时
+// 原样存下的选择）；老数据没有这个字段，就按剩余时间反推成自定义天数，
+// 避免硬套一个预设导致显示的天数和真实到期时间对不上。
+const applyExpirySpec = (spec) => {
+    if (!spec) return false
+    if (spec === 'permanent') {
+        apiTokenExpiry.value = 'permanent'
+        return true
+    }
+    const matched = /^(\d+)([dhm])$/.exec(spec)
+    if (!matched) return false
+    if (apiExpiryPresets.some(option => option.value === spec)) {
+        apiTokenExpiry.value = spec
+        return true
+    }
+    apiTokenExpiry.value = 'custom'
+    apiTokenCustomAmount.value = Number(matched[1])
+    apiTokenCustomUnit.value = matched[2]
+    return true
+}
+
+const syncApiTokenExpiry = () => {
+    const credentials = systemSettings.value?.api_credentials
+    const active = Array.isArray(credentials) ? credentials.find(credential => !credential.revoked) : null
+    if (!active) return
+    if (applyExpirySpec(active.expiry_spec)) return
+    if (active.never_expires) {
+        apiTokenExpiry.value = 'permanent'
+        return
+    }
+    const remaining = new Date(active.expires_at).getTime() - Date.now()
+    if (!Number.isFinite(remaining) || remaining <= 0) return
+    apiTokenExpiry.value = 'custom'
+    apiTokenCustomAmount.value = Math.max(1, Math.round(remaining / 86400000))
+    apiTokenCustomUnit.value = 'd'
+}
+
 const settingsTabs = computed(() => visibleSettingsTabs(mySettingPerms.value));
 
 // security 外层走单列（它自带「验证 | 登录」二分），seo/system 内容本身就是一整列。
@@ -216,6 +297,7 @@ const fetchSystemSettings = async () => {
             mySettingPerms.value = res.setting_permissions || []
             settingsNotice.value = access.notice
             systemSettings.value = { ...(res.data || {}), api_token: '' }
+            syncApiTokenExpiry()
             initialSettings.value = JSON.parse(JSON.stringify(res.data || {}))
             // 权限列表到手后才能判断 URL 里的 tab 是否可见（例如普通用户被分享
             // 了一个 ?tab=seo 的链接，但他没有 seo 权限）。此处用直接赋值而非
@@ -300,24 +382,39 @@ const handleSettingsTabKeydown = (event, index) => {
 // 否则第一次点「生成 Token」会弹一个说「此前凭据将被撤销」的确认框，容易误解。
 const generateApiToken = () => {
     const isRegenerate = !!systemSettings.value.api_token_configured
+    const expiryLabel = apiTokenExpiryLabel.value
+    const expiryNote = `<p>新凭据有效期：<strong>${expiryLabel}</strong>。可在生成后再调整。</p>`
     const modal = new PopupModal({
         title: isRegenerate ? '重新生成 API 凭据' : '生成 API 凭据',
         content: isRegenerate
-            ? '<p>此前 API 凭据将被撤销，新凭据仅显示一次。确定继续吗？</p>'
-            : '<p>新凭据仅显示一次，请生成后立即保存。确定继续吗？</p>',
+            ? `<p>此前 API 凭据将被撤销，新凭据仅显示一次。确定继续吗？</p>${expiryNote}`
+            : `<p>新凭据仅显示一次，请生成后立即保存。确定继续吗？</p>${expiryNote}`,
         buttons: [
             { text: '取消', callback: modal => modal.close() },
             { text: isRegenerate ? '重新生成' : '生成', type: 'primary', callback: async modal => {
                 if (tokenGenerating.value) return
                 tokenGenerating.value = true
                 try {
-                    const response = await fetch('/api/settings/regenerate', { method: 'POST' })
+                    // 有效期随请求一起提交：创建时就落库，而不是先建后改，
+                    // 否则中途失败会留下一张「默认 30 天」却不是用户所选配置的凭据。
+                    const response = await fetch('/api/settings/regenerate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ expiry: apiTokenExpirySpec.value }),
+                    })
                     const result = await response.json()
                     if (!response.ok || result.code !== 200 || !result.data?.api_token) throw new Error(result.message || '生成失败')
                     generatedApiToken.value = result.data.api_token
                     tokenCopied.value = false
-                    systemSettings.value.api_credentials = [{ scopes: result.data.scopes, expires_at: result.data.expires_at, last_used_at: null }]
+                    systemSettings.value.api_credentials = [{
+                        scopes: result.data.scopes,
+                        expires_at: result.data.expires_at,
+                        never_expires: !!result.data.never_expires,
+                        expiry_spec: result.data.expiry_spec,
+                        last_used_at: null,
+                    }]
                     systemSettings.value.api_token_configured = true
+                    syncApiTokenExpiry()
                     Message.success(result.message || '新凭据仅显示一次，请立即保存')
                     modal.close()
                 } catch (error) { Message.error(error.message || '生成失败') }
@@ -326,6 +423,36 @@ const generateApiToken = () => {
         ],
     })
     modal.open()
+}
+
+// 只更新有效期，不更换凭据。重新生成会让所有已部署的客户端立刻失效，
+// 而「当初只给了 30 天、现在想转永久」是最常见的诉求，没必要付这个代价。
+const saveApiTokenExpiry = async () => {
+    if (apiTokenExpirySaving.value) return
+    apiTokenExpirySaving.value = true
+    try {
+        const response = await fetch('/api/settings/api-credential/expiry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expiry: apiTokenExpirySpec.value }),
+        })
+        const result = await response.json()
+        if (!response.ok || result.code !== 200) throw new Error(result.message || '有效期保存失败')
+        const credentials = systemSettings.value.api_credentials
+        if (Array.isArray(credentials) && credentials.length) {
+            // 后端更新的就是最近创建的那条，即列表里的第一项（按 created_at desc）。
+            systemSettings.value.api_credentials = [
+                { ...credentials[0], expires_at: result.data.expires_at, never_expires: !!result.data.never_expires, expiry_spec: result.data.expiry_spec },
+                ...credentials.slice(1),
+            ]
+        }
+        syncApiTokenExpiry()
+        Message.success(result.message || '有效期已更新')
+    } catch (error) {
+        Message.error(error.message || '有效期保存失败')
+    } finally {
+        apiTokenExpirySaving.value = false
+    }
 }
 
 // 复制刚生成的凭据。本来只能靠手动选中输入框里的文本，
@@ -345,7 +472,7 @@ const generateRandomGraph = createRandomGraphSettings();
 onBeforeUnmount(() => { clearTimeout(tokenCopiedTimer); disposeDialogs(); generateRandomGraph.dispose() })
 
 // 6. 初始化
-provide(settingsContext, { systemSettings, activeSettingsTab, activeSettingsTabLabel, presetBuckets, supportsPublicImageDomain, hasPublicImageDomain, publicImageDomainUnavailable, publicImageDomainInputDisabled, publicImageDomainHint, handleFieldBlur, handleSelectChange, handleSwitchChange, generatedApiToken, tokenGenerating, tokenCopied, copyApiToken, generateApiToken, generateRandomGraph })
+provide(settingsContext, { systemSettings, activeSettingsTab, activeSettingsTabLabel, presetBuckets, supportsPublicImageDomain, hasPublicImageDomain, publicImageDomainUnavailable, publicImageDomainInputDisabled, publicImageDomainHint, handleFieldBlur, handleSelectChange, handleSwitchChange, generatedApiToken, tokenGenerating, tokenCopied, copyApiToken, generateApiToken, generateRandomGraph, apiTokenExpiry, apiTokenCustomAmount, apiTokenCustomUnit, apiTokenExpirySaving, apiExpiryPresets, apiTokenExpiryLabel, apiTokenExpiryHint, saveApiTokenExpiry })
 onMounted(async () => {
     await fetchSystemSettings()
     // 页签渲染出来之后再把 URL 指定的那一项滚进视野（窄屏横向滚动区）

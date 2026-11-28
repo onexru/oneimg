@@ -60,7 +60,9 @@ func GetSettings(c *gin.Context) {
 		if query.Order("created_at desc").Limit(10).Find(&tokens).Error == nil {
 			response["api_credentials"] = tokens
 			for _, token := range tokens {
-				if time.Now().Before(token.ExpiresAt) {
+				// 永久有效的凭据在哨兵时间下本来也判为「未过期」，
+				// 统一走模型方法，避免这里和中间件各写一套判断。
+				if token.Usable(time.Now()) {
 					response["api_token_configured"] = true
 				}
 			}
